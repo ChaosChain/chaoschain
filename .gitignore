@@ -1,0 +1,121 @@
+# 
+# =========================================
+# GENERAL
+# =========================================
+.DS_Store
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.sops
+secrets.yaml
+secrets.yml
+docs
+implementation_plan.md
+
+# 
+# =========================================
+# PYTHON
+# =========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+env/
+.env/
+ENV/
+.direnv/
+.nox/
+
+# Poetry
+.poetry-virtualenvs/
+poetry.lock
+
+# =========================================
+# NODE.JS / TYPESCRIPT
+# =========================================
+node_modules/
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+*.log
+.npm
+.eslintcache
+.yarn-integrity
+.pnp.*
+
+# TypeScript
+*.tsbuildinfo
+
+# =========================================
+# SOLIDITY / FOUNDRY
+# =========================================
+# Foundry
+cache/
+out/
+broadcast/
+deployments/
+artifacts/
+foundry.toml.lock
+foundry.toml.tmp
+
+# Dependencies
+lib/
+
+# Test reports
+coverage.json
+gas-report.txt
+
+# =========================================
+# DOCKER
+# =========================================
+docker-compose.override.yml
+
+# 
+# =========================================
+# IDEs
+# =========================================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+#
+# =========================================
+# MISC
+# =========================================
+deployment.json
+chaoschain_labs/
+.DS_Store 
