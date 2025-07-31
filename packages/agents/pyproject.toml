@@ -1,0 +1,67 @@
+[tool.poetry]
+name = "chaoschain-agents"
+version = "0.1.0"
+description = "ChaosChain AI Agents with A2A and PoA support"
+authors = ["ChaosChain Labs <team@chaoschain.io>"]
+readme = "README.md"
+packages = [{include = "chaoschain_agents", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Blockchain interaction
+web3 = "^6.20.0"
+# Polymarket integration (will install when available)
+# py-clob-client = "^0.11.0"
+# HTTP and WebSocket clients
+httpx = "^0.27.0"
+websockets = "^12.0"
+# Data validation and serialization
+pydantic = "^2.10.0"
+# Cryptography
+cryptography = "^43.0.0"
+# IPFS interaction (will add when needed)
+# ipfshttpclient = "^0.8.0"
+# Async utilities
+aiofiles = "^24.1.0"
+# JSON processing
+orjson = "^3.10.0"
+# Logging and monitoring
+loguru = "^0.7.0"
+# Configuration management
+python-dotenv = "^1.0.0"
+# A2A and x402 protocol support (placeholder - would be actual packages when available)
+# For now we'll implement the protocols ourselves
+requests = "^2.31.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.25.0"
+pytest-mock = "^3.12.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+flake8 = "^7.0.0"
+mypy = "^1.8.0"
+# Testing utilities
+factory-boy = "^3.3.0"
+
+[tool.poetry.scripts]
+scout-agent = "chaoschain_agents.scripts.run_scout:main"
+auditor-agent = "chaoschain_agents.scripts.run_auditor:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
