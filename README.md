@@ -36,13 +36,6 @@ ChaosChain is a network for orchestrating, executing, and verifying autonomous A
 
 See the `README.md` file inside each package for specific development and testing instructions.
 
-## Documentation
-
-For a detailed explanation of the protocol, its architecture, and its vision, please refer to the documents in the `/docs` directory, including:
-
-- `ChaosChain_litepaper.md`
-- `ChaosChain_MVP_ImplementationPlan.md`
-- `IMPLEMENTATION_PLAN.md`
 
 ---
 *This project is built to embrace and extend emerging open standards like [A2A](https://github.com/a2aproject/A2A) and [x402](https://github.com/coinbase/x402).*
