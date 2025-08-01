@@ -1,6 +1,7 @@
 """ChaosChain Agents package."""
 
-from .base.agent import BaseAgent, AgentConfig
+from .base.agent import BaseAgent
+from .base.config import AgentConfig
 from .base.context import StudioContext
 from .scout.agent import ScoutAgent
 # from .auditor.agent import AuditorAgent  # TODO: Implement AuditorAgent

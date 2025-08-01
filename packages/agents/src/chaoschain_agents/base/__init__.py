@@ -1,6 +1,7 @@
 """Base agent module for ChaosChain."""
 
-from .agent import BaseAgent, AgentConfig
+from .agent import BaseAgent
+from .config import AgentConfig
 from .context import StudioContext
 from .dkg import DKGUtils
 from .evidence import EvidencePackage

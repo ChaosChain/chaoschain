@@ -15,7 +15,7 @@ import os
 from loguru import logger
 
 from chaoschain_agents.base.context import StudioContext
-from chaoschain_agents.base.agent import AgentConfig
+from chaoschain_agents.base.config import AgentConfig
 from chaoschain_agents.scout.agent import ScoutAgent
 
 
@@ -48,18 +48,40 @@ async def main():
     logger.info(f"Confidence Threshold: {studio_context.get_confidence_threshold()}")
     logger.info(f"Prediction Categories: {studio_context.get_prediction_categories()}")
     
-    # Create Agent Configuration (personal agent settings)
-    agent_config = AgentConfig(
+    # Create Agent Configuration (agent's personality and character)
+    # This is the "secret sauce" that external developers bring to ChaosChain
+    agent_config = AgentConfig.create_scout_agent(
         agent_name="ScoutAgent-001",
-        agent_description="A prediction market scout for the Verifiable Intelligence Studio",
-        capabilities=[
-            "market_analysis",
-            "prediction_generation", 
-            "evidence_creation",
-            "polymarket_integration"
-        ],
-        private_key=os.environ.get("SCOUT_AGENT_PRIVATE_KEY"),  # Optional
-        crossmint_api_key=os.environ.get("CROSSMINT_API_KEY")   # Optional
+        # Custom character prompt demonstrating external developer's unique agent
+        character_prompt="""You are Alex "The Predictor" Chen, a legendary financial analyst with an uncanny ability to spot market inefficiencies. Your core traits:
+
+PERSONALITY:
+- Extremely analytical with a photographic memory for market patterns
+- Skeptical by nature but decisive when opportunities arise
+- Cool under pressure and never swayed by market emotions
+- Competitive spirit driven by the thrill of being right when others are wrong
+
+EXPERTISE:
+- 15 years experience in prediction markets and derivatives trading
+- PhD in Behavioral Economics from MIT with focus on market psychology
+- Former quantitative researcher at Renaissance Technologies
+- Published papers on market microstructure and information asymmetries
+
+UNIQUE APPROACH:
+- Look for "crowd wisdom failures" where collective intelligence breaks down
+- Weight recent volume changes more heavily than historical averages
+- Always consider the "what if everyone is wrong?" scenario
+- Use sentiment divergence as a key signal for mispricings
+
+DECISION FRAMEWORK:
+- Minimum 3 independent data sources before any prediction
+- Always quantify uncertainty with confidence intervals
+- Consider second and third-order effects of events
+- Never bet against strong trends without compelling contrarian evidence
+
+Your reputation depends on accuracy, so you're methodical but never paralyzed by over-analysis.""",
+        private_key=os.environ.get("SCOUT_AGENT_PRIVATE_KEY"),
+        crossmint_api_key=os.environ.get("CROSSMINT_API_KEY")
     )
     
     logger.info(f"Created Agent Config: {agent_config.agent_name}")
@@ -88,6 +110,23 @@ async def main():
     
     logger.info(f"Studio Rule - Scan Interval: {scan_interval}s")
     logger.info(f"Studio Rule - Max Predictions/Hour: {max_predictions}")
+    
+    # Demonstrate the layered prompting architecture
+    logger.info("=== Layered Prompting Architecture ===")
+    logger.info("Creating chained system prompt...")
+    
+    # Show how role_prompt and character_prompt are chained
+    example_user_prompt = "Analyze the current Bitcoin prediction market"
+    chained_prompt = scout_agent.create_system_prompt(example_user_prompt)
+    
+    logger.info(f"Final chained prompt length: {len(chained_prompt)} characters")
+    logger.info("Role prompt (from Studio): Present")
+    logger.info("Character prompt (from Agent): Present") 
+    logger.info("User prompt (task-specific): Present")
+    
+    # Show LLM configuration
+    llm_config = scout_agent.get_llm_config()
+    logger.info(f"LLM Configuration: {llm_config}")
     
     try:
         # Start the agent within its Studio context

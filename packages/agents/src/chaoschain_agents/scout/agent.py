@@ -11,9 +11,11 @@ from datetime import datetime, timezone
 
 from loguru import logger
 
-from ..base.agent import BaseAgent, AgentConfig, A2AMessage
+from ..base.agent import BaseAgent, A2AMessage
 from ..base.context import StudioContext
+from ..base.config import AgentConfig
 from ..base.evidence import EvidencePackage
+from ..utils.llm import LanguageModelClient
 from .polymarket import PolymarketClient
 
 
@@ -43,8 +45,9 @@ class ScoutAgent(BaseAgent):
         # Get market configuration from Studio context or use provided list
         self.market_slugs = market_slugs or self._get_markets_from_studio()
         
-        # Initialize Polymarket client
+        # Initialize clients
         self.polymarket_client = PolymarketClient()
+        self.llm_client = LanguageModelClient()
         
         # Agent state for market tracking
         self.monitored_markets: Dict[str, Any] = {}
@@ -59,7 +62,7 @@ class ScoutAgent(BaseAgent):
         """Get market slugs from Studio configuration."""
         # In a real implementation, this would fetch active markets based on Studio rules
         platform = self.target_platform
-        categories = self.studio_context.get_prediction_categories()
+        categories = self.context.get_prediction_categories()
         
         logger.info(f"Studio configured for platform: {platform}, categories: {categories}")
         
@@ -109,8 +112,8 @@ class ScoutAgent(BaseAgent):
                     logger.debug(f"Market '{slug}' is not active or already closed.")
                     continue
                 
-                # Analyze market data to generate a prediction
-                prediction, confidence = self._analyze_market(market_data)
+                # Analyze market data to generate a prediction using LLM
+                prediction, confidence = await self._analyze_market(market_data)
                 
                 # Use Studio's confidence threshold
                 if prediction is not None and confidence > self.confidence_threshold:
@@ -128,28 +131,135 @@ class ScoutAgent(BaseAgent):
         self.last_checked_timestamp = datetime.now(timezone.utc)
         logger.info("Market scan complete.")
 
-    def _analyze_market(self, market_data: Dict[str, Any]) -> (Optional[str], float):
+    async def _analyze_market(self, market_data: Dict[str, Any]) -> (Optional[str], float):
         """
-        Analyze market data to generate a prediction.
+        Analyze market data to generate a prediction using the layered prompting architecture.
         
-        This is a placeholder for a more sophisticated prediction model.
-        For now, it will predict based on the highest probability token.
+        This method demonstrates the core "Inner Loop" processing where the agent uses
+        its LLM with the chained Studio role_prompt and agent character_prompt to 
+        perform sophisticated market analysis.
         """
         outcomes = market_data.get("outcomes", [])
         if not outcomes:
             return None, 0.0
         
         try:
-            # Find the outcome with the highest price (probability)
-            best_outcome = max(outcomes, key=lambda x: float(x.get("price", 0.0)))
+            # Prepare market data for LLM analysis
+            market_context = f"""
+Market Question: {market_data.get('question', 'Unknown')}
+Market Slug: {market_data.get('slug', 'Unknown')}
+Active: {market_data.get('active', False)}
+Volume: {market_data.get('volume', 'Unknown')}
+
+Available Outcomes:
+"""
+            for i, outcome in enumerate(outcomes, 1):
+                price = outcome.get('price', 0.0)
+                name = outcome.get('name', 'Unknown')
+                market_context += f"{i}. {name}: {price:.3f} ({price*100:.1f}%)\n"
             
-            prediction = best_outcome.get("name")
-            confidence = float(best_outcome.get("price", 0.0))
+            # Create the chained system prompt (role_prompt + character_prompt)
+            system_prompt = self.create_system_prompt()
+            
+            # Create user prompt with market analysis task
+            user_prompt = f"""Analyze this prediction market and provide your assessment:
+
+{market_context}
+
+Please provide:
+1. Your predicted outcome (which specific outcome you think will occur)
+2. Your confidence level (0.0 to 1.0)
+3. Brief reasoning for your prediction
+
+Focus on identifying potential mispricings and market inefficiencies based on your expertise."""
+
+            # Get LLM configuration from agent config
+            llm_config = self.get_llm_config()
+            
+            # Generate response using the layered prompting architecture
+            logger.debug("Generating market analysis using chained prompts")
+            response = await self.llm_client.generate_response(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                **llm_config
+            )
+            
+            # Parse the response to extract prediction and confidence
+            prediction, confidence = self._parse_analysis_response(response, outcomes)
+            
+            logger.info(
+                f"LLM analysis complete - Prediction: {prediction}, "
+                f"Confidence: {confidence:.3f}"
+            )
             
             return prediction, confidence
             
         except Exception as e:
-            logger.error(f"Error analyzing market data: {e}")
+            logger.error(f"Error in LLM market analysis: {e}")
+            # Fallback to simple heuristic
+            return self._fallback_analysis(outcomes)
+    
+    def _parse_analysis_response(self, response: str, outcomes: List[Dict]) -> (Optional[str], float):
+        """
+        Parse the LLM response to extract prediction and confidence.
+        
+        Args:
+            response: The LLM's analysis response
+            outcomes: Available market outcomes
+            
+        Returns:
+            Tuple of (prediction, confidence)
+        """
+        try:
+            # Look for confidence score in the response
+            confidence = 0.75  # Default confidence
+            
+            # Extract confidence if mentioned
+            import re
+            confidence_match = re.search(r'confidence[:\s]+([0-9.]+)', response.lower())
+            if confidence_match:
+                confidence = min(1.0, max(0.0, float(confidence_match.group(1))))
+            
+            # Look for prediction in the response
+            prediction = None
+            response_lower = response.lower()
+            
+            # Check if any outcome is mentioned in the response
+            for outcome in outcomes:
+                outcome_name = outcome.get('name', '').lower()
+                if outcome_name and outcome_name in response_lower:
+                    prediction = outcome.get('name')
+                    break
+            
+            # If no specific outcome found, default to highest probability
+            if not prediction:
+                best_outcome = max(outcomes, key=lambda x: float(x.get("price", 0.0)))
+                prediction = best_outcome.get("name")
+                confidence = min(confidence, 0.6)  # Lower confidence for fallback
+            
+            return prediction, confidence
+            
+        except Exception as e:
+            logger.error(f"Error parsing LLM response: {e}")
+            return self._fallback_analysis(outcomes)
+    
+    def _fallback_analysis(self, outcomes: List[Dict]) -> (Optional[str], float):
+        """
+        Fallback analysis method using simple heuristics.
+        
+        Args:
+            outcomes: Available market outcomes
+            
+        Returns:
+            Tuple of (prediction, confidence)
+        """
+        try:
+            best_outcome = max(outcomes, key=lambda x: float(x.get("price", 0.0)))
+            prediction = best_outcome.get("name")
+            confidence = float(best_outcome.get("price", 0.0))
+            return prediction, confidence
+        except Exception as e:
+            logger.error(f"Error in fallback analysis: {e}")
             return None, 0.0
     
     async def create_and_submit_prediction_evidence(

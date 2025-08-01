@@ -22,36 +22,11 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from .context import StudioContext
+from .config import AgentConfig
 from ..utils.wallet import WalletManager
 from ..utils.arn import ARNClient
 from .dkg import DKGUtils
 from .evidence import EvidencePackage
-
-
-@dataclass
-class AgentConfig:
-    """
-    Agent-specific configuration that supplements the Studio context.
-    
-    This contains personal agent settings that don't come from the Studio,
-    such as agent identity, private keys, and personal preferences.
-    """
-    agent_name: str
-    agent_description: str = "A ChaosChain AI agent"
-    capabilities: List[str] = None
-    
-    # Wallet configuration
-    private_key: Optional[str] = None
-    crossmint_api_key: Optional[str] = None
-    
-    # Personal overrides (optional - Studio context takes precedence)
-    custom_arn_relay: Optional[str] = None
-    custom_ipfs_gateway: Optional[str] = None
-    custom_rpc_url: Optional[str] = None
-    
-    def __post_init__(self):
-        if self.capabilities is None:
-            self.capabilities = []
 
 
 class A2AMessage(BaseModel):
@@ -103,21 +78,26 @@ class BaseAgent(ABC):
         """
         Initialize the agent with Studio context as the primary configuration source.
         
+        This implementation supports the layered prompting architecture where:
+        - studio_context provides the role_prompt (mission briefing)  
+        - agent_config provides the character_prompt (personality)
+        - These are chained together for LLM calls
+        
         Args:
             studio_context: The Studio configuration that shapes this agent's behavior
-            agent_config: Agent-specific settings that supplement the Studio context
+            agent_config: Agent-specific settings including character_prompt
         """
-        # Core configuration - Studio takes precedence
-        self.studio_context = studio_context
-        self.agent_config = agent_config
+        # Core configuration - Studio takes precedence for operational settings
+        self.context = studio_context  # Renamed for clarity
+        self.config = agent_config     # Renamed for clarity
         
         # Agent identity
         self.agent_id: Optional[int] = None
         self.agent_name = agent_config.agent_name
         
         logger.info(
-            f"Initializing {self.__class__.__name__} for Studio: {studio_context.studio_name} "
-            f"(ID: {studio_context.studio_id})"
+            f"Initializing {self.__class__.__name__} for Studio: {self.context.studio_name} "
+            f"(ID: {self.context.studio_id})"
         )
         
         # Initialize core components with Studio-aware configuration
@@ -131,32 +111,32 @@ class BaseAgent(ABC):
         self._agent_card: Optional[A2AAgentCard] = None
         
         logger.success(
-            f"Agent '{self.agent_name}' initialized for Studio '{studio_context.studio_name}' "
-            f"on {'testnet' if studio_context.is_testnet() else 'mainnet'}"
+            f"Agent '{self.agent_name}' initialized for Studio '{self.context.studio_name}' "
+            f"on {'testnet' if self.context.is_testnet() else 'mainnet'}"
         )
     
     def _initialize_wallet(self) -> None:
         """Initialize wallet manager with agent-specific configuration."""
         self.wallet_manager = WalletManager(
-            private_key=self.agent_config.private_key,
-            crossmint_api_key=self.agent_config.crossmint_api_key
+            private_key=self.config.private_key,
+            crossmint_api_key=self.config.crossmint_api_key
         )
     
     def _initialize_blockchain_connection(self) -> None:
         """Initialize blockchain connection using Studio context."""
         rpc_url = (
-            self.agent_config.custom_rpc_url or 
-            self.studio_context.rpc_url
+            self.config.custom_rpc_url or 
+            self.context.rpc_url
         )
         self.w3 = Web3(Web3.HTTPProvider(rpc_url))
         
-        logger.debug(f"Connected to blockchain: {rpc_url} (Chain ID: {self.studio_context.chain_id})")
+        logger.debug(f"Connected to blockchain: {rpc_url} (Chain ID: {self.context.chain_id})")
     
     def _initialize_arn_client(self) -> None:
         """Initialize ARN client using Studio context."""
         arn_url = (
-            self.agent_config.custom_arn_relay or 
-            self.studio_context.arn_relay_url
+            self.config.custom_arn_relay or 
+            self.context.arn_relay_url
         )
         
         # Convert WebSocket URL to HTTP URL for ARN client
@@ -168,13 +148,50 @@ class BaseAgent(ABC):
         )
         
         # Store backup relays for future use (will be used in reconnection logic)
-        self._backup_arn_relays = self.studio_context.backup_arn_relays
+        self._backup_arn_relays = self.context.backup_arn_relays
         
         logger.debug(f"ARN client configured for: {arn_url}")
     
     def _initialize_utils(self) -> None:
         """Initialize utility classes."""
         self.dkg_utils = DKGUtils()
+    
+    def create_system_prompt(self, user_prompt: str = "") -> str:
+        """
+        Create the final system prompt by chaining Studio role_prompt with agent character_prompt.
+        
+        This is the core of our layered prompting architecture, implementing the 
+        "Prompt Chaining" mechanism described in our architecture document.
+        
+        Args:
+            user_prompt: Optional user prompt for additional context
+            
+        Returns:
+            The chained system prompt ready for LLM calls
+        """
+        final_system_prompt = f"""--- MISSION BRIEFING ---
+{self.context.role_prompt}
+
+--- YOUR CHARACTER ---
+{self.config.character_prompt}"""
+
+        if user_prompt:
+            final_system_prompt += f"\n\n--- CURRENT TASK ---\n{user_prompt}"
+            
+        return final_system_prompt
+    
+    def get_llm_config(self) -> Dict[str, Any]:
+        """
+        Get LLM configuration from agent config.
+        
+        Returns:
+            Dictionary with LLM configuration parameters
+        """
+        return {
+            "model": self.config.preferred_model,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens
+        }
     
     @property
     def address(self) -> str:
@@ -184,22 +201,22 @@ class BaseAgent(ABC):
     @property
     def studio_id(self) -> str:
         """Get the Studio ID this agent operates in."""
-        return self.studio_context.studio_id
+        return self.context.studio_id
     
     @property
     def studio_name(self) -> str:
         """Get the Studio name this agent operates in."""
-        return self.studio_context.studio_name
+        return self.context.studio_name
     
     @property
     def target_platform(self) -> Optional[str]:
         """Get the target platform from Studio context."""
-        return self.studio_context.get_target_platform()
+        return self.context.get_target_platform()
     
     @property
     def confidence_threshold(self) -> float:
         """Get the confidence threshold from Studio context."""
-        return self.studio_context.get_confidence_threshold()
+        return self.context.get_confidence_threshold()
     
     @property
     def agent_card(self) -> A2AAgentCard:
@@ -211,13 +228,13 @@ class BaseAgent(ABC):
     def _create_agent_card(self) -> A2AAgentCard:
         """Create A2A-compliant agent card with Studio-specific information."""
         return A2AAgentCard(
-            name=self.agent_config.agent_name,
-            description=self.agent_config.agent_description,
-            capabilities=self.agent_config.capabilities,
+            name=self.config.agent_name,
+            description=self.config.agent_description,
+            capabilities=self.config.capabilities,
             endpoints={
-                "primary": f"{self.studio_context.arn_relay_url}/agent/{self.agent_id}",
-                "websocket": self.studio_context.arn_relay_url,
-                "studio_proxy": self.studio_context.studio_proxy_address
+                "primary": f"{self.context.arn_relay_url}/agent/{self.agent_id}",
+                "websocket": self.context.arn_relay_url,
+                "studio_proxy": self.context.studio_proxy_address
             },
             auth={
                 "type": "signature",
@@ -228,20 +245,20 @@ class BaseAgent(ABC):
                 "address": self.address,
                 "version": "0.1.0",
                 "studioContext": {
-                    "studioId": self.studio_context.studio_id,
-                    "studioName": self.studio_context.studio_name,
-                    "studioType": self.studio_context.studio_type,
-                    "proxyAddress": self.studio_context.studio_proxy_address,
-                    "logicAddress": self.studio_context.studio_logic_address
+                    "studioId": self.context.studio_id,
+                    "studioName": self.context.studio_name,
+                    "studioType": self.context.studio_type,
+                    "proxyAddress": self.context.studio_proxy_address,
+                    "logicAddress": self.context.studio_logic_address
                 },
-                "customRules": self.studio_context.custom_rules,
+                "customRules": self.context.custom_rules,
                 "verificationCapable": False
             }
         )
     
     async def connect_to_arn(self) -> None:
         """Connect to the ARN network for this Studio."""
-        logger.info(f"Connecting to ARN for Studio: {self.studio_context.studio_name}")
+        logger.info(f"Connecting to ARN for Studio: {self.context.studio_name}")
         await self.arn_client.connect()
         
         # Subscribe to Studio-specific channels
@@ -260,7 +277,7 @@ class BaseAgent(ABC):
     
     async def register_on_chain(self) -> int:
         """Register the agent on-chain using Studio's AgentRegistry."""
-        if not self.studio_context.agent_registry_address:
+        if not self.context.agent_registry_address:
             raise ValueError("Agent registry address not configured in Studio context")
         
         # Upload agent card to IPFS
@@ -269,7 +286,7 @@ class BaseAgent(ABC):
         # Call agent registry contract
         # TODO: Implement contract interaction
         logger.info(
-            f"Registering agent with registry: {self.studio_context.agent_registry_address}, "
+            f"Registering agent with registry: {self.context.agent_registry_address}, "
             f"Card CID: {agent_card_cid}"
         )
         
@@ -279,7 +296,7 @@ class BaseAgent(ABC):
     
     async def start(self) -> None:
         """Start the agent within its Studio context."""
-        logger.info(f"Starting {self.__class__.__name__} in Studio: {self.studio_context.studio_name}")
+        logger.info(f"Starting {self.__class__.__name__} in Studio: {self.context.studio_name}")
         
         # Load wallet
         await self.load_wallet()
@@ -328,10 +345,12 @@ class BaseAgent(ABC):
         
         # Add Studio context to evidence
         evidence.metadata.update({
-            "studio_id": self.studio_context.studio_id,
-            "studio_type": self.studio_context.studio_type,
-            "chain_id": self.studio_context.chain_id,
-            "epoch_duration": self.studio_context.epoch_duration
+            "studio_id": self.context.studio_id,
+            "studio_type": self.context.studio_type,
+            "chain_id": self.context.chain_id,
+            "epoch_duration": self.context.epoch_duration,
+            "role_prompt": self.context.role_prompt,
+            "character_prompt": self.config.character_prompt
         })
         
         # Sign the evidence package
@@ -351,7 +370,7 @@ class BaseAgent(ABC):
         evidence_cid = await self._upload_to_ipfs(evidence.to_json())
         
         # Submit CID to studio proxy contract
-        studio_address = self.studio_context.studio_proxy_address
+        studio_address = self.context.studio_proxy_address
         
         # TODO: Implement contract interaction
         logger.info(f"Submitting evidence {evidence_cid} to Studio proxy: {studio_address}")
@@ -374,8 +393,8 @@ class BaseAgent(ABC):
         )
         
         # Add Studio context to message params
-        message.params["studio_id"] = self.studio_context.studio_id
-        message.params["studio_type"] = self.studio_context.studio_type
+        message.params["studio_id"] = self.context.studio_id
+        message.params["studio_type"] = self.context.studio_type
         
         # Sign the message
         message_data = message.model_dump_json()
@@ -383,7 +402,7 @@ class BaseAgent(ABC):
         message.signature = signature
         
         # Send via ARN (use Studio-specific channel if not specified)
-        target_channel = channel or f"studio.{self.studio_context.studio_id}"
+        target_channel = channel or f"studio.{self.context.studio_id}"
         message_id = await self.arn_client.send_message(message.model_dump(), target_channel)
         
         logger.debug(f"Sent A2A message {method} to Studio channel: {target_channel}")
@@ -391,7 +410,7 @@ class BaseAgent(ABC):
     
     async def _upload_to_ipfs(self, content: str) -> str:
         """Upload content to IPFS using Studio-configured gateway."""
-        # TODO: Implement actual IPFS upload using studio_context.ipfs_node_url
+        # TODO: Implement actual IPFS upload using self.context.ipfs_node_url
         # For now, return a placeholder CID
         import hashlib
         content_hash = hashlib.sha256(content.encode()).hexdigest()
@@ -403,23 +422,23 @@ class BaseAgent(ABC):
     async def _setup_studio_subscriptions(self) -> None:
         """Set up ARN subscriptions for Studio-specific channels."""
         # Subscribe to Studio-wide channel
-        await self.arn_client.subscribe(f"studio.{self.studio_context.studio_id}")
+        await self.arn_client.subscribe(f"studio.{self.context.studio_id}")
         
         # Subscribe to agent-specific channel
         if self.agent_id:
             await self.arn_client.subscribe(f"agent.{self.agent_id}")
         
         # Subscribe to Studio type-specific channels
-        await self.arn_client.subscribe(f"studio_type.{self.studio_context.studio_type}")
+        await self.arn_client.subscribe(f"studio_type.{self.context.studio_type}")
         
         # Subscribe to broadcast channel
         await self.arn_client.subscribe("broadcast")
         
-        logger.debug(f"Set up ARN subscriptions for Studio: {self.studio_context.studio_id}")
+        logger.debug(f"Set up ARN subscriptions for Studio: {self.context.studio_id}")
     
     def get_studio_rule(self, key: str, default: Any = None) -> Any:
         """Get a Studio-specific rule value."""
-        return self.studio_context.get_custom_rule(key, default)
+        return self.context.get_custom_rule(key, default)
     
     def is_running(self) -> bool:
         """Check if the agent is currently running."""

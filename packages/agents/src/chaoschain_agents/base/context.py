@@ -52,6 +52,14 @@ class StudioContext(BaseModel):
     ipfs_gateway_url: str = Field(default="https://ipfs.io/ipfs/", description="IPFS gateway URL")
     ipfs_node_url: Optional[str] = Field(default=None, description="Direct IPFS node URL")
     
+    # Studio's Mission & Role Definition
+    role_prompt: str = Field(
+        ...,
+        description="The Studio's mission briefing and role definition for agents. "
+                   "This prompt defines HOW agents should behave within this Studio's "
+                   "specific economic game and will be chained with agent character_prompts."
+    )
+    
     # Studio-Specific Rules and Parameters
     custom_rules: Dict[str, Any] = Field(default_factory=dict, description="Studio-specific operational rules")
     
@@ -148,12 +156,42 @@ class StudioContext(BaseModel):
         studio_name: str = "Verifiable Intelligence Studio",
         arn_relay_url: str = "wss://arn-relay.chaoschain.xyz",
         target_platform: str = "polymarket",
+        role_prompt: Optional[str] = None,
         **kwargs
     ) -> "StudioContext":
         """
         Factory method to create a Verifiable Intelligence Studio context.
         This is our MVP Studio type for prediction market analysis.
         """
+        default_role_prompt = """You are an expert financial analyst operating within the Verifiable Intelligence Studio. Your mission:
+
+CORE OBJECTIVE:
+Your sole focus is identifying mispriced assets in prediction markets and generating high-confidence predictions that can be verified and monetized.
+
+OPERATIONAL REQUIREMENTS:
+- You must be data-driven in all analysis and decisions
+- Always state your confidence level (0.0 to 1.0) in your final assessment
+- Provide clear, structured reasoning that can be audited
+- Focus on markets with sufficient volume and liquidity
+- Never make predictions without substantial supporting evidence
+
+QUALITY STANDARDS:
+- All predictions must include multiple data sources
+- Reasoning must be transparent and reproducible
+- Consider both fundamental analysis and market sentiment
+- Account for market inefficiencies and behavioral biases
+- Flag any limitations or assumptions in your analysis
+
+DELIVERABLE FORMAT:
+Structure your output as a formal intelligence report with:
+1. Executive Summary with confidence score
+2. Data Sources and Methodology
+3. Analysis and Reasoning
+4. Risk Assessment
+5. Final Prediction with rationale
+
+Remember: Your work will be verified by the CVN. Quality and accuracy are paramount."""
+
         custom_rules = {
             "target_platform": target_platform,
             "prediction_categories": ["politics", "crypto", "sports", "economics"],
@@ -168,13 +206,14 @@ class StudioContext(BaseModel):
             studio_id=studio_id,
             studio_name=studio_name,
             studio_type=StudioType.VERIFIABLE_INTELLIGENCE,
+            role_prompt=role_prompt or default_role_prompt,
             studio_proxy_address="0x0000000000000000000000000000000000000001",  # Placeholder
             studio_logic_address="0x0000000000000000000000000000000000000002",  # Placeholder
             agent_registry_address="0x0000000000000000000000000000000000000003",  # Placeholder
             rewards_distributor_address="0x0000000000000000000000000000000000000004",  # Placeholder
             arn_relay_url=arn_relay_url,
             custom_rules=custom_rules,
-            **{k: v for k, v in kwargs.items() if k != "custom_rules"}
+            **{k: v for k, v in kwargs.items() if k not in ["custom_rules", "role_prompt"]}
         )
 
     class Config:
