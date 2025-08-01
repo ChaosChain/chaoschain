@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from ..base.agent import BaseAgent, AgentConfig, A2AMessage
+from ..base.context import StudioContext
 from ..base.evidence import EvidencePackage
 from .polymarket import PolymarketClient
 
@@ -28,10 +29,19 @@ class ScoutAgent(BaseAgent):
     - Submit evidence to the Verifiable Intelligence Studio
     """
 
-    def __init__(self, config: AgentConfig, market_slugs: List[str]):
-        """Initialize the ScoutAgent."""
-        super().__init__(config)
-        self.market_slugs = market_slugs
+    def __init__(self, studio_context: StudioContext, agent_config: AgentConfig, market_slugs: Optional[List[str]] = None):
+        """
+        Initialize the ScoutAgent with Studio context.
+        
+        Args:
+            studio_context: The Studio configuration that shapes this agent's behavior
+            agent_config: Agent-specific settings
+            market_slugs: Optional list of specific markets to monitor (if not provided, will use Studio rules)
+        """
+        super().__init__(studio_context, agent_config)
+        
+        # Get market configuration from Studio context or use provided list
+        self.market_slugs = market_slugs or self._get_markets_from_studio()
         
         # Initialize Polymarket client
         self.polymarket_client = PolymarketClient()
@@ -40,7 +50,29 @@ class ScoutAgent(BaseAgent):
         self.monitored_markets: Dict[str, Any] = {}
         self.last_checked_timestamp: Optional[datetime] = None
         
-        logger.info(f"ScoutAgent initialized to monitor markets: {market_slugs}")
+        logger.info(
+            f"ScoutAgent initialized for Studio '{self.studio_name}' "
+            f"targeting platform: {self.target_platform}, monitoring {len(self.market_slugs)} markets"
+        )
+    
+    def _get_markets_from_studio(self) -> List[str]:
+        """Get market slugs from Studio configuration."""
+        # In a real implementation, this would fetch active markets based on Studio rules
+        platform = self.target_platform
+        categories = self.studio_context.get_prediction_categories()
+        
+        logger.info(f"Studio configured for platform: {platform}, categories: {categories}")
+        
+        # For now, return some example market slugs
+        # In production, this would query the target platform's API
+        if platform == "polymarket":
+            return [
+                "will-trump-win-the-2024-us-presidential-election",
+                "will-bitcoin-reach-100k-by-end-of-2024",
+                "will-a-recession-be-declared-in-the-us-by-eoy-2024"
+            ]
+        
+        return []
         
     async def _run(self) -> None:
         """Main execution loop for the ScoutAgent."""
@@ -80,7 +112,8 @@ class ScoutAgent(BaseAgent):
                 # Analyze market data to generate a prediction
                 prediction, confidence = self._analyze_market(market_data)
                 
-                if prediction is not None and confidence > 0.7:  # Confidence threshold
+                # Use Studio's confidence threshold
+                if prediction is not None and confidence > self.confidence_threshold:
                     logger.success(
                         f"Found opportunity in '{slug}': "
                         f"Prediction={prediction}, Confidence={confidence:.2f}"
@@ -155,23 +188,21 @@ class ScoutAgent(BaseAgent):
             sources=[f"https://polymarket.com/event/{market_data.get('slug')}"]
         )
         
-        # Submit to Verifiable Intelligence Studio
-        studio_address = "0x...VerifiableIntelligenceStudio" # Placeholder
-        
+        # Submit to this agent's Studio (address comes from context)
         try:
-            evidence_cid = await self.submit_evidence_to_studio(studio_address, evidence)
+            evidence_cid = await self.submit_evidence_to_studio(evidence)
             logger.success(
                 f"Successfully submitted evidence {evidence_cid} for "
                 f"market '{market_data.get('slug')}'"
             )
             
-            # Announce submission to other agents
+            # Announce submission to other agents in this Studio
             await self.send_a2a_message(
                 method="evidence.submitted",
                 params={
                     "evidence_cid": evidence_cid,
-                    "studio": studio_address,
-                    "market_slug": market_data.get('slug')
+                    "market_slug": market_data.get('slug'),
+                    "analysis_type": "prediction_market_analysis"
                 }
             )
             
