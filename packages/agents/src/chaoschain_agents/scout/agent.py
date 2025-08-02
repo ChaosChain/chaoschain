@@ -47,7 +47,14 @@ class ScoutAgent(BaseAgent):
         
         # Initialize clients
         self.polymarket_client = PolymarketClient()
-        self.llm_client = LanguageModelClient()
+        
+        # Initialize LLM client with graceful fallback
+        try:
+            self.llm_client = LanguageModelClient()
+        except ValueError as e:
+            logger.warning(f"LLM client initialization failed: {e}")
+            logger.info("Agent will operate without LLM capabilities until API key is configured")
+            self.llm_client = None
         
         # Agent state for market tracking
         self.monitored_markets: Dict[str, Any] = {}
@@ -173,6 +180,11 @@ Please provide:
 
 Focus on identifying potential mispricings and market inefficiencies based on your expertise."""
 
+            # Check if LLM client is available
+            if not self.llm_client:
+                logger.warning("LLM client not available, falling back to simple analysis")
+                return self._fallback_analysis(outcomes)
+            
             # Get LLM configuration from agent config
             llm_config = self.get_llm_config()
             

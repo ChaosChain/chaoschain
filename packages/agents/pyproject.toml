@@ -32,6 +32,12 @@ python-dotenv = "^1.0.0"
 # A2A and x402 protocol support (placeholder - would be actual packages when available)
 # For now we'll implement the protocols ourselves
 requests = "^2.31.0"
+# LLM integration
+openai = "^1.47.0"
+# Agent framework and workflow orchestration  
+langgraph = "^0.6.2"
+langchain = "^0.3.0"
+langchain-openai = "^0.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"

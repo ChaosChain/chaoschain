@@ -131,6 +131,17 @@ Your reputation depends on accuracy, so you're methodical but never paralyzed by
     try:
         # Start the agent within its Studio context
         logger.info("Starting ScoutAgent within Studio context...")
+        
+        # Test LLM connection before starting the agent
+        if scout_agent.llm_client and await scout_agent.llm_client.is_available():
+            logger.success("✅ LLM client is available and ready")
+        else:
+            logger.warning("⚠️ LLM client is not available - agent will run with basic capabilities")
+            logger.info("💡 To enable full LLM capabilities, add your OpenAI API key:")
+            logger.info("   - Create a .env file with: OPENAI_API_KEY=your_key_here")
+            logger.info("   - Or set the OPENAI_API_KEY environment variable")
+            logger.info("🚀 Starting agent with basic capabilities...")
+        
         await scout_agent.start()
         
     except KeyboardInterrupt:
