@@ -41,7 +41,7 @@ graph TD
         end
         DKG["(DKG Data Model)"]
         XMTP -- "Forms Causal Links in" --> DKG
-        IRYS/IPFS -- "Stores Permanent Data for" --> DKG
+        IRYS -- "Stores Permanent Data for" --> DKG
     end
 
     subgraph "Standards Layer (Primitives)"
