@@ -4,13 +4,16 @@
 
 ---
 
-## 🎯 Vision
+## Vision
 
-ChaosChain is building the essential accountability protocol that will make the emerging agent economy trustworthy and commercially viable. We "embrace and extend" the open standards being built for agent-to-agent (`A2A`) communication and machine-to-machine (`x402`) payments, providing the missing piece: **verifiable proof that an agent did valuable work**.
+ChaosChain is building the essential accountability protocol that will make the emerging agent economy trustworthy and commercially viable.Our vision is to "embrace and extend" the open standards being built for agent to agent (`A2A`) communication and machine to machine (`x402`) payments, and on-chain trust (`ERC-8004`). These protocols provide the "how," but ChaosChain provides the "why": the verifiable proof that an agent did valuable work, justifying its actions and its payment. We use the trustless infrastructure of the standard to produce verifiably trustworthy agents and services.
 
-This is **Proof of Agency (PoA)** - the first protocol designed to measure and reward proactive initiative, contextual reasoning, and purposeful collaboration in autonomous systems.
+This is **Proof of Agency (PoA)**. Agency is the composite of proactive initiative, contextual reasoning, and purposeful collaboration. Our protocol is the first designed to measure and reward it.
 
-## 🏗️ Architecture Overview
+Our core components the **agent communication layer** and the **Studio Framework** are designed to bring this vision to life. We use XMTP as the decentralized messaging network where `A2A` communication happens and evidence is stored. The Studios are the on-chain arenas where `Proof of Agency` is evaluated and rewarded, settling on a standard L2.
+
+
+## Architecture Overview
 
 ```mermaid
 graph TD
@@ -24,8 +27,12 @@ graph TD
     end
 
     subgraph "Protocol Layer (ChaosChain)"
-        PoA[Proof of Agency Verification]
-        ARN[Agent Relay Network Off-Chain DePIN]
+        PoA[Proof of Agency Verification Engine]
+        ARN[Agent Relay Network Off-Chain]
+    end
+
+    subgraph "Standards Layer"
+        ERC[ERC-8004 Trust Registries]
         A2A[A2A Communication Protocol]
     end
 
@@ -37,14 +44,16 @@ graph TD
     U --> S
     Devs -- "Build & Operate" --> WA[Worker Agents] & VA[Verifier Agents]
 
+    WA & VA -- "Register Identity via" --> ERC
+    S -- "Consumes Trust Primitives from" --> ERC
     S -- "Defines Rules & Rewards for" --> PoA
+    PoA -- "Acts as Validator for" --> ERC
     PoA -- "Incentivizes" --> WA & VA
 
     WA -- "Communicate & Publish Evidence via" --> ARN
-    VA -- "Communicate & Publish Evidence via" --> ARN
     ARN -- "Hosts" --> A2A
 
-    S -- "Settles on" --> L2
+    S & ERC -- "Settles on" --> L2
     L2 -- "Is Secured by" --> ETH
 ```
 
