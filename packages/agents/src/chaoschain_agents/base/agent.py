@@ -268,7 +268,7 @@ class BaseAgent(ABC):
     
     async def load_wallet(self) -> None:
         """Load or create wallet for the agent."""
-        if not self.wallet_manager.private_key:
+        if not hasattr(self.wallet_manager, 'private_key_hex') or not self.wallet_manager.private_key_hex:
             logger.info("No private key provided, generating new wallet")
             # Generate new wallet if none provided
             self.wallet_manager = WalletManager()
@@ -313,6 +313,72 @@ class BaseAgent(ABC):
         # Start Studio-aware agent loop
         await self._run()
     
+    async def submit_evidence(self, package: "EvidencePackage") -> str:
+        """
+        Submit evidence package to the ARN and Outer Loop for verification.
+        
+        This is the critical hand-off from the agent's private reasoning (Inner Loop)
+        to the public verification system (Outer Loop).
+        
+        Args:
+            package: DKG-compliant evidence package to submit
+            
+        Returns:
+            IPFS CID of the submitted evidence
+        """
+        from .evidence import EvidencePackage
+        
+        logger.info("🔄 Submitting evidence package to ARN...")
+        
+        # Validate DKG compliance before submission
+        compliance = package.validate_dkg_compliance()
+        if not compliance.get("dkg_compliant", False):
+            logger.error(f"Evidence package failed DKG compliance: {compliance}")
+            raise ValueError("Evidence package is not DKG compliant")
+        
+        logger.success("✅ Evidence package is DKG compliant")
+        
+        # Convert to submission payload
+        submission_payload = package.to_submission_payload()
+        
+        # Serialize the evidence package
+        evidence_json = package.to_json()
+        logger.debug(f"Evidence package size: {len(evidence_json)} characters")
+        
+        # Generate mock IPFS CID (in production, this would upload to actual IPFS)
+        evidence_cid = await self._upload_to_ipfs(evidence_json)
+        
+        # Display submission details
+        logger.info("📦 Evidence Package Details:")
+        logger.info(f"   ID: {package.id}")
+        logger.info(f"   Agent: {package.agent_id}")
+        logger.info(f"   Studio: {package.studio_id}")
+        logger.info(f"   Prediction: {package.prediction.get('outcome')} (confidence: {package.prediction.get('confidence'):.3f})")
+        logger.info(f"   Model Used: {package.inference_context.get('model_used')}")
+        logger.info(f"   Timestamp: {package.timestamp}")
+        logger.info(f"   Content Hash: {package.content_hash}")
+        
+        # Simulate ARN broadcast
+        logger.info("📡 Broadcasting to ARN...")
+        await self.send_a2a_message(
+            method="evidence.submitted",
+            params={
+                "evidence_id": package.id,
+                "evidence_cid": evidence_cid,
+                "agent_id": package.agent_id,
+                "studio_id": package.studio_id,
+                "prediction": package.prediction,
+                "vector_clock": package.get_vector_clock(),
+                "content_hash": package.content_hash
+            }
+        )
+        
+        logger.success(f"✅ Evidence submitted successfully!")
+        logger.info(f"🔗 IPFS CID: {evidence_cid}")
+        logger.info("📋 Ready for CVN verification")
+        
+        return evidence_cid
+
     async def stop(self) -> None:
         """Stop the agent."""
         logger.info(f"Stopping {self.__class__.__name__}")

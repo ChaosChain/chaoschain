@@ -119,18 +119,24 @@ class ScoutAgent(BaseAgent):
                     logger.debug(f"Market '{slug}' is not active or already closed.")
                     continue
                 
-                # Analyze market data to generate a prediction using LLM
-                prediction, confidence = await self._analyze_market(market_data)
+                # Analyze market data and get DKG-compliant evidence package
+                evidence_package = await self._analyze_market(market_data)
+                
+                # Extract prediction details for threshold checking
+                prediction = evidence_package.prediction.get("outcome")
+                confidence = evidence_package.prediction.get("confidence", 0.0)
                 
                 # Use Studio's confidence threshold
-                if prediction is not None and confidence > self.confidence_threshold:
+                if prediction not in ["INVALID", "ERROR", "UNKNOWN"] and confidence > self.confidence_threshold:
                     logger.success(
                         f"Found opportunity in '{slug}': "
                         f"Prediction={prediction}, Confidence={confidence:.2f}"
                     )
                     
-                    # Create and submit evidence
-                    await self.create_and_submit_prediction_evidence(market_data, prediction, confidence)
+                    # Submit the complete evidence package to the Outer Loop
+                    await self.submit_evidence(evidence_package)
+                else:
+                    logger.debug(f"Skipping '{slug}' - below confidence threshold or invalid")
                     
             except Exception as e:
                 logger.error(f"Error scanning market '{slug}': {e}")
@@ -138,17 +144,31 @@ class ScoutAgent(BaseAgent):
         self.last_checked_timestamp = datetime.now(timezone.utc)
         logger.info("Market scan complete.")
 
-    async def _analyze_market(self, market_data: Dict[str, Any]) -> (Optional[str], float):
+    async def _analyze_market(self, market_data: Dict[str, Any]) -> "EvidencePackage":
         """
-        Analyze market data to generate a prediction using the layered prompting architecture.
+        Analyze market data and return a complete DKG-compliant EvidencePackage.
         
         This method demonstrates the core "Inner Loop" processing where the agent uses
         its LLM with the chained Studio role_prompt and agent character_prompt to 
-        perform sophisticated market analysis.
+        perform sophisticated market analysis, then packages the results into
+        verifiable evidence for the Outer Loop.
         """
+        from ..base.evidence import EvidencePackage
+        from datetime import datetime
+        
         outcomes = market_data.get("outcomes", [])
         if not outcomes:
-            return None, 0.0
+            # Create minimal evidence package for invalid market
+            return EvidencePackage.create_prediction_evidence(
+                agent_id=self.agent_name,
+                studio_id=self.studio_id,
+                prediction_outcome="INVALID",
+                confidence=0.0,
+                justification="Market data contains no valid outcomes to analyze",
+                role_prompt=self.context.role_prompt,
+                character_prompt=self.config.character_prompt,
+                model_used="fallback"
+            )
         
         try:
             # Prepare market data for LLM analysis
@@ -165,6 +185,22 @@ Available Outcomes:
                 name = outcome.get('name', 'Unknown')
                 market_context += f"{i}. {name}: {price:.3f} ({price*100:.1f}%)\n"
             
+            # Check if LLM client is available
+            if not self.llm_client:
+                logger.warning("LLM client not available, using fallback analysis")
+                prediction, confidence = self._fallback_analysis(outcomes)
+                
+                return EvidencePackage.create_prediction_evidence(
+                    agent_id=self.agent_name,
+                    studio_id=self.studio_id,
+                    prediction_outcome=prediction or "UNKNOWN",
+                    confidence=confidence,
+                    justification="Analysis performed using fallback heuristic due to LLM unavailability. Based on highest probability outcome from market pricing.",
+                    role_prompt=self.context.role_prompt,
+                    character_prompt=self.config.character_prompt,
+                    model_used="fallback_heuristic"
+                )
+            
             # Create the chained system prompt (role_prompt + character_prompt)
             system_prompt = self.create_system_prompt()
             
@@ -176,15 +212,14 @@ Available Outcomes:
 Please provide:
 1. Your predicted outcome (which specific outcome you think will occur)
 2. Your confidence level (0.0 to 1.0)
-3. Brief reasoning for your prediction
+3. Detailed reasoning for your prediction including:
+   - Key factors influencing your decision
+   - Analysis of market efficiency/mispricing
+   - Risk factors and alternative scenarios
+   - Supporting evidence or data points
 
 Focus on identifying potential mispricings and market inefficiencies based on your expertise."""
 
-            # Check if LLM client is available
-            if not self.llm_client:
-                logger.warning("LLM client not available, falling back to simple analysis")
-                return self._fallback_analysis(outcomes)
-            
             # Get LLM configuration from agent config
             llm_config = self.get_llm_config()
             
@@ -204,12 +239,47 @@ Focus on identifying potential mispricings and market inefficiencies based on yo
                 f"Confidence: {confidence:.3f}"
             )
             
-            return prediction, confidence
+            # Create structured evidence package
+            evidence = EvidencePackage.create_prediction_evidence(
+                agent_id=self.agent_name,
+                studio_id=self.studio_id,
+                prediction_outcome=prediction or "UNKNOWN",
+                confidence=confidence,
+                justification=response,  # Full LLM response as justification
+                role_prompt=self.context.role_prompt,
+                character_prompt=self.config.character_prompt,
+                model_used=llm_config.get("model", "unknown"),
+                temperature=llm_config.get("temperature", 0.7),
+                max_tokens=llm_config.get("max_tokens", 2000),
+                metadata={
+                    "market_data": market_data,
+                    "analysis_timestamp": datetime.utcnow().isoformat(),
+                    "studio_rules": {
+                        "target_platform": self.target_platform,
+                        "confidence_threshold": self.confidence_threshold
+                    }
+                }
+            )
+            
+            logger.success(f"Created evidence package: {evidence.id}")
+            return evidence
             
         except Exception as e:
             logger.error(f"Error in LLM market analysis: {e}")
-            # Fallback to simple heuristic
-            return self._fallback_analysis(outcomes)
+            # Create error evidence package
+            prediction, confidence = self._fallback_analysis(outcomes)
+            
+            return EvidencePackage.create_prediction_evidence(
+                agent_id=self.agent_name,
+                studio_id=self.studio_id,
+                prediction_outcome=prediction or "ERROR",
+                confidence=max(0.0, confidence - 0.2),  # Lower confidence due to error
+                justification=f"Analysis failed due to error: {str(e)}. Falling back to heuristic analysis based on market pricing.",
+                role_prompt=self.context.role_prompt,
+                character_prompt=self.config.character_prompt,
+                model_used="error_fallback",
+                metadata={"error": str(e), "fallback_used": True}
+            )
     
     def _parse_analysis_response(self, response: str, outcomes: List[Dict]) -> (Optional[str], float):
         """
@@ -274,62 +344,7 @@ Focus on identifying potential mispricings and market inefficiencies based on yo
             logger.error(f"Error in fallback analysis: {e}")
             return None, 0.0
     
-    async def create_and_submit_prediction_evidence(
-        self,
-        market_data: Dict[str, Any],
-        prediction: str,
-        confidence: float
-    ) -> None:
-        """Create and submit a DKG-compliant evidence package for a prediction."""
-        
-        input_data = {
-            "market_question": market_data.get("question"),
-            "market_slug": market_data.get("slug"),
-            "market_outcomes": [o.get("name") for o in market_data.get("outcomes", [])],
-            "market_data_source": "polymarket"
-        }
-        
-        output_data = {
-            "prediction": prediction,
-            "confidence_score": confidence,
-            "analysis_model": "v1_simple_price_maximizer"
-        }
-        
-        reasoning = (
-            f"Analyzed Polymarket data for '{market_data.get('slug')}'. "
-            f"The outcome '{prediction}' has the highest probability ({confidence:.2f}), "
-            "indicating it is the most likely outcome according to the market."
-        )
-        
-        # Create evidence package
-        evidence = await self.create_evidence_package(
-            task_type="prediction_market_analysis",
-            input_data=input_data,
-            output_data=output_data,
-            reasoning=reasoning,
-            sources=[f"https://polymarket.com/event/{market_data.get('slug')}"]
-        )
-        
-        # Submit to this agent's Studio (address comes from context)
-        try:
-            evidence_cid = await self.submit_evidence_to_studio(evidence)
-            logger.success(
-                f"Successfully submitted evidence {evidence_cid} for "
-                f"market '{market_data.get('slug')}'"
-            )
-            
-            # Announce submission to other agents in this Studio
-            await self.send_a2a_message(
-                method="evidence.submitted",
-                params={
-                    "evidence_cid": evidence_cid,
-                    "market_slug": market_data.get('slug'),
-                    "analysis_type": "prediction_market_analysis"
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"Error submitting evidence: {e}")
+
     
     async def handle_custom_message(self, message: A2AMessage) -> None:
         """Handle custom A2A messages for the ScoutAgent."""

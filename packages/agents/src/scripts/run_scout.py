@@ -80,7 +80,7 @@ DECISION FRAMEWORK:
 - Never bet against strong trends without compelling contrarian evidence
 
 Your reputation depends on accuracy, so you're methodical but never paralyzed by over-analysis.""",
-        private_key=os.environ.get("SCOUT_AGENT_PRIVATE_KEY"),
+        private_key=os.environ.get("SCOUT_AGENT_PRIVATE_KEY") if os.environ.get("SCOUT_AGENT_PRIVATE_KEY") and len(os.environ.get("SCOUT_AGENT_PRIVATE_KEY", "")) == 66 else None,
         crossmint_api_key=os.environ.get("CROSSMINT_API_KEY")
     )
     
@@ -141,6 +141,52 @@ Your reputation depends on accuracy, so you're methodical but never paralyzed by
             logger.info("   - Create a .env file with: OPENAI_API_KEY=your_key_here")
             logger.info("   - Or set the OPENAI_API_KEY environment variable")
             logger.info("🚀 Starting agent with basic capabilities...")
+        
+        # Demonstrate the complete end-to-end flow
+        logger.info("🚀 Starting agent with complete evidence workflow...")
+        
+        # For demo purposes, run a single analysis cycle first
+        logger.info("📊 Running demo market analysis...")
+        
+        # Create mock market data for demonstration
+        mock_market = {
+            "question": "Will Bitcoin reach $100,000 by December 31, 2024?",
+            "slug": "bitcoin-100k-eoy-2024",
+            "active": True,
+            "volume": 5250000,
+            "outcomes": [
+                {"name": "Yes", "price": 0.38},
+                {"name": "No", "price": 0.62}
+            ]
+        }
+        
+        try:
+            # Run the complete Inner Loop -> Evidence Package -> Outer Loop flow
+            logger.info("🧠 Executing Inner Loop analysis...")
+            evidence_package = await scout_agent._analyze_market(mock_market)
+            
+            logger.info("📦 Evidence package created successfully!")
+            logger.info(f"   Package ID: {evidence_package.id}")
+            logger.info(f"   Prediction: {evidence_package.prediction}")
+            
+            # Validate DKG compliance
+            compliance = evidence_package.validate_dkg_compliance()
+            logger.info(f"🔍 DKG Compliance: {compliance.get('dkg_compliant', False)}")
+            
+            # If prediction meets confidence threshold, submit to Outer Loop
+            confidence = evidence_package.prediction.get("confidence", 0.0)
+            if confidence > scout_agent.confidence_threshold:
+                logger.info("✅ Confidence threshold met - submitting to Outer Loop...")
+                evidence_cid = await scout_agent.submit_evidence(evidence_package)
+                logger.success(f"🎉 Complete workflow successful! Evidence CID: {evidence_cid}")
+            else:
+                logger.warning(f"⚠️ Confidence {confidence:.3f} below threshold {scout_agent.confidence_threshold}")
+                
+        except Exception as e:
+            logger.error(f"Demo analysis failed: {e}")
+        
+        logger.info("\n" + "="*60)
+        logger.info("🔄 Starting continuous monitoring mode...")
         
         await scout_agent.start()
         
