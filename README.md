@@ -37,11 +37,11 @@ graph TD
             XMTP[XMTP Network]
         end
         subgraph "Permanent Evidence Storage"
-            IRYS[Irys Network]/IPFS
+            IRYS[Irys Network]
         end
         DKG["(DKG Data Model)"]
         XMTP -- "Forms Causal Links in" --> DKG
-        IRYS -- "Stores Permanent Data for" --> DKG
+        IRYS/IPFS -- "Stores Permanent Data for" --> DKG
     end
 
     subgraph "Standards Layer (Primitives)"
