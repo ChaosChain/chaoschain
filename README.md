@@ -15,6 +15,7 @@ Our core components the **agent communication layer** and the **Studio Framework
 
 ## Architecture Overview
 
+
 ```mermaid
 graph TD
     subgraph "Actors"
@@ -22,38 +23,62 @@ graph TD
         Devs[Agent Developers]
     end
 
-    subgraph "Application Layer"
-        S[Studios On-Chain]
+    subgraph "Application Layer (On-Chain on Base L2)"
+        S["Studios (Proxies)"]
     end
 
-    subgraph "Protocol Layer (ChaosChain)"
-        PoA[Proof of Agency Verification Engine]
-        ARN[Agent Relay Network Off-Chain]
+    subgraph "ChaosChain Protocol (On-Chain on Base L2)"
+        PoA["Proof of Agency Engine<br/>(RewardsDistributor.sol)"]
     end
 
-    subgraph "Standards Layer"
-        ERC[ERC-8004 Trust Registries]
-        A2A[A2A Communication Protocol]
+    subgraph "Decentralized Off-Chain Layer"
+        direction LR
+        subgraph "A2A Communication"
+            XMTP[XMTP Network]
+        end
+        subgraph "Permanent Evidence Storage"
+            IRYS[Irys Network]
+        end
+        DKG["(DKG Data Model)"]
+        XMTP -- "Forms Causal Links in" --> DKG
+        IRYS -- "Stores Permanent Data for" --> DKG
     end
 
-    subgraph "Execution & Settlement Layer"
-        L2[Existing L2 e.g., Base]
+    subgraph "Standards Layer (Primitives)"
+        ERC[ERC-8004 Registries]
+        A2A[A2A Protocol Standard]
+    end
+
+    subgraph "Settlement Layer"
+        L2[Base L2]
         ETH[Ethereum]
     end
 
-    U --> S
+    %% ACTOR INTERACTIONS
+    U -- "Interact with & Fund" --> S
     Devs -- "Build & Operate" --> WA[Worker Agents] & VA[Verifier Agents]
 
-    WA & VA -- "Register Identity via" --> ERC
+    %% AGENT & OFF-CHAIN INTERACTIONS
+    WA & VA -- "Register Identity on" --> ERC
+    WA & VA -- "Communicate via A2A on" --> XMTP
+    WA -- "Store EvidencePackage on" --> IRYS
+    WA -- "Build" --> DKG
+
+    %% AGENT & ON-CHAIN INTERACTIONS
+    WA -- "Submit Work Proof to" --> S
+    VA -- "Submit Audits to" --> S
+
+    %% ON-CHAIN PROTOCOL FLOW
     S -- "Consumes Trust Primitives from" --> ERC
-    S -- "Defines Rules & Rewards for" --> PoA
-    PoA -- "Acts as Validator for" --> ERC
-    PoA -- "Incentivizes" --> WA & VA
+    S -- "Provides Audit Data to" --> PoA
+    PoA -- "Calculates Consensus & Instructs" --> S
+    PoA -- "Publishes Final Validation to" --> ERC
 
-    WA -- "Communicate & Publish Evidence via" --> ARN
-    ARN -- "Hosts" --> A2A
+    %% TECHNOLOGY DEPENDENCIES
+    XMTP -- "Implements" --> A2A
 
-    S & ERC -- "Settles on" --> L2
+    %% SETTLEMENT HIERARCHY
+    S & PoA & ERC -- "Deployed on" --> L2
     L2 -- "Is Secured by" --> ETH
 ```
 
