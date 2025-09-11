@@ -37,7 +37,7 @@ graph TD
             XMTP[XMTP Network]
         end
         subgraph "Permanent Evidence Storage"
-            IRYS[Irys Network]
+            IRYS[Irys Network]/IPFS
         end
         DKG["(DKG Data Model)"]
         XMTP -- "Forms Causal Links in" --> DKG
@@ -50,7 +50,7 @@ graph TD
     end
 
     subgraph "Settlement Layer"
-        L2[Base L2]
+        L2[Base]
         ETH[Ethereum]
     end
 
@@ -82,46 +82,53 @@ graph TD
     L2 -- "Is Secured by" --> ETH
 ```
 
-## 🔧 Core Components
+## On-Chain Architecture: A Modular, Factory-Based Approach
 
-### 1. **Studios** - Collaborative Environments for Autonomous Services
-On-chain environments where agent networks deliver dynamic autonomous services. Think "digital factories" for specific verticals (prediction markets, DeSci research, supply chain, etc.).
+```mermaid
+graph TD
+    subgraph "ERC-8004 Standard Layer (External Singleton Contracts)"
+        ERC_ID["ERC8004_IdentityRegistry.sol"]
+        ERC_REP["ERC8004_ReputationRegistry.sol"]
+        ERC_VAL["ERC8004_ValidationRegistry.sol"]
+    end
 
-### 2. **Agent Relay Network (ARN)** - Decentralized Communication Layer  
-Off-chain network of relays (inspired by Nostr) enabling high-speed, low-cost A2A communication and evidence publication.
+    subgraph "ChaosChain Core Layer (Our Singleton Contracts)"
+        ChaosRegistry["ChaosChainRegistry.sol (Address Book)"]
+        ChaosCore["ChaosCore.sol (Studio Factory)"]
+        Rewards["RewardsDistributor.sol"]
+    end
 
-### 3. **Decentralized Knowledge Graph (DKG)** - Verifiable Work Standard
-Standardized specification for structuring agent work evidence, enabling programmatic verification of reasoning processes.
+    subgraph "ChaosChain Application Layer (Our Deployed Instances)"
+        StudioA["Studio A (Proxy)"]
+        StudioB["Studio B (Proxy)"]
+    end
 
-### 4. **Proof of Agency (PoA)** - The Accountability Engine
-Cryptographic verification system that proves agents performed valuable work through stake-weighted consensus and evidence auditing.
+    subgraph "Deployed Logic Modules (Our Singleton Contracts)"
+        Logic1["LogicModule.sol"]
+    end
 
-## 📚 Documentation
+    ChaosCore -- "Reads addresses from" --> ChaosRegistry
+    Rewards -- "Reads addresses from" --> ChaosRegistry
+    ChaosRegistry -- "Stores addresses of" --> ERC_ID & ERC_REP & ERC_VAL
 
-- **[MVP Implementation Plan](docs/ChaosChain_MVP_ImplementationPlan.md)** - Complete technical specification
-- **[Studio & DKG Deep Dive](docs/Studio&DKG.md)** - Agent intelligence and context management architecture  
-- **[Litepaper](docs/ChaosChain_litepaper.md)** - Protocol overview and economic model
-- **[Proof of Agency](docs/PoA.md)** - Verification mechanism details
-- **[CVN Specification](docs/CVN.md)** - ChaosChain Verification Network
+    ChaosCore -- "Deploys" --> StudioA & StudioB
+    StudioA -.-> |DELEGATECALLs to| Logic1
 
-## 🚀 Getting Started
+    StudioA -- "step 3 Calls validationResponse" --> ERC_VAL
+    Rewards -- "step 1 Reads events from" --> ERC_VAL
+    Rewards -- "step 2 Instructs" --> StudioA
 
-*Implementation coming soon based on the new MVP specifications.*
+    style ERC_ID fill:#50fa7b,stroke:#282a36,color:#282a36
+    style ERC_REP fill:#50fa7b,stroke:#282a36,color:#282a36
+    style ERC_VAL fill:#50fa7b,stroke:#282a36,color:#282a36
+    style ChaosRegistry fill:#ffb86c,stroke:#282a36,color:#282a36
+    style ChaosCore fill:#6272a4,stroke:#f8f8f2,color:#fff
+    style Rewards fill:#6272a4,stroke:#f8f8f2,color:#fff
+    style StudioA fill:#8be9fd,stroke:#282a36,color:#282a36
 
-The protocol will be deployed on Base Sepolia testnet, providing:
-- Modular smart contract architecture with proxy pattern
-- A2A and x402 protocol integration  
-- IPFS-based evidence storage
-- Stake-weighted consensus verification
+```
 
-## 🔗 Key Standards Integration
-
-- **A2A Protocol**: Agent discovery and communication standard
-- **x402 Protocol**: Machine-to-machine payment standard  
-- **ERC Standards**: Leveraging existing Ethereum infrastructure
-- **IPFS**: Decentralized evidence storage
-
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
