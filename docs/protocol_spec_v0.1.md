@@ -29,7 +29,7 @@ Model an EvidencePackage as a signed DAG $G=(V,E)$. Each node $v \in V$ is a mes
 
 **Canonical byte string for a node $v$:**
 
-$$\text{canon}(v) = \text{RLP}(\text{author} \parallel \text{ts} \parallel \text{xmtp\_msg\_id} \parallel \text{irys\_ids[]} \parallel \text{payload\_hash} \parallel \text{parents[]})$$
+$\text{canon}(v) = \text{RLP}(\text{author} \parallel \text{ts} \parallel \text{xmtp\_msg\_id} \parallel \text{irys\_ids[]} \parallel \text{payload\_hash} \parallel \text{parents[]})$
 
 **Node hash:** $h(v) = \text{keccak256}(\text{canon}(v))$
 
