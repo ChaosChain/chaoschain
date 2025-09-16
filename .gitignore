@@ -16,7 +16,7 @@ lerna-debug.log*
 *.sops
 secrets.yaml
 secrets.yml
-docs
+docs_xyz
 implementation_plan.md
 
 # 
