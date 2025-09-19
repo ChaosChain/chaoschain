@@ -8,7 +8,7 @@
 
 The ChaosChain SDK provides everything developers need to build autonomous agents that can interact with the ChaosChain protocol, including ERC-8004 registries, process integrity verification, multi-payment methods, and IPFS storage.
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -92,7 +92,7 @@ evidence_cid = sdk.store_evidence({
 print(f"🎉 Triple-Verified Stack complete! Evidence: {evidence_cid}")
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 The ChaosChain SDK implements the **Triple-Verified Stack**:
 
@@ -133,7 +133,7 @@ ChaosChain runs 2 out of 3 verification layers!
 - **IPFS Storage**: Pinata integration for permanent evidence storage
 - **Error Handling**: Comprehensive exception handling and logging
 
-## 📚 Supported Networks
+## Supported Networks
 
 | Network | Chain ID | Status | Contracts Deployed |
 |---------|----------|--------|-------------------|
@@ -141,7 +141,7 @@ ChaosChain runs 2 out of 3 verification layers!
 | Ethereum Sepolia | 11155111 | ✅ Active | ✅ ERC-8004 Suite |
 | Optimism Sepolia | 11155420 | ✅ Active | ✅ ERC-8004 Suite |
 
-## 💳 Payment Methods: Real Integrations + Demo Mode
+## Payment Methods: Real Integrations + Demo Mode
 
 ### ✅ **LIVE & WORKING (Out-of-the-Box)**
 | Method | W3C Identifier | Status | Settlement |
@@ -309,7 +309,7 @@ feedback_tx = sdk.submit_feedback(
 )
 ```
 
-## 🔐 Security & Configuration
+## Security & Configuration
 
 ### Environment Variables
 
@@ -364,7 +364,7 @@ print(f"Agent wallet: {sdk.wallet_address}")
 print(f"Network: {sdk.network_info}")
 ```
 
-## 🧪 Testing & Development
+##  Testing & Development
 
 ### Running Tests
 
@@ -447,7 +447,7 @@ from chaoschain_sdk import (
 )
 ```
 
-## 🤝 Contributing
+##  Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
@@ -459,7 +459,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 4. Add tests
 5. Submit a pull request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -470,11 +470,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **GitHub**: [https://github.com/ChaosChain/chaoschain](https://github.com/ChaosChain/chaoschain)
 - **PyPI**: [https://pypi.org/project/chaoschain-sdk/](https://pypi.org/project/chaoschain-sdk/)
 
-## 🆘 Support
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/ChaosChain/chaoschain/issues)
 - **Discord**: [ChaosChain Community](https://discord.gg/chaoschain)
-- **Email**: [hello@chaoschain.com](mailto:hello@chaoschain.com)
+- **Email**: [hello@chaoschain.com](mailto:hello@)
 
 ---
 
