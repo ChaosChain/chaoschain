@@ -1,0 +1,123 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chaoschain-sdk"
+version = "0.1.0"
+description = "Production-ready SDK for building agents on the ChaosChain protocol"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "ChaosChain Labs", email = "hello@chaoschain.com"}
+]
+maintainers = [
+    {name = "ChaosChain Labs", email = "hello@chaoschain.com"}
+]
+keywords = [
+    "ai-agents", 
+    "blockchain", 
+    "erc-8004", 
+    "ap2", 
+    "x402", 
+    "process-integrity",
+    "web3",
+    "autonomous-agents"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Security :: Cryptography",
+]
+requires-python = ">=3.9"
+dependencies = [
+    # Core Web3 and Blockchain
+    "web3>=6.0.0",
+    "eth-account>=0.8.0",
+    
+    # HTTP and API clients
+    "requests>=2.28.0",
+    "httpx>=0.24.0",
+    
+    # Cryptography and Security
+    "cryptography>=41.0.0",
+    "pyjwt>=2.8.0",
+    
+    # Data handling and validation
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    
+    # IPFS and Storage
+    "ipfshttpclient>=0.8.0",
+    
+    # Rich console output
+    "rich>=13.0.0",
+    
+    # Async support
+    "aiohttp>=3.8.0",
+    
+    # Date/time handling
+    "python-dateutil>=2.8.0",
+    
+    # Google AP2 Integration (official library)
+    "ap2>=0.1.0",
+]
+
+[project.optional-dependencies]
+payments = [
+    # Production payment processor integrations
+    "stripe>=7.0.0",
+    "paypalrestsdk>=1.13.0",
+    # Google Pay and Apple Pay integrations are handled via web APIs
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+docs = [
+    "sphinx>=6.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+    "myst-parser>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://chaoscha.in"
+Documentation = "https://docs.chaoschain.com"
+Repository = "https://github.com/ChaosChain/chaoschain"
+"Bug Reports" = "https://github.com/ChaosChain/chaoschain/issues"
+"Source Code" = "https://github.com/ChaosChain/chaoschain"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chaoschain_sdk*"]
+
+[tool.setuptools.package-data]
+chaoschain_sdk = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
