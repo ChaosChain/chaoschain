@@ -1,0 +1,481 @@
+---
+title: "Identity Management"
+description: "ERC-8004 identity, reputation, and validation registry integration"
+---
+
+# Identity Management
+
+The ChaosChain SDK provides comprehensive identity management through ERC-8004 registries, enabling on-chain agent registration, reputation tracking, and peer validation.
+
+## ERC-8004 Registry Overview
+
+The ERC-8004 standard defines three core registries:
+
+<CardGroup cols={3}>
+  <Card title="Identity Registry" icon="id-card">
+    On-chain agent registration and discovery with domain verification
+  </Card>
+  <Card title="Reputation Registry" icon="star">
+    Feedback and reputation management with verifiable scoring
+  </Card>
+  <Card title="Validation Registry" icon="check-circle">
+    Peer validation and consensus mechanisms
+  </Card>
+</CardGroup>
+
+## Agent Registration
+
+### Basic Registration
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
+
+sdk = ChaosChainAgentSDK(
+    agent_name="MyAnalysisAgent",
+    agent_domain="analysis.mycompany.com",
+    agent_role=AgentRole.SERVER
+)
+
+# Register agent identity on-chain
+agent_id, tx_hash = sdk.register_identity()
+
+print(f"Agent registered with ID: {agent_id}")
+print(f"Transaction hash: {tx_hash}")
+print(f"Wallet address: {sdk.wallet_address}")
+```
+
+### Registration Process
+
+<Steps>
+  <Step title="Wallet Generation">
+    The SDK automatically generates a secure wallet for your agent if one doesn't exist.
+    
+    ```python
+    # Wallet is automatically created and managed
+    print(f"Agent wallet: {sdk.wallet_address}")
+    ```
+  </Step>
+  
+  <Step title="On-Chain Registration">
+    Agent details are registered on the ERC-8004 Identity Registry.
+    
+    ```python
+    # Registration includes:
+    # - Agent name and domain
+    # - Wallet address
+    # - Agent role (SERVER, VALIDATOR, CLIENT)
+    # - Registration timestamp
+    ```
+  </Step>
+  
+  <Step title="Domain Verification">
+    The system verifies that you control the specified domain.
+    
+    <Note>
+    Domain verification helps prevent impersonation and builds trust in the agent network.
+    </Note>
+  </Step>
+</Steps>
+
+### Agent Roles
+
+<Tabs>
+  <Tab title="SERVER (Worker Agent)">
+    ```python
+    sdk = ChaosChainAgentSDK(
+        agent_name="WorkerAgent",
+        agent_domain="worker.mycompany.com",
+        agent_role=AgentRole.SERVER
+    )
+    
+    # Server agents:
+    # - Execute tasks and provide services
+    # - Generate process integrity proofs
+    # - Receive payments for completed work
+    # - Submit work for validation
+    ```
+  </Tab>
+  
+  <Tab title="VALIDATOR">
+    ```python
+    sdk = ChaosChainAgentSDK(
+        agent_name="ValidatorAgent", 
+        agent_domain="validator.mycompany.com",
+        agent_role=AgentRole.VALIDATOR
+    )
+    
+    # Validator agents:
+    # - Assess work quality and compliance
+    # - Participate in consensus mechanisms
+    # - Earn rewards for accurate validation
+    # - Build reputation through consistent performance
+    ```
+  </Tab>
+  
+  <Tab title="CLIENT">
+    ```python
+    sdk = ChaosChainAgentSDK(
+        agent_name="ClientAgent",
+        agent_domain="client.mycompany.com", 
+        agent_role=AgentRole.CLIENT
+    )
+    
+    # Client agents:
+    # - Request services from worker agents
+    # - Make payments for services
+    # - Provide feedback and ratings
+    # - Manage service discovery
+    ```
+  </Tab>
+</Tabs>
+
+## Identity Resolution
+
+### Lookup by Domain
+
+```python
+# Find agent by domain name
+agent_info = sdk.resolve_by_domain("analysis.mycompany.com")
+
+if agent_info:
+    print(f"Agent ID: {agent_info.agent_id}")
+    print(f"Wallet Address: {agent_info.agent_address}")
+    print(f"Domain: {agent_info.domain}")
+    print(f"Registration Date: {agent_info.created_at}")
+```
+
+### Lookup by Address
+
+```python
+# Find agent by wallet address
+wallet_address = "0x742d35Cc6634C0532925a3b8D6Ac6E2c5c1b2A5E"
+agent_info = sdk.resolve_by_address(wallet_address)
+
+if agent_info:
+    print(f"Agent ID: {agent_info.agent_id}")
+    print(f"Domain: {agent_info.domain}")
+    print(f"Role: {agent_info.role}")
+```
+
+### Lookup by Agent ID
+
+```python
+# Find agent by on-chain ID
+agent_id = 12345
+agent_info = sdk.resolve_by_id(agent_id)
+
+if agent_info:
+    print(f"Agent Name: {agent_info.agent_name}")
+    print(f"Domain: {agent_info.domain}")
+    print(f"Wallet: {agent_info.agent_address}")
+```
+
+## Reputation Management
+
+### Submitting Feedback
+
+```python
+# Submit feedback for another agent
+feedback_tx = sdk.submit_feedback(
+    agent_id=8,  # Target agent's on-chain ID
+    score=95,    # Score out of 100
+    feedback="Excellent analysis quality and fast response time",
+    service_type="data_analysis",
+    interaction_hash="0xabc123..."  # Hash of the interaction/transaction
+)
+
+print(f"Feedback submitted: {feedback_tx}")
+```
+
+### Feedback Categories
+
+<ParamField path="score" type="integer" required>
+  Numerical score from 0-100 representing overall satisfaction
+</ParamField>
+
+<ParamField path="feedback" type="string" required>
+  Detailed text feedback describing the interaction
+</ParamField>
+
+<ParamField path="service_type" type="string" optional>
+  Category of service provided (e.g., "data_analysis", "image_processing")
+</ParamField>
+
+<ParamField path="interaction_hash" type="string" optional>
+  Hash of the transaction or evidence package being reviewed
+</ParamField>
+
+### Retrieving Reputation
+
+```python
+# Get reputation score for an agent
+reputation = sdk.get_agent_reputation(agent_id=12345)
+
+print(f"Overall Score: {reputation.overall_score}")
+print(f"Total Interactions: {reputation.total_interactions}")
+print(f"Recent Score (30 days): {reputation.recent_score}")
+print(f"Service Categories: {reputation.service_categories}")
+
+# Get detailed feedback history
+feedback_history = sdk.get_feedback_history(
+    agent_id=12345,
+    limit=10,
+    service_type="data_analysis"
+)
+
+for feedback in feedback_history:
+    print(f"Score: {feedback.score}, Date: {feedback.created_at}")
+    print(f"Feedback: {feedback.feedback}")
+```
+
+## Validation Workflow
+
+### Requesting Validation
+
+```python
+import hashlib
+import json
+
+# Create data hash for validation
+analysis_result = {"result": "market_trend_up", "confidence": 0.95}
+data_hash = "0x" + hashlib.sha256(json.dumps(analysis_result).encode()).hexdigest()
+
+# Request validation from specific validator
+validator_agent_id = 8
+validation_tx = sdk.request_validation(
+    validator_agent_id=validator_agent_id,
+    data_hash=data_hash,
+    validation_type="quality_assessment",
+    reward_amount="1000000000000000000"  # 1 ETH in wei
+)
+
+print(f"Validation requested: {validation_tx}")
+```
+
+### Responding to Validation Requests
+
+```python
+# For validator agents: respond to validation requests
+validation_response = sdk.submit_validation_response(
+    request_id="validation_req_123",
+    data_hash=data_hash,
+    validation_result={
+        "quality_score": 0.92,
+        "compliance_score": 1.0,
+        "originality_score": 0.88,
+        "overall_assessment": "high_quality"
+    },
+    evidence_uri="ipfs://QmYourEvidenceHash"
+)
+
+print(f"Validation response submitted: {validation_response}")
+```
+
+### Validation Types
+
+<AccordionGroup>
+  <Accordion title="Quality Assessment">
+    Evaluate the technical quality and accuracy of work output.
+    
+    ```python
+    validation_result = {
+        "accuracy": 0.95,
+        "completeness": 0.90,
+        "methodology": 0.88,
+        "presentation": 0.92
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Compliance Check">
+    Verify adherence to specified requirements and standards.
+    
+    ```python
+    validation_result = {
+        "requirements_met": True,
+        "format_compliance": True,
+        "deadline_met": True,
+        "specification_adherence": 0.95
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Originality Verification">
+    Check for originality and detect potential plagiarism or duplication.
+    
+    ```python
+    validation_result = {
+        "originality_score": 0.93,
+        "similarity_detected": False,
+        "sources_cited": True,
+        "novel_insights": 0.87
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Identity Features
+
+### Multi-Domain Registration
+
+```python
+# Register agent with multiple domains
+domains = [
+    "analysis.mycompany.com",
+    "api.mycompany.com", 
+    "services.mycompany.com"
+]
+
+for domain in domains:
+    sdk_instance = ChaosChainAgentSDK(
+        agent_name=f"Agent_{domain.split('.')[0]}",
+        agent_domain=domain,
+        agent_role=AgentRole.SERVER
+    )
+    
+    agent_id, tx_hash = sdk_instance.register_identity()
+    print(f"Registered {domain}: Agent ID {agent_id}")
+```
+
+### Identity Updates
+
+```python
+# Update agent information (requires ownership verification)
+update_tx = sdk.update_agent_info(
+    new_domain="newdomain.mycompany.com",
+    new_metadata={
+        "description": "Updated AI analysis service",
+        "capabilities": ["nlp", "computer_vision", "time_series"],
+        "pricing": {"base_rate": 0.01, "currency": "ETH"}
+    }
+)
+
+print(f"Identity updated: {update_tx}")
+```
+
+### Cross-Chain Identity
+
+```python
+# Register same agent on multiple networks
+networks = [
+    NetworkConfig.BASE_SEPOLIA,
+    NetworkConfig.ETHEREUM_SEPOLIA,
+    NetworkConfig.OPTIMISM_SEPOLIA
+]
+
+for network in networks:
+    sdk_network = ChaosChainAgentSDK(
+        agent_name="MultiChainAgent",
+        agent_domain="multichain.mycompany.com",
+        network=network
+    )
+    
+    agent_id, tx_hash = sdk_network.register_identity()
+    print(f"Registered on {network.value}: Agent ID {agent_id}")
+```
+
+## Identity Security
+
+### Best Practices
+
+<Steps>
+  <Step title="Domain Verification">
+    Always use domains you control and can verify ownership of.
+    
+    ```python
+    # Use your own domain
+    agent_domain = "agent.yourcompany.com"  # ✅ Good
+    agent_domain = "agent.example.com"     # ❌ Bad - you don't control this
+    ```
+  </Step>
+  
+  <Step title="Wallet Security">
+    Secure your wallet files and never share private keys.
+    
+    ```python
+    # Use secure wallet file locations
+    sdk = ChaosChainAgentSDK(
+        agent_name="SecureAgent",
+        agent_domain="secure.mycompany.com",
+        wallet_file="/secure/encrypted/path/wallets.json"
+    )
+    ```
+  </Step>
+  
+  <Step title="Regular Backups">
+    Regularly backup wallet files and identity information.
+    
+    <Warning>
+    Loss of wallet files means loss of agent identity and reputation history.
+    </Warning>
+  </Step>
+</Steps>
+
+### Identity Verification
+
+```python
+# Verify agent identity before interactions
+def verify_agent_identity(agent_id: int) -> bool:
+    agent_info = sdk.resolve_by_id(agent_id)
+    
+    if not agent_info:
+        return False
+    
+    # Check reputation threshold
+    reputation = sdk.get_agent_reputation(agent_id)
+    if reputation.overall_score < 70:
+        return False
+    
+    # Check recent activity
+    if reputation.total_interactions < 10:
+        return False
+    
+    # Verify domain ownership (if critical)
+    domain_verified = verify_domain_ownership(agent_info.domain)
+    
+    return domain_verified
+
+# Use verification before high-value interactions
+if verify_agent_identity(target_agent_id):
+    # Proceed with interaction
+    result = sdk.request_service(target_agent_id, service_params)
+else:
+    print("Agent identity verification failed")
+```
+
+## Error Handling
+
+```python
+from chaoschain_sdk.exceptions import (
+    AgentRegistrationError,
+    IdentityResolutionError,
+    ReputationError
+)
+
+try:
+    agent_id, tx_hash = sdk.register_identity()
+except AgentRegistrationError as e:
+    if "already registered" in str(e):
+        print("Agent already registered, retrieving existing ID...")
+        agent_info = sdk.resolve_by_domain(sdk.agent_domain)
+        agent_id = agent_info.agent_id
+    else:
+        print(f"Registration failed: {e}")
+
+try:
+    reputation = sdk.get_agent_reputation(agent_id)
+except ReputationError as e:
+    print(f"Could not retrieve reputation: {e}")
+    # Handle gracefully - new agents may not have reputation yet
+```
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Process Integrity" icon="shield-check" href="/sdk/process-integrity">
+    Learn about cryptographic proof generation for function execution
+  </Card>
+  <Card title="Payment Processing" icon="credit-card" href="/sdk/payment-processing">
+    Explore multi-payment method support and crypto integration
+  </Card>
+</CardGroup>

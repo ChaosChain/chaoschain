@@ -55,8 +55,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
     
-    # IPFS and Storage
-    "ipfshttpclient>=0.8.0",
+    # Note: IPFS storage handled via Pinata REST API (no ipfshttpclient needed)
     
     # Rich console output
     "rich>=13.0.0",
@@ -67,8 +66,8 @@ dependencies = [
     # Date/time handling
     "python-dateutil>=2.8.0",
     
-    # Google AP2 Integration - Note: Replace with actual Google AP2 library when available
-    # "ap2>=0.1.0",  # Commented out until official Google AP2 Python library is released
+    # Google AP2 Integration (official library from GitHub)
+    "ap2 @ git+https://github.com/google-agentic-commerce/AP2.git@main",
 ]
 
 [project.optional-dependencies]
@@ -94,10 +93,10 @@ docs = [
 
 [project.urls]
 Homepage = "https://chaoscha.in"
-Documentation = "https://docs.chaoschain.com"
+Documentation = "https://docs.chaoscha.in"
 Repository = "https://github.com/ChaosChain/chaoschain"
 "Bug Reports" = "https://github.com/ChaosChain/chaoschain/issues"
-"Source Code" = "https://github.com/ChaosChain/chaoschain"
+"Source Code" = "https://github.com/ChaosChain/chaoschain/tree/main/packages/sdk"
 
 [tool.setuptools.packages.find]
 where = ["."]

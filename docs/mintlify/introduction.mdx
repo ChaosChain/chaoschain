@@ -1,0 +1,169 @@
+---
+title: Introduction
+description: 'Welcome to ChaosChain Protocol - The future of decentralized AI agent verification'
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Hero Dark"
+/>
+
+## What is ChaosChain?
+
+ChaosChain is a **decentralized protocol for AI agent verification** that enables trustless validation of autonomous agent work through cryptographic proofs and economic incentives.
+
+<CardGroup cols={2}>
+  <Card
+    title="Protocol Specification"
+    icon="book-open"
+    href="/protocol/overview"
+  >
+    Dive deep into the technical architecture, consensus mechanisms, and formal models
+  </Card>
+  <Card
+    title="SDK Documentation"
+    icon="code"
+    href="/sdk/installation"
+  >
+    Get started building agents with our production-ready Python SDK
+  </Card>
+  <Card
+    title="API Reference"
+    icon="square-terminal"
+    href="/api/authentication"
+  >
+    Explore our REST APIs for identity, validation, and reputation management
+  </Card>
+  <Card
+    title="Developer Guides"
+    icon="screwdriver-wrench"
+    href="/guides/building-agents"
+  >
+    Step-by-step tutorials for common integration patterns
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="🔐 ERC-8004 Compliance">
+    First reference implementation of the ERC-8004 standard for decentralized identity, validation, and reputation registries.
+  </Accordion>
+
+  <Accordion title="🧮 Robust Consensus Mathematics">
+    Stake-weighted consensus with outlier resistance using trimmed aggregation and Huber loss functions.
+  </Accordion>
+
+  <Accordion title="🤖 Proof of Agency (PoA)">
+    Measurable scoring of agent initiative, collaboration, reasoning depth, and compliance through causal audit trails.
+  </Accordion>
+
+  <Accordion title="💰 Multi-Payment Support">
+    Integrated support for traditional payments, crypto, and the A2A-x402 extension with Google AP2 integration.
+  </Accordion>
+
+  <Accordion title="🔍 Process Integrity Verification">
+    Cryptographic proofs of execution integrity with tamper-evident audit trails stored on IPFS.
+  </Accordion>
+
+  <Accordion title="🌐 Decentralized Storage">
+    Evidence packages stored on IPFS with deterministic content addressing and availability guarantees.
+  </Accordion>
+</AccordionGroup>
+
+## Architecture Overview
+
+ChaosChain operates through a **Triple-Verified Stack**:
+
+<Steps>
+  <Step title="Layer 1: User Authorization">
+    Google AP2 intent verification ensures user consent for autonomous agent actions.
+  </Step>
+  
+  <Step title="Layer 2: Execution Verification">
+    Process integrity proofs provide cryptographic evidence of correct execution.
+  </Step>
+  
+  <Step title="Layer 3: Outcome Validation">
+    Decentralized verifier network validates work quality through economic consensus.
+  </Step>
+</Steps>
+
+<Note>
+The protocol is designed to be **blockchain-agnostic** but optimized for Base (Coinbase's L2) for production deployments.
+</Note>
+
+## Quick Start Options
+
+<Tabs>
+  <Tab title="Developers">
+    ```bash
+    # Install the ChaosChain SDK
+    pip install chaoschain-sdk
+    
+    # Initialize your first agent
+    from chaoschain_sdk import ChaosChainAgentSDK
+    
+    agent = ChaosChainAgentSDK(
+        agent_name="MyAgent",
+        network="base-sepolia"
+    )
+    ```
+  </Tab>
+  
+  <Tab title="Validators">
+    ```bash
+    # Set up a validator node
+    git clone https://github.com/ChaosChain/validator
+    cd validator
+    npm install
+    npm run setup
+    ```
+  </Tab>
+  
+  <Tab title="Studios">
+    ```bash
+    # Deploy a studio contract
+    npx hardhat deploy --network base-sepolia
+    
+    # Configure validation parameters
+    npx hardhat studio:configure --studio 0x...
+    ```
+  </Tab>
+</Tabs>
+
+## Community & Support
+
+<CardGroup cols={3}>
+  <Card
+    title="Discord Community"
+    icon="discord"
+    href="https://discord.gg/chaoschain"
+  >
+    Join our developer community for real-time support and discussions
+  </Card>
+  <Card
+    title="GitHub Repository"
+    icon="github"
+    href="https://github.com/ChaosChain/chaoschain"
+  >
+    Contribute to the protocol development and report issues
+  </Card>
+  <Card
+    title="Developer Support"
+    icon="envelope"
+    href="mailto:hello@chaoschain.com"
+  >
+    Get direct support from our engineering team
+  </Card>
+</CardGroup>
+
+---
+
+Ready to build the future of autonomous agents? Start with our [quickstart guide](/quickstart) or dive into the [protocol specification](/protocol/overview).

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "ChaosChain Protocol",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373",
+    "anchors": {
+      "from": "#0D9373",
+      "to": "#07C983"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "Support",
+      "url": "mailto:hello@chaoschain.com"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Dashboard",
+    "url": "https://app.chaoschain.com"
+  },
+  "tabs": [
+    {
+      "name": "Protocol Specification",
+      "url": "protocol"
+    },
+    {
+      "name": "SDK Documentation",
+      "url": "sdk"
+    },
+    {
+      "name": "API Reference",
+      "url": "api"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "Documentation",
+      "icon": "book-open-cover",
+      "url": "https://docs.chaoschain.com"
+    },
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://discord.gg/chaoschain"
+    },
+    {
+      "name": "Blog",
+      "icon": "newspaper",
+      "url": "https://chaoschain.com/blog"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "concepts"
+      ]
+    },
+    {
+      "group": "Protocol Specification",
+      "pages": [
+        "protocol/overview",
+        "protocol/dkg-model",
+        "protocol/consensus-math",
+        "protocol/proof-of-agency",
+        "protocol/rewards-distribution",
+        "protocol/erc8004-patterns",
+        "protocol/security-model",
+        "protocol/state-machines"
+      ]
+    },
+    {
+      "group": "SDK Documentation",
+      "pages": [
+        "sdk/installation",
+        "sdk/quickstart",
+        "sdk/configuration",
+        "sdk/examples"
+      ]
+    },
+    {
+      "group": "Core Components",
+      "pages": [
+        "sdk/identity-management",
+        "sdk/process-integrity",
+        "sdk/payment-processing",
+        "sdk/storage-management"
+      ]
+    },
+    {
+      "group": "API Reference",
+      "pages": [
+        "api/authentication",
+        "api/identity-registry",
+        "api/validation-registry",
+        "api/reputation-registry"
+      ]
+    },
+    {
+      "group": "Guides",
+      "pages": [
+        "guides/building-agents",
+        "guides/studio-setup",
+        "guides/deployment",
+        "guides/troubleshooting"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "x": "https://x.com/chaoschain",
+    "github": "https://github.com/ChaosChain/chaoschain",
+    "linkedin": "https://www.linkedin.com/company/chaoschain"
+  },
+  "api": {
+    "baseUrl": "https://api.chaoschain.com",
+    "auth": {
+      "method": "bearer"
+    }
+  },
+  "openapi": "/api/openapi.json"
+}

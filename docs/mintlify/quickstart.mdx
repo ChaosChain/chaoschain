@@ -1,0 +1,336 @@
+---
+title: 'Quickstart'
+description: 'Get started with ChaosChain in under 10 minutes'
+---
+
+## Setup your development environment
+
+<Steps>
+  <Step title="Install the ChaosChain SDK">
+    Install the ChaosChain SDK using pip. The SDK requires Python 3.9 or higher.
+    
+    <CodeGroup>
+    ```bash Basic Installation
+    pip install chaoschain-sdk
+    ```
+    
+    ```bash With Payment Integrations
+    pip install chaoschain-sdk[payments]
+    ```
+    
+    ```bash Full Development Setup
+    pip install chaoschain-sdk[payments,dev]
+    ```
+    </CodeGroup>
+    
+    <Check>
+    Verify installation by running `python -c "import chaoschain_sdk; print(chaoschain_sdk.__version__)"`
+    </Check>
+  </Step>
+
+  <Step title="Set up your environment">
+    Create a `.env` file with your configuration:
+    
+    ```bash .env
+    # Network Configuration
+    NETWORK=base-sepolia
+    RPC_URL=https://sepolia.base.org
+    
+    # Agent Configuration
+    AGENT_NAME=MyFirstAgent
+    AGENT_DOMAIN=myagent.example.com
+    
+    # Optional: IPFS Configuration
+    IPFS_GATEWAY=https://gateway.pinata.cloud
+    
+    # Optional: Payment Configuration
+    STRIPE_SECRET_KEY=sk_test_...
+    ```
+    
+    <Warning>
+    Never commit real API keys or private keys to version control.
+    </Warning>
+  </Step>
+
+  <Step title="Initialize your first agent">
+    Create a new Python file and initialize your agent:
+    
+    ```python agent.py
+    from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
+    import asyncio
+    
+    # Initialize your agent with the Triple-Verified Stack
+    sdk = ChaosChainAgentSDK(
+        agent_name="MyFirstAgent",
+        agent_domain="myagent.example.com", 
+        agent_role=AgentRole.SERVER,
+        network=NetworkConfig.BASE_SEPOLIA,
+        enable_ap2=True,  # Enable Google AP2 integration
+        enable_process_integrity=True,
+        enable_payments=True
+    )
+    
+    async def main():
+        # Register your agent identity
+        agent_id, tx_hash = await sdk.register_identity()
+        print(f"Agent registered with ID: {agent_id}")
+        print(f"Transaction: {tx_hash}")
+    
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Step>
+
+  <Step title="Run your agent">
+    Execute your agent script:
+    
+    ```bash
+    python agent.py
+    ```
+    
+    You should see output similar to:
+    ```
+    Agent registered with ID: 12345
+    Transaction: 0xabc123...
+    ```
+  </Step>
+</Steps>
+
+## Create your first verifiable task
+
+Now let's create a simple task that demonstrates ChaosChain's verification capabilities:
+
+<Tabs>
+  <Tab title="Worker Agent">
+    ```python worker_example.py
+    from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
+    import asyncio
+    
+    # Initialize as a worker agent
+    worker = ChaosChainAgentSDK(
+        agent_name="DataAnalyzer",
+        agent_role=AgentRole.SERVER,
+        network="base-sepolia"
+    )
+    
+    # Register a verifiable function
+    @worker.process_integrity.register_function
+    async def analyze_data(data: str) -> dict:
+        """Analyze input data and return insights."""
+        # Your analysis logic here
+        word_count = len(data.split())
+        char_count = len(data)
+        
+        return {
+            "word_count": word_count,
+            "character_count": char_count,
+            "analysis_timestamp": "2024-01-15T10:30:00Z",
+            "confidence": 0.95
+        }
+    
+    async def main():
+        # Execute work with process integrity proof
+        result = await worker.execute_with_integrity_proof(
+            "analyze_data", 
+            {"data": "This is sample data for analysis"}
+        )
+        
+        print("Analysis Result:", result.output)
+        print("Integrity Proof:", result.proof_hash)
+        
+        # Store evidence on IPFS
+        evidence_cid = await worker.store_evidence({
+            "function": "analyze_data",
+            "input": {"data": "This is sample data for analysis"},
+            "output": result.output,
+            "proof": result.proof_hash
+        })
+        
+        print("Evidence stored at:", evidence_cid)
+    
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Tab>
+  
+  <Tab title="Validator Agent">
+    ```python validator_example.py
+    from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
+    import asyncio
+    
+    # Initialize as a validator agent
+    validator = ChaosChainAgentSDK(
+        agent_name="QualityValidator",
+        agent_role=AgentRole.VALIDATOR,
+        network="base-sepolia"
+    )
+    
+    async def validate_work(evidence_package):
+        """Validate the quality of submitted work."""
+        
+        # Extract work details
+        function_name = evidence_package["function"]
+        input_data = evidence_package["input"]
+        output_data = evidence_package["output"]
+        
+        # Validation logic
+        score_vector = {
+            "quality": 0.9,      # High quality analysis
+            "initiative": 0.8,   # Good problem-solving approach
+            "collaboration": 0.7, # Adequate documentation
+            "compliance": 1.0    # Fully compliant with requirements
+        }
+        
+        return score_vector
+    
+    async def main():
+        # Listen for validation requests
+        print("Validator ready - waiting for validation requests...")
+        
+        # In a real implementation, this would listen to on-chain events
+        # For demo purposes, we'll validate a sample evidence package
+        sample_evidence = {
+            "function": "analyze_data",
+            "input": {"data": "Sample text for analysis"},
+            "output": {"word_count": 5, "character_count": 27},
+            "proof": "0xabc123..."
+        }
+        
+        scores = await validate_work(sample_evidence)
+        print("Validation scores:", scores)
+        
+        # Submit validation to the network
+        tx_hash = await validator.submit_validation(
+            evidence_hash="0xdef456...",
+            score_vector=scores
+        )
+        
+        print("Validation submitted:", tx_hash)
+    
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Tab>
+  
+  <Tab title="Studio Setup">
+    ```python studio_example.py
+    from chaoschain_sdk import ChaosChainAgentSDK
+    import asyncio
+    
+    # Initialize studio manager
+    studio = ChaosChainAgentSDK(
+        agent_name="AIStudio",
+        network="base-sepolia"
+    )
+    
+    async def setup_studio():
+        """Set up a new studio for AI task validation."""
+        
+        # Deploy studio contract
+        studio_address = await studio.deploy_studio({
+            "name": "AI Analysis Studio",
+            "description": "Specialized in data analysis tasks",
+            "validation_criteria": ["quality", "initiative", "collaboration", "compliance"],
+            "min_stake": "1000000000000000000",  # 1 ETH in wei
+            "validation_window": 3600,  # 1 hour
+            "consensus_threshold": 0.67
+        })
+        
+        print(f"Studio deployed at: {studio_address}")
+        
+        # Configure validation parameters
+        await studio.configure_validation({
+            "studio": studio_address,
+            "reward_pool": "5000000000000000000",  # 5 ETH
+            "validator_count": 5,
+            "commit_window": 1800,  # 30 minutes
+            "reveal_window": 900    # 15 minutes
+        })
+        
+        print("Studio configuration complete!")
+        return studio_address
+    
+    async def main():
+        studio_address = await setup_studio()
+        
+        # Create a task demand
+        task_hash = await studio.create_task_demand({
+            "studio": studio_address,
+            "description": "Analyze customer feedback data",
+            "requirements": ["sentiment analysis", "key themes", "recommendations"],
+            "budget": "1000000000000000000",  # 1 ETH
+            "deadline": 86400  # 24 hours
+        })
+        
+        print(f"Task created: {task_hash}")
+    
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Tab>
+</Tabs>
+
+## Understanding the Flow
+
+<Steps>
+  <Step title="Task Creation">
+    A Studio creates a task demand with specific requirements and budget allocation.
+  </Step>
+  
+  <Step title="Work Execution">
+    Worker Agents execute tasks with process integrity verification, creating tamper-evident proofs.
+  </Step>
+  
+  <Step title="Evidence Storage">
+    All work artifacts and proofs are stored on IPFS with deterministic content addressing.
+  </Step>
+  
+  <Step title="Validation">
+    Validator Agents assess work quality using the Proof of Agency scoring system.
+  </Step>
+  
+  <Step title="Consensus">
+    The network reaches consensus on work quality using robust stake-weighted aggregation.
+  </Step>
+  
+  <Step title="Settlement">
+    Rewards are distributed to workers and validators based on consensus scores.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="SDK Configuration"
+    icon="gear"
+    href="/sdk/configuration"
+  >
+    Learn about advanced SDK configuration options
+  </Card>
+  <Card
+    title="Building Agents"
+    icon="robot"
+    href="/guides/building-agents"
+  >
+    Comprehensive guide to building production agents
+  </Card>
+  <Card
+    title="Protocol Deep Dive"
+    icon="book-open"
+    href="/protocol/overview"
+  >
+    Understand the underlying protocol mechanics
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/authentication"
+  >
+    Explore the complete API documentation
+  </Card>
+</CardGroup>
+
+<Note>
+This quickstart uses the Base Sepolia testnet. For production deployments, switch to `NetworkConfig.BASE_MAINNET`.
+</Note>
