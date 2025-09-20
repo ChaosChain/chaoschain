@@ -60,7 +60,7 @@ jobs:
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
       run: |
         cd packages/sdk
-        python -m twine upload dist/*
+        python -m twine upload dist/* --skip-existing
     
     - name: Create GitHub Release
       if: startsWith(github.ref, 'refs/tags/sdk-v')
