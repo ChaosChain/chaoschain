@@ -31,7 +31,7 @@ pip install chaoschain-sdk[payments,dev]
 pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 ```
 
-> **✨ Zero Setup**: All ERC-8004 contracts are pre-deployed on Base Sepolia, Ethereum Sepolia, and Optimism Sepolia. No deployment or configuration needed!
+> **Zero Setup**: All ERC-8004 contracts are pre-deployed on Base Sepolia, Ethereum Sepolia, and Optimism Sepolia. No deployment or configuration needed!
 > 
 > **Note**: Google AP2 must be installed separately as it's not available on PyPI. This is required for intent verification features.
 

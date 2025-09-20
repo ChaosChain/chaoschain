@@ -119,3 +119,5 @@ docker-compose.override.yml
 deployment.json
 chaoschain_labs/
 .DS_Store 
+packages/sdk/keys
+packages/sdk/chaoschain_wallets.json
