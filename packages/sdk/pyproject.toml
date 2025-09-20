@@ -9,10 +9,10 @@ description = "Production-ready SDK for building agents on the ChaosChain protoc
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "ChaosChain Labs", email = "hello@chaoschain.com"}
+    {name = "ChaosChain", email = "sumeet.chougule@nethermind.io"}
 ]
 maintainers = [
-    {name = "ChaosChain Labs", email = "hello@chaoschain.com"}
+    {name = "ChaosChain", email = "sumeet.chougule@nethermind.io"}
 ]
 keywords = [
     "ai-agents", 
