@@ -1,0 +1,750 @@
+---
+title: 'ChaosChainAgentSDK'
+description: 'Complete API reference for the main SDK class'
+---
+
+## Overview
+
+The `ChaosChainAgentSDK` is the main entry point for building agents on the ChaosChain protocol. It provides a unified interface for all protocol operations.
+
+## Constructor
+
+```python
+ChaosChainAgentSDK(
+    agent_name: str,
+    agent_domain: str,
+    agent_role: AgentRole | str,
+    network: NetworkConfig | str = "base-sepolia",
+    enable_process_integrity: bool = True,
+    enable_payments: bool = True,
+    enable_storage: bool = True,
+    enable_ap2: bool = True,
+    wallet_file: str = None,
+    storage_jwt: str = None,
+    storage_gateway: str = None
+)
+```
+
+### Parameters
+
+<ParamField path="agent_name" type="str" required>
+  Name of the agent (used for wallet generation and identification)
+</ParamField>
+
+<ParamField path="agent_domain" type="str" required>
+  Domain where agent identity is hosted (e.g., "myagent.example.com")
+</ParamField>
+
+<ParamField path="agent_role" type="AgentRole | str" required>
+  Role of the agent. Can be:
+  - `"server"` or `AgentRole.SERVER` - Provides services
+  - `"client"` or `AgentRole.CLIENT` - Consumes services  
+  - `"validator"` or `AgentRole.VALIDATOR` - Validates work
+</ParamField>
+
+<ParamField path="network" type="NetworkConfig | str" default="base-sepolia">
+  Target blockchain network. Can be:
+  - `"base-sepolia"` or `NetworkConfig.BASE_SEPOLIA`
+  - `"ethereum-sepolia"` or `NetworkConfig.ETHEREUM_SEPOLIA`
+  - `"optimism-sepolia"` or `NetworkConfig.OPTIMISM_SEPOLIA`
+</ParamField>
+
+<ParamField path="enable_process_integrity" type="bool" default="True">
+  Enable process integrity verification with cryptographic proofs
+</ParamField>
+
+<ParamField path="enable_payments" type="bool" default="True">
+  Enable payment processing with 5 W3C-compliant methods
+</ParamField>
+
+<ParamField path="enable_storage" type="bool" default="True">
+  Enable IPFS storage for evidence and data persistence
+</ParamField>
+
+<ParamField path="enable_ap2" type="bool" default="True">
+  Enable Google AP2 integration for intent verification
+</ParamField>
+
+<ParamField path="wallet_file" type="str" default="None">
+  Custom wallet storage file path (defaults to "chaoschain_wallets.json")
+</ParamField>
+
+<ParamField path="storage_jwt" type="str" default="None">
+  Custom Pinata JWT token for IPFS storage (overrides PINATA_JWT env var)
+</ParamField>
+
+<ParamField path="storage_gateway" type="str" default="None">
+  Custom IPFS gateway URL (overrides PINATA_GATEWAY env var)
+</ParamField>
+
+### Example
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, AgentRole, NetworkConfig
+
+# Using enums (recommended)
+sdk = ChaosChainAgentSDK(
+    agent_name="MyAgent",
+    agent_domain="myagent.example.com",
+    agent_role=AgentRole.SERVER,
+    network=NetworkConfig.BASE_SEPOLIA
+)
+
+# Using strings (also supported)
+sdk = ChaosChainAgentSDK(
+    agent_name="MyAgent", 
+    agent_domain="myagent.example.com",
+    agent_role="server",
+    network="base-sepolia"
+)
+```
+
+## Identity Management
+
+### register_identity()
+
+Register agent identity on ERC-8004 IdentityRegistry.
+
+```python
+def register_identity() -> Tuple[AgentID, TransactionHash]
+```
+
+**Returns:**
+- `AgentID`: Unique on-chain agent identifier
+- `TransactionHash`: Transaction hash of registration
+
+**Example:**
+```python
+agent_id, tx_hash = sdk.register_identity()
+print(f"Agent registered with ID: {agent_id}")
+```
+
+**Raises:**
+- `AgentRegistrationError`: If registration fails
+- `ConfigurationError`: If network not configured
+
+### get_agent_id()
+
+Get the agent's on-chain ID.
+
+```python
+def get_agent_id() -> Optional[AgentID]
+```
+
+**Returns:**
+- `AgentID`: Agent ID if registered, `None` otherwise
+
+**Example:**
+```python
+agent_id = sdk.get_agent_id()
+if agent_id:
+    print(f"Agent ID: {agent_id}")
+else:
+    print("Agent not registered")
+```
+
+### get_agent_identity()
+
+Get complete agent identity information.
+
+```python
+def get_agent_identity() -> AgentIdentity
+```
+
+**Returns:**
+- `AgentIdentity`: Complete identity object with all details
+
+**Example:**
+```python
+identity = sdk.get_agent_identity()
+print(f"Agent: {identity.agent_name}")
+print(f"Domain: {identity.agent_domain}")
+print(f"Address: {identity.wallet_address}")
+```
+
+## Process Integrity
+
+### register_integrity_checked_function()
+
+Register a function for integrity checking.
+
+```python
+def register_integrity_checked_function(
+    func: callable, 
+    function_name: str = None
+) -> str
+```
+
+**Parameters:**
+- `func`: Function to register
+- `function_name`: Optional custom name (defaults to function.__name__)
+
+**Returns:**
+- `str`: Code hash of the registered function
+
+**Example:**
+```python
+@sdk.process_integrity.register_function
+async def analyze_data(data: dict) -> dict:
+    return {"result": "analyzed", "count": len(data)}
+
+# Or register explicitly
+code_hash = sdk.register_integrity_checked_function(analyze_data)
+```
+
+### execute_with_integrity_proof()
+
+Execute a registered function with integrity proof generation.
+
+```python
+async def execute_with_integrity_proof(
+    function_name: str,
+    inputs: Dict[str, Any],
+    require_proof: bool = True
+) -> Tuple[Any, Optional[IntegrityProof]]
+```
+
+**Parameters:**
+- `function_name`: Name of registered function
+- `inputs`: Function input parameters
+- `require_proof`: Whether to generate integrity proof
+
+**Returns:**
+- `Any`: Function execution result
+- `IntegrityProof`: Cryptographic proof of execution
+
+**Example:**
+```python
+result, proof = await sdk.execute_with_integrity_proof(
+    "analyze_data",
+    {"items": ["data1", "data2", "data3"]}
+)
+
+print(f"Result: {result}")
+print(f"Proof ID: {proof.proof_id}")
+```
+
+## Payment Processing
+
+### get_supported_payment_methods()
+
+Get list of all supported payment methods.
+
+```python
+def get_supported_payment_methods() -> List[str]
+```
+
+**Returns:**
+- `List[str]`: W3C payment method identifiers
+
+**Example:**
+```python
+methods = sdk.get_supported_payment_methods()
+print(f"Supported methods: {methods}")
+# Output: ['basic-card', 'https://google.com/pay', 'https://apple.com/apple-pay', 'https://paypal.com', 'https://a2a.org/x402']
+```
+
+### create_x402_payment_request()
+
+Create A2A-x402 payment request for crypto payments.
+
+```python
+def create_x402_payment_request(
+    cart_id: str,
+    total_amount: float,
+    currency: str,
+    items: List[Dict[str, Any]],
+    settlement_address: str = None
+) -> Dict[str, Any]
+```
+
+**Parameters:**
+- `cart_id`: Unique cart identifier
+- `total_amount`: Total payment amount
+- `currency`: Payment currency (e.g., "USDC")
+- `items`: List of items with name and price
+- `settlement_address`: Optional settlement address (defaults to agent wallet)
+
+**Returns:**
+- `Dict[str, Any]`: X402 payment request object
+
+**Example:**
+```python
+payment_request = sdk.create_x402_payment_request(
+    cart_id="order_123",
+    total_amount=10.0,
+    currency="USDC",
+    items=[{"name": "AI Analysis", "price": 10.0}]
+)
+```
+
+### execute_x402_crypto_payment()
+
+Execute A2A-x402 crypto payment.
+
+```python
+def execute_x402_crypto_payment(
+    payment_request: Dict[str, Any],
+    payer_agent: str,
+    service_description: str = "Agent Service"
+) -> Dict[str, Any]
+```
+
+**Parameters:**
+- `payment_request`: X402 payment request from `create_x402_payment_request()`
+- `payer_agent`: Name of paying agent
+- `service_description`: Description of service being paid for
+
+**Returns:**
+- `Dict[str, Any]`: Payment response with transaction details
+
+**Example:**
+```python
+crypto_result = sdk.execute_x402_crypto_payment(
+    payment_request=payment_request,
+    payer_agent="ClientAgent",
+    service_description="Data Analysis Service"
+)
+
+print(f"Transaction: {crypto_result['transaction_hash']}")
+print(f"Amount: {crypto_result['amount']} USDC")
+```
+
+### execute_traditional_payment()
+
+Execute traditional payment method (cards, Google Pay, etc.).
+
+```python
+def execute_traditional_payment(
+    payment_method: str,
+    amount: float,
+    currency: str,
+    payment_data: Dict[str, Any]
+) -> Dict[str, Any]
+```
+
+**Parameters:**
+- `payment_method`: W3C payment method identifier
+- `amount`: Payment amount
+- `currency`: Payment currency
+- `payment_data`: Method-specific payment data
+
+**Returns:**
+- `Dict[str, Any]`: Payment response with transaction details
+
+**Example:**
+```python
+card_result = sdk.execute_traditional_payment(
+    payment_method="basic-card",
+    amount=25.99,
+    currency="USD",
+    payment_data={
+        "cardNumber": "4111111111111111",
+        "cardType": "visa",
+        "expiryMonth": "12",
+        "expiryYear": "2025",
+        "cvv": "123"
+    }
+)
+```
+
+## Google AP2 Integration
+
+### create_intent_mandate()
+
+Create Google AP2 Intent Mandate for user authorization.
+
+```python
+def create_intent_mandate(
+    user_description: str,
+    merchants: Optional[List[str]] = None,
+    skus: Optional[List[str]] = None,
+    requires_refundability: bool = False,
+    expiry_minutes: int = 60
+) -> GoogleAP2IntegrationResult
+```
+
+**Parameters:**
+- `user_description`: Natural language description of intent
+- `merchants`: Allowed merchants (optional)
+- `skus`: Specific SKUs (optional)
+- `requires_refundability`: Whether items must be refundable
+- `expiry_minutes`: Minutes until intent expires
+
+**Returns:**
+- `GoogleAP2IntegrationResult`: Result with IntentMandate
+
+**Example:**
+```python
+intent_result = sdk.create_intent_mandate(
+    user_description="Find me a good AI analysis service under $10",
+    merchants=["TrustedAnalytics", "AIServices"],
+    expiry_minutes=60
+)
+
+if intent_result.success:
+    print(f"Intent created: {intent_result.intent_mandate}")
+```
+
+### create_cart_mandate()
+
+Create Google AP2 Cart Mandate with JWT signing.
+
+```python
+def create_cart_mandate(
+    cart_id: str,
+    items: List[Dict[str, Any]],
+    total_amount: float,
+    currency: str = "USD",
+    merchant_name: Optional[str] = None,
+    expiry_minutes: int = 15
+) -> GoogleAP2IntegrationResult
+```
+
+**Parameters:**
+- `cart_id`: Unique cart identifier
+- `items`: List of items in cart
+- `total_amount`: Total cart amount
+- `currency`: Currency code
+- `merchant_name`: Name of merchant (defaults to agent name)
+- `expiry_minutes`: Minutes until cart expires
+
+**Returns:**
+- `GoogleAP2IntegrationResult`: Result with CartMandate and JWT
+
+**Example:**
+```python
+cart_result = sdk.create_cart_mandate(
+    cart_id="cart_123",
+    items=[{"name": "AI Analysis", "price": 5.0}],
+    total_amount=5.0,
+    currency="USD"
+)
+
+if cart_result.success:
+    print(f"JWT Token: {cart_result.jwt_token}")
+```
+
+### verify_jwt_token()
+
+Verify Google AP2 JWT token.
+
+```python
+def verify_jwt_token(token: str) -> Dict[str, Any]
+```
+
+**Parameters:**
+- `token`: JWT token to verify
+
+**Returns:**
+- `Dict[str, Any]`: Decoded payload if valid, empty dict if invalid
+
+**Example:**
+```python
+payload = sdk.verify_jwt_token(jwt_token)
+if payload:
+    print(f"Valid token for cart: {payload['sub']}")
+else:
+    print("Invalid or expired token")
+```
+
+## Storage Management
+
+### store_evidence()
+
+Store evidence data on IPFS.
+
+```python
+def store_evidence(
+    data: Dict[str, Any],
+    evidence_type: str = "evidence",
+    metadata: Dict[str, Any] = None
+) -> Optional[str]
+```
+
+**Parameters:**
+- `data`: Data to store
+- `evidence_type`: Type of evidence
+- `metadata`: Optional metadata
+
+**Returns:**
+- `str`: IPFS CID if successful, `None` otherwise
+
+**Example:**
+```python
+evidence_cid = sdk.store_evidence({
+    "analysis_result": result,
+    "integrity_proof": proof.__dict__,
+    "timestamp": "2024-01-01T00:00:00Z"
+})
+
+if evidence_cid:
+    print(f"Evidence stored: {evidence_cid}")
+```
+
+### retrieve_evidence()
+
+Retrieve evidence data from IPFS.
+
+```python
+def retrieve_evidence(cid: str) -> Optional[Dict[str, Any]]
+```
+
+**Parameters:**
+- `cid`: IPFS Content Identifier
+
+**Returns:**
+- `Dict[str, Any]`: Retrieved data if successful, `None` otherwise
+
+**Example:**
+```python
+evidence = sdk.retrieve_evidence(evidence_cid)
+if evidence:
+    print(f"Retrieved evidence: {evidence}")
+```
+
+## Validation
+
+### request_validation()
+
+Request validation from another agent via ERC-8004.
+
+```python
+def request_validation(
+    validator_agent_id: AgentID, 
+    data_hash: str
+) -> TransactionHash
+```
+
+**Parameters:**
+- `validator_agent_id`: ID of the validator agent
+- `data_hash`: Hash of data to validate
+
+**Returns:**
+- `TransactionHash`: Transaction hash
+
+**Example:**
+```python
+import hashlib
+
+data_hash = "0x" + hashlib.sha256(json.dumps(result).encode()).hexdigest()
+tx_hash = sdk.request_validation(validator_agent_id=8, data_hash=data_hash)
+```
+
+### submit_validation_response()
+
+Submit a validation response with score.
+
+```python
+def submit_validation_response(
+    data_hash: str, 
+    score: int
+) -> TransactionHash
+```
+
+**Parameters:**
+- `data_hash`: Hash of the data that was validated
+- `score`: Validation score (0-100)
+
+**Returns:**
+- `TransactionHash`: Transaction hash
+
+**Example:**
+```python
+tx_hash = sdk.submit_validation_response(
+    data_hash=data_hash,
+    score=85
+)
+```
+
+### submit_feedback()
+
+Submit feedback for another agent via ERC-8004.
+
+```python
+def submit_feedback(
+    agent_id: AgentID, 
+    score: int, 
+    feedback: str
+) -> TransactionHash
+```
+
+**Parameters:**
+- `agent_id`: Target agent ID
+- `score`: Feedback score (0-100)
+- `feedback`: Feedback text
+
+**Returns:**
+- `TransactionHash`: Transaction hash
+
+**Example:**
+```python
+tx_hash = sdk.submit_feedback(
+    agent_id=target_agent_id,
+    score=95,
+    feedback="Excellent service quality and fast response"
+)
+```
+
+## Evidence Packages
+
+### create_evidence_package()
+
+Create a comprehensive evidence package for Proof of Agency.
+
+```python
+def create_evidence_package(
+    work_proof: Dict[str, Any],
+    integrity_proof: IntegrityProof = None,
+    payment_proofs: List[PaymentProof] = None,
+    validation_results: List[ValidationResult] = None
+) -> EvidencePackage
+```
+
+**Parameters:**
+- `work_proof`: Evidence of work performed
+- `integrity_proof`: Process integrity proof
+- `payment_proofs`: List of payment proofs
+- `validation_results`: List of validation results
+
+**Returns:**
+- `EvidencePackage`: Complete evidence package
+
+**Example:**
+```python
+evidence_package = sdk.create_evidence_package(
+    work_proof={
+        "service_type": "data_analysis",
+        "input_data": input_params,
+        "output_data": analysis_result,
+        "execution_time": execution_duration
+    },
+    integrity_proof=integrity_proof,
+    payment_proofs=[payment_proof]
+)
+
+print(f"Package ID: {evidence_package.package_id}")
+print(f"IPFS CID: {evidence_package.ipfs_cid}")
+```
+
+## Utility Methods
+
+### get_sdk_status()
+
+Get comprehensive SDK status and configuration.
+
+```python
+def get_sdk_status() -> Dict[str, Any]
+```
+
+**Returns:**
+- `Dict[str, Any]`: SDK status with all configuration details
+
+**Example:**
+```python
+status = sdk.get_sdk_status()
+print(f"Agent: {status['agent_name']} ({status['agent_role']})")
+print(f"Network: {status['network']} (Chain {status['chain_id']})")
+print(f"Features: {status['features']}")
+print(f"Payment Methods: {len(status['payment_methods'])}")
+```
+
+## Properties
+
+### wallet_address
+
+Get the agent's wallet address.
+
+```python
+@property
+def wallet_address(self) -> str
+```
+
+**Returns:**
+- `str`: Agent's wallet address
+
+**Example:**
+```python
+print(f"Wallet: {sdk.wallet_address}")
+```
+
+### is_registered
+
+Check if the agent is registered on-chain.
+
+```python
+@property
+def is_registered(self) -> bool
+```
+
+**Returns:**
+- `bool`: `True` if registered, `False` otherwise
+
+**Example:**
+```python
+if sdk.is_registered:
+    print("Agent is registered")
+else:
+    print("Agent needs registration")
+```
+
+### network_info
+
+Get network information.
+
+```python
+@property
+def network_info(self) -> Dict[str, Any]
+```
+
+**Returns:**
+- `Dict[str, Any]`: Network configuration details
+
+**Example:**
+```python
+info = sdk.network_info
+print(f"Network: {info['network']}")
+print(f"Chain ID: {info['chain_id']}")
+print(f"Connected: {info['connected']}")
+```
+
+## Error Handling
+
+The SDK raises specific exceptions for different error conditions:
+
+```python
+from chaoschain_sdk.exceptions import (
+    ChaosChainSDKError,
+    AgentRegistrationError,
+    PaymentError,
+    IntegrityVerificationError,
+    ConfigurationError
+)
+
+try:
+    agent_id, tx_hash = sdk.register_identity()
+except AgentRegistrationError as e:
+    print(f"Registration failed: {e}")
+except ConfigurationError as e:
+    print(f"Configuration error: {e}")
+except ChaosChainSDKError as e:
+    print(f"General SDK error: {e}")
+```
+
+## Type Definitions
+
+The SDK provides comprehensive type definitions:
+
+```python
+from chaoschain_sdk import (
+    AgentRole,           # SERVER, VALIDATOR, CLIENT
+    NetworkConfig,       # BASE_SEPOLIA, ETHEREUM_SEPOLIA, etc.
+    PaymentMethod,       # BASIC_CARD, GOOGLE_PAY, A2A_X402, etc.
+    IntegrityProof,      # Process integrity proof
+    PaymentProof,        # Payment transaction proof
+    EvidencePackage,     # Comprehensive evidence package
+    AgentIdentity,       # Agent identity information
+    AgentID,             # Agent identifier type
+    TransactionHash      # Transaction hash type
+)
+```

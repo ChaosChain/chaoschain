@@ -1,0 +1,492 @@
+---
+title: 'Payment Methods'
+description: '5 W3C-compliant payment methods including crypto and traditional payments'
+---
+
+## Overview
+
+ChaosChain SDK supports **5 W3C-compliant payment methods** for comprehensive payment processing. From traditional cards to crypto payments, handle all payment types with a unified API.
+
+<CardGroup cols={2}>
+  <Card title="Live Crypto Payments" icon="bitcoin">
+    **A2A-x402** with real USDC transfers on Base Sepolia
+  </Card>
+  <Card title="Traditional Methods" icon="credit-card">
+    **Cards, Google Pay, Apple Pay, PayPal** with real API integrations
+  </Card>
+</CardGroup>
+
+## Supported Payment Methods
+
+### ✅ **LIVE & WORKING (Out-of-the-Box)**
+
+| Method | W3C Identifier | Status | Settlement |
+|--------|---------------|--------|------------|
+| A2A-x402 Crypto | `https://a2a.org/x402` | ✅ **LIVE** | **Real USDC Transfers on Base Sepolia** |
+
+### 🔧 **REAL API INTEGRATIONS (Add Your Credentials)**
+
+| Method | W3C Identifier | Status | What You Need |
+|--------|---------------|--------|---------------|
+| Basic Cards | `basic-card` | ✅ **REAL** Stripe API | Add `STRIPE_SECRET_KEY` |
+| PayPal | `https://paypal.com` | ✅ **REAL** PayPal API | Add `PAYPAL_CLIENT_ID` + `PAYPAL_CLIENT_SECRET` |
+| Google Pay | `https://google.com/pay` | ✅ **REAL** Token Validation | Add `GOOGLE_PAY_MERCHANT_ID` |
+| Apple Pay | `https://apple.com/apple-pay` | ✅ **REAL** Token Validation | Add `APPLE_PAY_MERCHANT_ID` |
+
+## A2A-x402 Crypto Payments
+
+The **A2A-x402** protocol enables **real USDC transfers** between agents with automatic protocol fees.
+
+### Features
+
+- ✅ **Real USDC Transfers** on Base Sepolia
+- ✅ **Automatic Protocol Fees** (2.5% to ChaosChain treasury)
+- ✅ **Multi-Network Support** (Base, Ethereum, Optimism Sepolia)
+- ✅ **Instant Settlement** with transaction proofs
+
+### Usage Example
+
+<CodeGroup>
+
+```python Create Payment Request
+# Create A2A-x402 payment request
+payment_request = sdk.create_x402_payment_request(
+    cart_id="service_001",
+    total_amount=10.0,
+    currency="USDC",
+    items=[
+        {"name": "AI Analysis Service", "price": 8.0},
+        {"name": "Data Processing", "price": 2.0}
+    ],
+    settlement_address=sdk.wallet_address  # Optional, defaults to agent wallet
+)
+
+print(f"💰 Payment Request ID: {payment_request['id']}")
+print(f"🏦 Settlement Address: {payment_request['settlement_address']}")
+```
+
+```python Execute Payment
+# Execute the crypto payment
+crypto_result = sdk.execute_x402_crypto_payment(
+    payment_request=payment_request,
+    payer_agent="ClientAgent",
+    service_description="AI Analysis and Data Processing"
+)
+
+print(f"✅ Payment Status: {crypto_result['status']}")
+print(f"📄 Transaction Hash: {crypto_result['transaction_hash']}")
+print(f"💵 Amount Transferred: {crypto_result['amount']} USDC")
+print(f"🏛️ Protocol Fee: {crypto_result['protocol_fee']} USDC")
+```
+
+</CodeGroup>
+
+### Payment Flow
+
+<Steps>
+  <Step title="Create Request">
+    Agent creates A2A-x402 payment request with items and total amount
+  </Step>
+  <Step title="Generate Settlement">
+    SDK generates settlement address and calculates protocol fees
+  </Step>
+  <Step title="Execute Transfer">
+    USDC is transferred from payer to settlement address
+  </Step>
+  <Step title="Fee Collection">
+    Protocol fee (2.5%) is automatically sent to ChaosChain treasury
+  </Step>
+</Steps>
+
+## Traditional Payment Methods
+
+All traditional payment methods use **real API integrations** with production payment processors.
+
+### Basic Card Payments (Stripe)
+
+Process credit and debit cards through Stripe's API:
+
+<CodeGroup>
+
+```python Setup Environment
+import os
+
+# Add your Stripe credentials
+os.environ['STRIPE_SECRET_KEY'] = 'sk_live_your_stripe_secret_key'
+os.environ['STRIPE_PUBLISHABLE_KEY'] = 'pk_live_your_stripe_publishable_key'
+```
+
+```python Process Card Payment
+# Process basic card payment
+card_result = sdk.execute_traditional_payment(
+    payment_method="basic-card",
+    amount=25.99,
+    currency="USD",
+    payment_data={
+        "cardNumber": "4111111111111111",  # Test card
+        "cardType": "visa",
+        "expiryMonth": "12",
+        "expiryYear": "2025",
+        "cvv": "123",
+        "billingAddress": {
+            "line1": "123 Main St",
+            "city": "San Francisco",
+            "state": "CA",
+            "postal_code": "94105",
+            "country": "US"
+        }
+    }
+)
+
+print(f"💳 Card Payment: {card_result['status']}")
+print(f"🆔 Charge ID: {card_result['charge_id']}")
+```
+
+</CodeGroup>
+
+### Google Pay Integration
+
+Process Google Pay payments with token validation:
+
+<CodeGroup>
+
+```python Setup Google Pay
+import os
+
+# Add your Google Pay merchant ID
+os.environ['GOOGLE_PAY_MERCHANT_ID'] = 'merchant.your-domain.com'
+os.environ['GOOGLE_PAY_ENVIRONMENT'] = 'PRODUCTION'  # or 'TEST'
+```
+
+```python Process Google Pay
+# Process Google Pay payment
+gpay_result = sdk.execute_traditional_payment(
+    payment_method="https://google.com/pay",
+    amount=25.99,
+    currency="USD",
+    payment_data={
+        "googleTransactionId": "gpay_txn_123456789",
+        "paymentMethodType": "CARD",
+        "paymentToken": "encrypted_payment_token_from_google",
+        "billingAddress": {
+            "name": "John Doe",
+            "address1": "123 Main St",
+            "locality": "San Francisco",
+            "administrativeArea": "CA",
+            "postalCode": "94105",
+            "countryCode": "US"
+        }
+    }
+)
+
+print(f"📱 Google Pay: {gpay_result['status']}")
+print(f"🆔 Transaction ID: {gpay_result['transaction_id']}")
+```
+
+</CodeGroup>
+
+### Apple Pay Integration
+
+Process Apple Pay payments with certificate validation:
+
+<CodeGroup>
+
+```python Setup Apple Pay
+import os
+
+# Add your Apple Pay credentials
+os.environ['APPLE_PAY_MERCHANT_ID'] = 'merchant.your-domain.com'
+os.environ['APPLE_PAY_CERTIFICATE_PATH'] = '/path/to/apple-pay-cert.pem'
+```
+
+```python Process Apple Pay
+# Process Apple Pay payment
+apay_result = sdk.execute_traditional_payment(
+    payment_method="https://apple.com/apple-pay",
+    amount=25.99,
+    currency="USD",
+    payment_data={
+        "transactionIdentifier": "apay_txn_789012345",
+        "paymentMethod": {
+            "displayName": "Visa ••••1234",
+            "network": "Visa",
+            "type": "debit"
+        },
+        "paymentToken": "encrypted_payment_token_from_apple",
+        "billingContact": {
+            "givenName": "John",
+            "familyName": "Doe",
+            "addressLines": ["123 Main St"],
+            "locality": "San Francisco",
+            "administrativeArea": "CA",
+            "postalCode": "94105",
+            "country": "US"
+        }
+    }
+)
+
+print(f"🍎 Apple Pay: {apay_result['status']}")
+print(f"🆔 Transaction ID: {apay_result['transaction_id']}")
+```
+
+</CodeGroup>
+
+### PayPal Integration
+
+Process PayPal payments through their REST API:
+
+<CodeGroup>
+
+```python Setup PayPal
+import os
+
+# Add your PayPal credentials
+os.environ['PAYPAL_CLIENT_ID'] = 'your_paypal_client_id'
+os.environ['PAYPAL_CLIENT_SECRET'] = 'your_paypal_client_secret'
+os.environ['PAYPAL_ENVIRONMENT'] = 'live'  # or 'sandbox'
+```
+
+```python Process PayPal Payment
+# Process PayPal payment
+paypal_result = sdk.execute_traditional_payment(
+    payment_method="https://paypal.com",
+    amount=25.99,
+    currency="USD",
+    payment_data={
+        "paypalTransactionId": "pp_txn_345678901",
+        "payerEmail": "customer@example.com",
+        "payerId": "PAYERID123456789",
+        "paymentId": "PAYID-ABCDEFG",
+        "billingAddress": {
+            "recipient_name": "John Doe",
+            "line1": "123 Main St",
+            "city": "San Francisco",
+            "state": "CA",
+            "postal_code": "94105",
+            "country_code": "US"
+        }
+    }
+)
+
+print(f"🏦 PayPal: {paypal_result['status']}")
+print(f"🆔 Payment ID: {paypal_result['payment_id']}")
+```
+
+</CodeGroup>
+
+## Multi-Payment Example
+
+Handle multiple payment methods in a single application:
+
+```python multi_payment_agent.py
+import os
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Setup environment variables for all payment methods
+os.environ.update({
+    'BASE_SEPOLIA_RPC_URL': 'https://sepolia.base.org',
+    'STRIPE_SECRET_KEY': 'sk_live_your_stripe_key',
+    'GOOGLE_PAY_MERCHANT_ID': 'merchant.your-domain.com',
+    'APPLE_PAY_MERCHANT_ID': 'merchant.your-domain.com',
+    'PAYPAL_CLIENT_ID': 'your_paypal_client_id',
+    'PAYPAL_CLIENT_SECRET': 'your_paypal_client_secret'
+})
+
+# Initialize SDK with all payment methods
+sdk = ChaosChainAgentSDK(
+    agent_name="PaymentAgent",
+    agent_domain="payments.example.com",
+    agent_role="server",
+    network="base-sepolia",
+    enable_payments=True
+)
+
+# Get all supported payment methods
+methods = sdk.get_supported_payment_methods()
+print(f"💳 Supported Methods: {methods}")
+
+# Process different payment types based on user preference
+def process_payment(method: str, amount: float, payment_data: dict):
+    if method == "https://a2a.org/x402":
+        # Crypto payment
+        payment_request = sdk.create_x402_payment_request(
+            cart_id=f"order_{int(time.time())}",
+            total_amount=amount,
+            currency="USDC",
+            items=[{"name": "Service", "price": amount}]
+        )
+        return sdk.execute_x402_crypto_payment(
+            payment_request=payment_request,
+            payer_agent="ClientAgent"
+        )
+    else:
+        # Traditional payment
+        return sdk.execute_traditional_payment(
+            payment_method=method,
+            amount=amount,
+            currency="USD",
+            payment_data=payment_data
+        )
+
+# Example usage
+crypto_result = process_payment(
+    "https://a2a.org/x402", 
+    10.0, 
+    {}
+)
+
+card_result = process_payment(
+    "basic-card",
+    25.99,
+    {
+        "cardNumber": "4111111111111111",
+        "cardType": "visa",
+        "expiryMonth": "12",
+        "expiryYear": "2025",
+        "cvv": "123"
+    }
+)
+
+print(f"🚀 Crypto: {crypto_result['status']}")
+print(f"💳 Card: {card_result['status']}")
+```
+
+## Payment Configuration
+
+### Environment Variables
+
+Set up your payment processor credentials:
+
+```bash .env
+# Network Configuration
+BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
+
+# Stripe (for basic-card payments)
+STRIPE_SECRET_KEY=sk_live_your_stripe_secret_key
+STRIPE_PUBLISHABLE_KEY=pk_live_your_stripe_publishable_key
+
+# Google Pay
+GOOGLE_PAY_MERCHANT_ID=merchant.your-domain.com
+GOOGLE_PAY_ENVIRONMENT=PRODUCTION
+
+# Apple Pay
+APPLE_PAY_MERCHANT_ID=merchant.your-domain.com
+APPLE_PAY_CERTIFICATE_PATH=/path/to/apple-pay-cert.pem
+
+# PayPal
+PAYPAL_CLIENT_ID=your_paypal_client_id
+PAYPAL_CLIENT_SECRET=your_paypal_client_secret
+PAYPAL_ENVIRONMENT=live
+```
+
+### Demo Mode Fallback
+
+If credentials aren't provided, the SDK automatically falls back to **demo mode**:
+
+```python
+# Without credentials - uses demo mode
+sdk = ChaosChainAgentSDK(
+    agent_name="DemoAgent",
+    agent_domain="demo.example.com",
+    agent_role="server"
+)
+
+# This will work in demo mode
+demo_result = sdk.execute_traditional_payment(
+    payment_method="basic-card",
+    amount=10.0,
+    currency="USD",
+    payment_data={"demo": True}
+)
+
+print(f"🎭 Demo Payment: {demo_result['status']}")
+# Output: Demo Payment: demo_success
+```
+
+## Protocol Fees
+
+ChaosChain automatically collects protocol fees on crypto payments:
+
+- **Fee Rate**: 2.5% of transaction amount
+- **Collection**: Automatic on A2A-x402 payments
+- **Destination**: ChaosChain treasury address
+- **Traditional Payments**: No protocol fees (handled by payment processors)
+
+### Fee Calculation Example
+
+```python
+# For a $10 USDC payment:
+total_amount = 10.0
+protocol_fee = total_amount * 0.025  # 2.5%
+agent_receives = total_amount - protocol_fee
+
+print(f"💰 Total: ${total_amount} USDC")
+print(f"🏛️ Protocol Fee: ${protocol_fee} USDC")
+print(f"👤 Agent Receives: ${agent_receives} USDC")
+
+# Output:
+# 💰 Total: $10.0 USDC
+# 🏛️ Protocol Fee: $0.25 USDC  
+# 👤 Agent Receives: $9.75 USDC
+```
+
+## Error Handling
+
+Handle payment errors gracefully:
+
+```python
+from chaoschain_sdk.exceptions import PaymentError
+
+try:
+    result = sdk.execute_traditional_payment(
+        payment_method="basic-card",
+        amount=100.0,
+        currency="USD",
+        payment_data={"invalid": "data"}
+    )
+except PaymentError as e:
+    print(f"💥 Payment failed: {e}")
+    # Handle specific error cases
+    if "insufficient funds" in str(e).lower():
+        print("💳 Card declined - insufficient funds")
+    elif "invalid card" in str(e).lower():
+        print("🚫 Invalid card details")
+    else:
+        print("⚠️ General payment error")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Security">
+    - **Never log** payment credentials or sensitive data
+    - **Use HTTPS** for all payment communications
+    - **Validate** payment data before processing
+    - **Store credentials** in environment variables, not code
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    - **Implement retries** for network failures
+    - **Provide clear feedback** to users on payment status
+    - **Log errors** for debugging (without sensitive data)
+    - **Handle timeouts** gracefully
+  </Accordion>
+
+  <Accordion title="User Experience">
+    - **Show supported methods** to users
+    - **Provide payment status** updates
+    - **Handle demo mode** transparently
+    - **Offer multiple options** for payment flexibility
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Payment Integration Guide" href="/guides/payment-integration">
+    Step-by-step setup for production payment processors
+  </Card>
+  <Card title="SDK Configuration" href="/sdk/configuration">
+    Complete configuration options and environment variables
+  </Card>
+</CardGroup>

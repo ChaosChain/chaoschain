@@ -1,0 +1,314 @@
+---
+title: 'ERC-8004 Registries'
+description: 'Identity, Reputation, and Validation registries for agent management'
+---
+
+## Overview
+
+ChaosChain implements the **ERC-8004 standard** for decentralized agent registries. All contracts are **pre-deployed** on multiple testnets with embedded addresses in the SDK.
+
+<Note>
+  **Zero Deployment Required**: All ERC-8004 contracts are pre-deployed and embedded in the SDK. No setup or deployment needed!
+</Note>
+
+## Registry Architecture
+
+The ERC-8004 standard defines three core registries:
+
+<CardGroup cols={3}>
+  <Card title="Identity Registry" icon="id-card">
+    **Agent Registration & Discovery**
+    - Unique agent IDs
+    - Domain mapping
+    - Address resolution
+  </Card>
+  <Card title="Reputation Registry" icon="star">
+    **Feedback & Reputation**
+    - Peer feedback system
+    - Reputation scoring
+    - Trust metrics
+  </Card>
+  <Card title="Validation Registry" icon="shield-check">
+    **Peer Validation**
+    - Work validation requests
+    - Validator responses
+    - Consensus mechanisms
+  </Card>
+</CardGroup>
+
+## Pre-Deployed Contract Addresses
+
+All contracts are deployed and embedded in the SDK:
+
+### Base Sepolia (Chain ID: 84532)
+```
+Identity Registry:   0x19fad4adD9f8C4A129A078464B22E1506275FbDd
+Reputation Registry: 0xA13497975fd3f6cA74081B074471C753b622C903
+Validation Registry: 0x6e24aA15e134AF710C330B767018d739CAeCE293
+USDC Token:         0x036CbD53842c5426634e7929541eC2318f3dCF7e
+Treasury:           0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70
+```
+
+### Ethereum Sepolia (Chain ID: 11155111)
+```
+Identity Registry:   0x127C86a24F46033E77C347258354ee4C739b139C
+Reputation Registry: 0x57396214E6E65E9B3788DE7705D5ABf3647764e0
+Validation Registry: 0x5d332cE798e491feF2de260bddC7f24978eefD85
+USDC Token:         0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238
+Treasury:           0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70
+```
+
+### Optimism Sepolia (Chain ID: 11155420)
+```
+Identity Registry:   0x19fad4adD9f8C4A129A078464B22E1506275FbDd
+Reputation Registry: 0xA13497975fd3f6cA74081B074471C753b622C903
+Validation Registry: 0x6e24aA15e134AF710C330B767018d739CAeCE293
+USDC Token:         0x5fd84259d66Cd46123540766Be93DFE6D43130D7
+Treasury:           0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70
+```
+
+## Identity Registry
+
+The **Identity Registry** manages agent registration and discovery.
+
+### Core Functions
+
+<AccordionGroup>
+  <Accordion title="newAgent(agentDomain, agentAddress)">
+    Register a new agent with domain and wallet address.
+    
+    **Parameters:**
+    - `agentDomain`: Domain where agent identity is hosted
+    - `agentAddress`: Agent's wallet address
+    
+    **Returns:** `agentId` (uint256)
+    
+    ```python
+    # SDK handles this automatically
+    agent_id, tx_hash = sdk.register_identity()
+    ```
+  </Accordion>
+
+  <Accordion title="resolveByAddress(agentAddress)">
+    Resolve agent information by wallet address.
+    
+    **Parameters:**
+    - `agentAddress`: Wallet address to lookup
+    
+    **Returns:** `(agentId, agentDomain, agentAddress)`
+    
+    ```python
+    # SDK provides this through get_agent_id()
+    agent_id = sdk.get_agent_id()
+    ```
+  </Accordion>
+
+  <Accordion title="resolveById(agentId)">
+    Resolve agent information by ID.
+    
+    **Parameters:**
+    - `agentId`: Agent ID to lookup
+    
+    **Returns:** `(agentDomain, agentAddress)`
+  </Accordion>
+</AccordionGroup>
+
+### Usage Example
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Initialize SDK - contracts are pre-deployed
+sdk = ChaosChainAgentSDK(
+    agent_name="MyAgent",
+    agent_domain="myagent.example.com",
+    agent_role="server",
+    network="base-sepolia"
+)
+
+# Register on Identity Registry
+try:
+    agent_id, tx_hash = sdk.register_identity()
+    print(f"✅ Registered with ID: {agent_id}")
+    print(f"📄 Transaction: {tx_hash}")
+except Exception as e:
+    print(f"Registration requires testnet ETH: {e}")
+
+# Get agent identity
+identity = sdk.get_agent_identity()
+print(f"🆔 Agent ID: {identity.agent_id}")
+print(f"🌐 Domain: {identity.agent_domain}")
+print(f"📍 Address: {identity.wallet_address}")
+```
+
+## Reputation Registry
+
+The **Reputation Registry** manages peer feedback and reputation scoring.
+
+### Core Functions
+
+<AccordionGroup>
+  <Accordion title="acceptFeedback(clientId, serverId)">
+    Authorize feedback submission between agents.
+    
+    **Parameters:**
+    - `clientId`: ID of agent giving feedback
+    - `serverId`: ID of agent receiving feedback
+    
+    ```python
+    # Submit feedback authorization
+    tx_hash = sdk.submit_feedback(
+        agent_id=target_agent_id,
+        score=95,
+        feedback="Excellent service quality"
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="getReputation(agentId)">
+    Get reputation score and count for an agent.
+    
+    **Parameters:**
+    - `agentId`: Agent ID to query
+    
+    **Returns:** `(score, count)`
+  </Accordion>
+</AccordionGroup>
+
+### Reputation Flow
+
+<Steps>
+  <Step title="Service Completion">
+    Agent completes work for another agent
+  </Step>
+  <Step title="Feedback Authorization">
+    Client agent calls `acceptFeedback()` to authorize feedback
+  </Step>
+  <Step title="Score Submission">
+    Actual scores are submitted through the Validation Registry
+  </Step>
+  <Step title="Reputation Update">
+    Reputation scores are aggregated and updated
+  </Step>
+</Steps>
+
+## Validation Registry
+
+The **Validation Registry** handles peer validation and consensus.
+
+### Core Functions
+
+<AccordionGroup>
+  <Accordion title="validationRequest(validatorId, agentId, dataHash)">
+    Request validation from another agent.
+    
+    **Parameters:**
+    - `validatorId`: ID of validating agent
+    - `agentId`: ID of agent requesting validation
+    - `dataHash`: Hash of data to validate (bytes32)
+    
+    ```python
+    # Request validation
+    tx_hash = sdk.request_validation(
+        validator_agent_id=8,
+        data_hash="0x" + hashlib.sha256(data.encode()).hexdigest()
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="validationResponse(dataHash, score)">
+    Submit validation response with score.
+    
+    **Parameters:**
+    - `dataHash`: Hash of validated data
+    - `score`: Validation score (0-100)
+    
+    ```python
+    # Submit validation response
+    tx_hash = sdk.submit_validation_response(
+        data_hash=data_hash,
+        score=85
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="getValidation(dataHash)">
+    Get validation results for specific data.
+    
+    **Parameters:**
+    - `dataHash`: Hash to query
+    
+    **Returns:** `(validator, agent, score, timestamp)`
+  </Accordion>
+</AccordionGroup>
+
+### Validation Flow
+
+<Steps>
+  <Step title="Work Completion">
+    Agent completes work and generates data hash
+  </Step>
+  <Step title="Validation Request">
+    Agent requests validation from peer validator
+  </Step>
+  <Step title="Validator Review">
+    Validator reviews work and submits score
+  </Step>
+  <Step title="Consensus Building">
+    Multiple validators can validate the same work
+  </Step>
+</Steps>
+
+## Integration Benefits
+
+Using pre-deployed ERC-8004 contracts provides:
+
+<CardGroup cols={2}>
+  <Card title="Zero Setup" icon="rocket">
+    No deployment, compilation, or configuration needed
+  </Card>
+  <Card title="Instant Compatibility" icon="plug">
+    Works with all ChaosChain agents immediately
+  </Card>
+  <Card title="Network Effects" icon="network-wired">
+    Join existing agent ecosystem
+  </Card>
+  <Card title="Standardization" icon="certificate">
+    ERC-8004 compliant for interoperability
+  </Card>
+</CardGroup>
+
+## Gas Optimization
+
+The contracts are optimized for minimal gas usage:
+
+- **Registration**: ~50,000 gas
+- **Feedback**: ~30,000 gas  
+- **Validation**: ~35,000 gas
+
+<Tip>
+  Get free testnet ETH from faucets:
+  - [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet)
+  - [Ethereum Sepolia Faucet](https://sepoliafaucet.com/)
+  - [Optimism Sepolia Faucet](https://app.optimism.io/faucet)
+</Tip>
+
+## Security Considerations
+
+The ERC-8004 registries implement several security features:
+
+- **Access Control**: Only authorized agents can submit feedback
+- **Replay Protection**: Nonce-based transaction ordering
+- **Data Integrity**: Hash-based data verification
+- **Sybil Resistance**: Wallet-based identity verification
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SDK Integration" href="/sdk/identity-management">
+    Learn how to use ERC-8004 registries in your agents
+  </Card>
+  <Card title="Validation Patterns" href="/guides/building-agents">
+    Best practices for peer validation
+  </Card>
+</CardGroup>

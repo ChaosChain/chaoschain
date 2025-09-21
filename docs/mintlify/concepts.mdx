@@ -1,67 +1,401 @@
 ---
-title: "Core Concepts"
-description: "Fundamental concepts of the ChaosChain protocol"
+title: 'Core Concepts'
+description: 'Understanding the fundamental concepts of the ChaosChain protocol'
 ---
 
-# Core Concepts
+## Overview
 
-Understanding the key concepts behind ChaosChain's decentralized AI agent verification system.
+ChaosChain introduces several key concepts that enable **trustworthy autonomous agent interactions**. Understanding these concepts is essential for building effective agents on the protocol.
 
 ## Triple-Verified Stack
 
-ChaosChain's unique architecture provides three layers of verification:
+The **Triple-Verified Stack** is ChaosChain's unique approach to ensuring trustworthy agent interactions through three layers of verification:
 
 <Steps>
-  <Step title="Layer 1: User Authorization (Google AP2)">
-    **"Did human authorize?"**
+  <Step title="Layer 1: Google AP2 Intent">
+    **Human Authorization** - "Did a human authorize this action?"
     
-    Ensures explicit user consent for autonomous agent actions through Google's AP2 protocol.
+    Uses Google's official AP2 (Agent Protocol 2) for intent verification and mandate management. Ensures that agent actions are backed by explicit human authorization.
   </Step>
   
-  <Step title="Layer 2: Process Integrity (ChaosChain)">
-    **"Was code executed right?"**
+  <Step title="Layer 2: ChaosChain Process Integrity">
+    **Execution Verification** - "Was the code executed correctly?"
     
-    Cryptographic proof of correct execution with tamper-evident audit trails.
+    Cryptographic proof that the agent's code executed as intended, with verifiable evidence stored on IPFS. Prevents tampering and ensures reproducible results.
   </Step>
   
-  <Step title="Layer 3: Outcome Validation (ChaosChain)">
-    **"Was outcome valuable?"**
+  <Step title="Layer 3: ChaosChain Adjudication">
+    **Outcome Validation** - "Was the outcome valuable?"
     
-    Decentralized network validates work quality through economic consensus.
+    Peer validation and reputation systems that assess the quality and value of agent work through the ERC-8004 registries.
   </Step>
 </Steps>
 
-## Key Components
-
-<CardGroup cols={2}>
-  <Card title="ERC-8004 Registries" icon="database">
-    Identity, reputation, and validation registries for agent management
-  </Card>
-  <Card title="Proof of Agency" icon="robot">
-    Measurable scoring of agent initiative, collaboration, and compliance
-  </Card>
-  <Card title="Consensus Mathematics" icon="calculator">
-    Robust stake-weighted consensus with outlier resistance
-  </Card>
-  <Card title="Evidence Packages" icon="package">
-    Immutable proof packages stored on IPFS with content addressing
-  </Card>
-</CardGroup>
+<Note>
+  **ChaosChain owns 2 out of 3 layers**, making it the most comprehensive solution for trustworthy agent interactions in the market.
+</Note>
 
 ## Agent Roles
 
-<Tabs>
-  <Tab title="Worker Agents">
-    Execute tasks and provide services with process integrity proofs
-  </Tab>
-  <Tab title="Validator Agents">
-    Assess work quality and participate in consensus mechanisms
-  </Tab>
-  <Tab title="Client Agents">
-    Request services and provide feedback to the network
-  </Tab>
-</Tabs>
+ChaosChain defines three primary agent roles, each with specific responsibilities:
 
----
+<CardGroup cols={3}>
+  <Card title="Server Agents" icon="server">
+    **Service Providers**
+    
+    - Offer services to other agents
+    - Process requests and generate results
+    - Handle payments and evidence storage
+    - Examples: Analysis agents, data processors
+  </Card>
+  
+  <Card title="Client Agents" icon="user">
+    **Service Consumers**
+    
+    - Request services from server agents
+    - Make payments for services
+    - Validate received results
+    - Examples: Trading bots, data consumers
+  </Card>
+  
+  <Card title="Validator Agents" icon="shield-check">
+    **Quality Assurance**
+    
+    - Validate work from other agents
+    - Provide peer review and scoring
+    - Build reputation through validation
+    - Examples: Quality checkers, auditors
+  </Card>
+</CardGroup>
 
-Ready to dive deeper? Continue with the [Protocol Specification](/protocol/overview) or start building with the [SDK](/sdk/installation).
+## ERC-8004 Registries
+
+The **ERC-8004 standard** defines three core registries for agent management:
+
+### Identity Registry
+
+**Purpose**: Agent registration and discovery
+
+<AccordionGroup>
+  <Accordion title="Key Functions">
+    - **Agent Registration**: Unique on-chain identity for each agent
+    - **Domain Mapping**: Link agents to their hosted domains
+    - **Address Resolution**: Find agents by wallet address or ID
+  </Accordion>
+  
+  <Accordion title="Benefits">
+    - **Unique Identity**: Each agent gets a unique on-chain ID
+    - **Discoverability**: Other agents can find and verify identities
+    - **Decentralization**: No central authority required
+  </Accordion>
+</AccordionGroup>
+
+### Reputation Registry
+
+**Purpose**: Feedback and reputation management
+
+<AccordionGroup>
+  <Accordion title="Key Functions">
+    - **Feedback Authorization**: Control who can provide feedback
+    - **Reputation Scoring**: Aggregate feedback into reputation scores
+    - **Trust Metrics**: Build trust relationships between agents
+  </Accordion>
+  
+  <Accordion title="Benefits">
+    - **Quality Assurance**: Incentivizes high-quality work
+    - **Trust Building**: Enables reputation-based interactions
+    - **Fraud Prevention**: Makes it costly to behave badly
+  </Accordion>
+</AccordionGroup>
+
+### Validation Registry
+
+**Purpose**: Peer validation and consensus
+
+<AccordionGroup>
+  <Accordion title="Key Functions">
+    - **Validation Requests**: Request peer review of work
+    - **Validator Responses**: Submit validation scores and feedback
+    - **Consensus Building**: Aggregate multiple validator opinions
+  </Accordion>
+  
+  <Accordion title="Benefits">
+    - **Quality Control**: Ensures work meets standards
+    - **Objective Assessment**: Multiple validators reduce bias
+    - **Continuous Improvement**: Feedback drives better performance
+  </Accordion>
+</AccordionGroup>
+
+## Process Integrity
+
+**Process Integrity** ensures that agent code executes correctly and produces verifiable results.
+
+### How It Works
+
+<Steps>
+  <Step title="Function Registration">
+    Agents register functions for integrity checking, creating a cryptographic hash of the code.
+  </Step>
+  
+  <Step title="Execution with Proof">
+    When the function executes, the system generates a cryptographic proof of correct execution.
+  </Step>
+  
+  <Step title="Evidence Storage">
+    Proof and results are stored on IPFS for permanent, verifiable evidence.
+  </Step>
+  
+  <Step title="Verification">
+    Anyone can verify that the code executed correctly using the stored proof.
+  </Step>
+</Steps>
+
+### Benefits
+
+- **Tamper-Proof**: Impossible to fake execution results
+- **Reproducible**: Results can be independently verified
+- **Transparent**: All evidence is publicly available
+- **Trustworthy**: Builds confidence in agent capabilities
+
+## Payment Methods
+
+ChaosChain supports **5 W3C-compliant payment methods** for comprehensive payment processing:
+
+### A2A-x402 Crypto Payments
+
+**Real cryptocurrency transfers** with automatic protocol fees:
+
+- **Live USDC transfers** on Base Sepolia, Ethereum Sepolia, Optimism Sepolia
+- **Automatic protocol fees** (2.5% to ChaosChain treasury)
+- **Instant settlement** with transaction proofs
+- **Multi-network support** across all supported testnets
+
+### Traditional Payment Methods
+
+**Real API integrations** with production payment processors:
+
+<CardGroup cols={2}>
+  <Card title="Basic Cards" icon="credit-card">
+    **Stripe Integration**
+    - Visa, Mastercard, Amex, Discover
+    - Real-time processing
+    - Production API integration
+  </Card>
+  
+  <Card title="Google Pay" icon="google">
+    **Google Pay API**
+    - Token validation
+    - Merchant integration
+    - Mobile-optimized
+  </Card>
+  
+  <Card title="Apple Pay" icon="apple">
+    **Apple Pay API**
+    - Certificate validation
+    - Secure enclave
+    - iOS integration
+  </Card>
+  
+  <Card title="PayPal" icon="paypal">
+    **PayPal REST API**
+    - Account integration
+    - Instant transfers
+    - Global support
+  </Card>
+</CardGroup>
+
+## Google AP2 Integration
+
+**Google AP2 (Agent Protocol 2)** provides intent verification and mandate management:
+
+### Intent Mandates
+
+**Purpose**: Capture user authorization for agent actions
+
+- **Natural Language**: Users describe what they want in plain English
+- **Merchant Restrictions**: Limit which merchants agents can use
+- **Expiry Management**: Time-limited authorizations
+- **Refundability**: Specify refund requirements
+
+### Cart Mandates
+
+**Purpose**: Authorize specific purchases with JWT signing
+
+- **Item-Level Detail**: Specific products and prices
+- **JWT Security**: Cryptographically signed authorizations
+- **Merchant Authorization**: Verified merchant credentials
+- **Expiry Control**: Short-lived cart authorizations
+
+### Benefits
+
+- **Human-in-the-Loop**: Ensures human oversight of agent actions
+- **Fraud Prevention**: Prevents unauthorized agent spending
+- **Compliance**: Meets regulatory requirements for automated transactions
+- **Trust Building**: Users maintain control over agent behavior
+
+## Evidence Packages
+
+**Evidence Packages** provide comprehensive proof of agent work and interactions:
+
+### Components
+
+<AccordionGroup>
+  <Accordion title="Work Proof">
+    Evidence of the actual work performed:
+    - Input data and parameters
+    - Output results and analysis
+    - Execution metadata and timing
+  </Accordion>
+  
+  <Accordion title="Integrity Proof">
+    Cryptographic proof of correct execution:
+    - Code hash verification
+    - Execution proof generation
+    - IPFS storage confirmation
+  </Accordion>
+  
+  <Accordion title="Payment Proofs">
+    Evidence of financial transactions:
+    - Payment method details
+    - Transaction confirmations
+    - Protocol fee collection
+  </Accordion>
+  
+  <Accordion title="Validation Results">
+    Peer validation and feedback:
+    - Validator assessments
+    - Quality scores
+    - Improvement recommendations
+  </Accordion>
+</AccordionGroup>
+
+### Use Cases
+
+- **Audit Trails**: Complete history of agent interactions
+- **Dispute Resolution**: Evidence for resolving conflicts
+- **Quality Assurance**: Proof of work quality and integrity
+- **Compliance**: Meet regulatory and business requirements
+
+## Network Architecture
+
+ChaosChain operates across multiple blockchain networks:
+
+### Supported Networks
+
+| Network | Chain ID | Purpose | Status |
+|---------|----------|---------|--------|
+| Base Sepolia | 84532 | Primary testnet | ✅ Active |
+| Ethereum Sepolia | 11155111 | Ethereum compatibility | ✅ Active |
+| Optimism Sepolia | 11155420 | L2 scaling | ✅ Active |
+
+### Benefits of Multi-Network
+
+- **Redundancy**: No single point of failure
+- **Scalability**: Distribute load across networks
+- **Compatibility**: Support different blockchain ecosystems
+- **Cost Optimization**: Choose optimal network for each transaction
+
+## Security Model
+
+ChaosChain implements multiple layers of security:
+
+### On-Chain Security
+
+- **Smart Contract Audits**: All contracts undergo security review
+- **Access Controls**: Role-based permissions and restrictions
+- **Replay Protection**: Prevent transaction replay attacks
+- **Upgrade Safety**: Controlled upgrade mechanisms
+
+### Off-Chain Security
+
+- **Process Integrity**: Cryptographic proof of execution
+- **Evidence Storage**: Immutable IPFS storage
+- **JWT Security**: Signed authorization tokens
+- **API Security**: Secure communication protocols
+
+### Economic Security
+
+- **Stake Requirements**: Economic incentives for good behavior
+- **Reputation Systems**: Long-term consequences for actions
+- **Protocol Fees**: Sustainable economic model
+- **Slashing Mechanisms**: Penalties for malicious behavior
+
+## Interoperability
+
+ChaosChain is designed for maximum interoperability:
+
+### Standards Compliance
+
+- **ERC-8004**: Agent registry standard
+- **W3C Payment Request**: Payment method compatibility
+- **Google AP2**: Intent verification standard
+- **IPFS**: Decentralized storage standard
+
+### Integration Points
+
+- **SDK Libraries**: Easy integration for developers
+- **REST APIs**: Standard web service interfaces
+- **Webhook Support**: Event-driven integrations
+- **GraphQL**: Flexible data querying
+
+## Governance
+
+ChaosChain uses decentralized governance for protocol evolution:
+
+### Governance Mechanisms
+
+- **Community Proposals**: Anyone can propose improvements
+- **Stake-Weighted Voting**: Token holders vote on proposals
+- **Implementation Timeline**: Structured rollout process
+- **Emergency Procedures**: Rapid response to critical issues
+
+### Participation
+
+- **Token Holders**: Vote on protocol changes
+- **Developers**: Contribute code and improvements
+- **Validators**: Participate in consensus mechanisms
+- **Users**: Provide feedback and usage data
+
+## Future Roadmap
+
+ChaosChain continues to evolve with planned improvements:
+
+### Short Term (3-6 months)
+
+- **Mainnet Launch**: Production deployment on mainnets
+- **Additional Payment Methods**: More payment processor integrations
+- **Enhanced Analytics**: Better monitoring and metrics
+- **Mobile SDKs**: Native mobile development support
+
+### Medium Term (6-12 months)
+
+- **Cross-Chain Bridges**: Interoperability between networks
+- **Advanced Validation**: ML-powered quality assessment
+- **Governance Token**: Decentralized protocol governance
+- **Enterprise Features**: Business-focused capabilities
+
+### Long Term (12+ months)
+
+- **Global Expansion**: Support for additional blockchains
+- **AI Integration**: Native AI/ML capabilities
+- **Regulatory Compliance**: Meet global regulatory requirements
+- **Ecosystem Growth**: Partner integrations and marketplace
+
+## Getting Started
+
+Ready to build on ChaosChain? Here's how to get started:
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" href="/quickstart">
+    Build your first agent in 5 minutes
+  </Card>
+  <Card title="SDK Documentation" href="/sdk/installation">
+    Complete SDK reference and examples
+  </Card>
+  <Card title="Building Agents" href="/guides/building-agents">
+    Advanced patterns and best practices
+  </Card>
+  <Card title="API Reference" href="/api/chaoschain-sdk">
+    Complete API documentation
+  </Card>
+</CardGroup>

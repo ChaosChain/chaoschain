@@ -1,14 +1,62 @@
 {
   "$schema": "https://mintlify.com/schema.json",
   "name": "ChaosChain Protocol",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
   "theme": "mint",
   "colors": {
-    "primary": "#0D9373"
+    "primary": "#0D9373",
+    "light": "#55D799",
+    "dark": "#0A6B52"
   },
+  "topbarLinks": [
+    {
+      "name": "GitHub",
+      "url": "https://github.com/ChaosChain/chaoschain"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "/quickstart"
+  },
+  "tabs": [
+    {
+      "name": "Protocol",
+      "url": "protocol"
+    },
+    {
+      "name": "SDK",
+      "url": "sdk"
+    },
+    {
+      "name": "API Reference",
+      "url": "api"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "PyPI Package",
+      "icon": "box",
+      "url": "https://pypi.org/project/chaoschain-sdk/"
+    },
+    {
+      "name": "Community",
+      "icon": "discord",
+      "url": "https://discord.gg/chaoschain"
+    },
+    {
+      "name": "Blog",
+      "icon": "newspaper",
+      "url": "https://chaoschain.com/blog"
+    }
+  ],
   "navigation": {
     "pages": [
       "introduction",
-      "quickstart", 
+      "quickstart",
       "concepts"
     ],
     "groups": [
@@ -16,18 +64,47 @@
         "group": "Protocol Specification",
         "pages": [
           "protocol/overview",
-          "protocol/dkg-model"
+          "protocol/dkg-model",
+          "protocol/erc-8004",
+          "protocol/proof-of-agency",
+          "protocol/security-model"
         ]
       },
       {
-        "group": "SDK Documentation",
+        "group": "SDK Documentation", 
         "pages": [
           "sdk/installation",
           "sdk/quickstart",
           "sdk/configuration",
-          "sdk/identity-management"
+          "sdk/identity-management",
+          "sdk/payment-methods",
+          "sdk/process-integrity",
+          "sdk/examples"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/chaoschain-sdk",
+          "api/agent-roles",
+          "api/payment-methods",
+          "api/network-config"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/getting-started",
+          "guides/building-agents",
+          "guides/payment-integration",
+          "guides/deployment"
         ]
       }
     ]
+  },
+  "footerSocials": {
+    "x": "https://x.com/chaoschain",
+    "github": "https://github.com/ChaosChain/chaoschain",
+    "linkedin": "https://www.linkedin.com/company/chaoschain"
   }
 }

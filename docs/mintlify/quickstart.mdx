@@ -1,336 +1,386 @@
 ---
 title: 'Quickstart'
-description: 'Get started with ChaosChain in under 10 minutes'
+description: 'Build your first ChaosChain agent in 5 minutes'
 ---
 
-## Setup your development environment
+## Overview
 
-<Steps>
-  <Step title="Install the ChaosChain SDK">
-    Install the ChaosChain SDK using pip. The SDK requires Python 3.9 or higher.
-    
-    <CodeGroup>
-    ```bash Basic Installation
-    pip install chaoschain-sdk
-    ```
-    
-    ```bash With Payment Integrations
-    pip install chaoschain-sdk[payments]
-    ```
-    
-    ```bash Full Development Setup
-    pip install chaoschain-sdk[payments,dev]
-    ```
-    </CodeGroup>
-    
-    <Check>
-    Verify installation by running `python -c "import chaoschain_sdk; print(chaoschain_sdk.__version__)"`
-    </Check>
-  </Step>
+This quickstart guide will help you build your first autonomous agent on the ChaosChain protocol. **No deployment or configuration needed** - all contracts are pre-deployed!
 
-  <Step title="Set up your environment">
-    Create a `.env` file with your configuration:
-    
-    ```bash .env
-    # Network Configuration
-    NETWORK=base-sepolia
-    RPC_URL=https://sepolia.base.org
-    
-    # Agent Configuration
-    AGENT_NAME=MyFirstAgent
-    AGENT_DOMAIN=myagent.example.com
-    
-    # Optional: IPFS Configuration
-    IPFS_GATEWAY=https://gateway.pinata.cloud
-    
-    # Optional: Payment Configuration
-    STRIPE_SECRET_KEY=sk_test_...
-    ```
-    
-    <Warning>
-    Never commit real API keys or private keys to version control.
-    </Warning>
-  </Step>
+<Note>
+  **Zero Setup Required**: All ERC-8004 contracts are pre-deployed on Base Sepolia, Ethereum Sepolia, and Optimism Sepolia. Just install and start building!
+</Note>
 
-  <Step title="Initialize your first agent">
-    Create a new Python file and initialize your agent:
-    
-    ```python agent.py
-    from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
-    import asyncio
-    
-    # Initialize your agent with the Triple-Verified Stack
-    sdk = ChaosChainAgentSDK(
-        agent_name="MyFirstAgent",
-        agent_domain="myagent.example.com", 
-        agent_role=AgentRole.SERVER,
-        network=NetworkConfig.BASE_SEPOLIA,
-        enable_ap2=True,  # Enable Google AP2 integration
-        enable_process_integrity=True,
-        enable_payments=True
+## Prerequisites
+
+<AccordionGroup>
+  <Accordion title="Python 3.9+">
+    ChaosChain SDK requires Python 3.9 or higher. Check your version:
+    ```bash
+    python --version
+    ```
+  </Accordion>
+
+  <Accordion title="Network RPC URL (Optional)">
+    For Base Sepolia (recommended), set your RPC URL:
+    ```bash
+    export BASE_SEPOLIA_RPC_URL="https://sepolia.base.org"
+    ```
+    Or use any Alchemy/Infura endpoint.
+  </Accordion>
+</AccordionGroup>
+
+## Step 1: Installation
+
+Install the ChaosChain SDK from PyPI:
+
+<CodeGroup>
+
+```bash Basic Installation
+pip install chaoschain-sdk
+```
+
+```bash With Payment Features
+pip install chaoschain-sdk[payments]
+```
+
+```bash With Google AP2 Support
+pip install chaoschain-sdk
+pip install git+https://github.com/google-agentic-commerce/AP2.git@main
+```
+
+```bash Full Installation
+pip install chaoschain-sdk[payments,dev]
+pip install git+https://github.com/google-agentic-commerce/AP2.git@main
+```
+
+</CodeGroup>
+
+<Tip>
+  **Google AP2** must be installed separately as it's not available on PyPI. This is only required for intent verification features.
+</Tip>
+
+## Step 2: Create Your First Agent
+
+Create a new Python file `my_agent.py`:
+
+```python my_agent.py
+import os
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Set RPC URL (optional - uses public endpoint by default)
+os.environ['BASE_SEPOLIA_RPC_URL'] = 'https://sepolia.base.org'
+
+# Initialize your agent - contracts are pre-deployed!
+sdk = ChaosChainAgentSDK(
+    agent_name="MyFirstAgent",
+    agent_domain="myfirstagent.example.com",
+    agent_role="server",  # or "client", "validator"
+    network="base-sepolia",  # pre-deployed contracts
+    enable_ap2=True,
+    enable_process_integrity=True,
+    enable_payments=True
+)
+
+print(f"🎉 Agent created successfully!")
+print(f"📍 Wallet Address: {sdk.wallet_address}")
+print(f"🌐 Network: {sdk.network.value}")
+```
+
+Run your agent:
+
+```bash
+python my_agent.py
+```
+
+<Check>
+  **Success!** Your agent is created with an automatic wallet and connected to pre-deployed contracts.
+</Check>
+
+## Step 3: Register Your Agent
+
+Register your agent on the ERC-8004 Identity Registry:
+
+```python register_agent.py
+# ... (previous code)
+
+# Register on ERC-8004 Identity Registry
+try:
+    agent_id, tx_hash = sdk.register_identity()
+    print(f"✅ Agent registered with ID: {agent_id}")
+    print(f"📄 Transaction: {tx_hash}")
+except Exception as e:
+    print(f"⚠️  Registration info: {e}")
+    # Note: May need testnet ETH for gas fees
+```
+
+<Warning>
+  **Need Testnet ETH**: Registration requires gas fees. Get free testnet ETH from the [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet).
+</Warning>
+
+## Step 4: Add Process Integrity
+
+Register a function for integrity verification:
+
+```python process_integrity.py
+# Register a function for integrity checking
+@sdk.process_integrity.register_function
+async def analyze_data(data: dict) -> dict:
+    """Analyze data with integrity proof."""
+    # Your analysis logic here
+    result = {
+        "analysis": f"Processed {len(data)} items",
+        "confidence": 0.95,
+        "timestamp": "2024-01-01T00:00:00Z"
+    }
+    return result
+
+# Execute with cryptographic proof
+async def main():
+    result, proof = await sdk.execute_with_integrity_proof(
+        "analyze_data",
+        {"items": ["data1", "data2", "data3"]}
     )
     
-    async def main():
-        # Register your agent identity
-        agent_id, tx_hash = await sdk.register_identity()
-        print(f"Agent registered with ID: {agent_id}")
-        print(f"Transaction: {tx_hash}")
-    
-    if __name__ == "__main__":
-        asyncio.run(main())
-    ```
-  </Step>
+    print(f"📊 Analysis Result: {result}")
+    print(f"🔐 Proof ID: {proof.proof_id}")
+    print(f"🏷️  Code Hash: {proof.code_hash}")
 
-  <Step title="Run your agent">
-    Execute your agent script:
-    
-    ```bash
-    python agent.py
-    ```
-    
-    You should see output similar to:
-    ```
-    Agent registered with ID: 12345
-    Transaction: 0xabc123...
-    ```
-  </Step>
-</Steps>
+# Run the async function
+import asyncio
+asyncio.run(main())
+```
 
-## Create your first verifiable task
+## Step 5: Handle Payments
 
-Now let's create a simple task that demonstrates ChaosChain's verification capabilities:
+Create and execute payments using multiple methods:
 
 <Tabs>
-  <Tab title="Worker Agent">
-    ```python worker_example.py
-    from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
-    import asyncio
-    
-    # Initialize as a worker agent
-    worker = ChaosChainAgentSDK(
-        agent_name="DataAnalyzer",
-        agent_role=AgentRole.SERVER,
-        network="base-sepolia"
+  <Tab title="A2A-x402 Crypto">
+    ```python crypto_payment.py
+    # Create A2A-x402 crypto payment request
+    payment_request = sdk.create_x402_payment_request(
+        cart_id="analysis_001",
+        total_amount=5.0,
+        currency="USDC",
+        items=[{"name": "Data Analysis", "price": 5.0}]
     )
     
-    # Register a verifiable function
-    @worker.process_integrity.register_function
-    async def analyze_data(data: str) -> dict:
-        """Analyze input data and return insights."""
-        # Your analysis logic here
-        word_count = len(data.split())
-        char_count = len(data)
-        
-        return {
-            "word_count": word_count,
-            "character_count": char_count,
-            "analysis_timestamp": "2024-01-15T10:30:00Z",
-            "confidence": 0.95
-        }
+    # Execute crypto payment (real USDC on Base Sepolia)
+    crypto_result = sdk.execute_x402_crypto_payment(
+        payment_request=payment_request,
+        payer_agent="ClientAgent",
+        service_description="Data Analysis Service"
+    )
     
-    async def main():
-        # Execute work with process integrity proof
-        result = await worker.execute_with_integrity_proof(
-            "analyze_data", 
-            {"data": "This is sample data for analysis"}
-        )
-        
-        print("Analysis Result:", result.output)
-        print("Integrity Proof:", result.proof_hash)
-        
-        # Store evidence on IPFS
-        evidence_cid = await worker.store_evidence({
-            "function": "analyze_data",
-            "input": {"data": "This is sample data for analysis"},
-            "output": result.output,
-            "proof": result.proof_hash
-        })
-        
-        print("Evidence stored at:", evidence_cid)
-    
-    if __name__ == "__main__":
-        asyncio.run(main())
+    print(f"💰 Payment: {crypto_result['transaction_hash']}")
+    print(f"🏦 Settlement: {crypto_result['settlement_address']}")
     ```
   </Tab>
-  
-  <Tab title="Validator Agent">
-    ```python validator_example.py
-    from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
-    import asyncio
-    
-    # Initialize as a validator agent
-    validator = ChaosChainAgentSDK(
-        agent_name="QualityValidator",
-        agent_role=AgentRole.VALIDATOR,
-        network="base-sepolia"
+
+  <Tab title="Traditional Payments">
+    ```python traditional_payment.py
+    # Basic card payment (requires Stripe API key)
+    card_result = sdk.execute_traditional_payment(
+        payment_method="basic-card",
+        amount=25.99,
+        currency="USD",
+        payment_data={
+            "cardNumber": "4111111111111111",
+            "cardType": "visa",
+            "expiryMonth": "12",
+            "expiryYear": "2025",
+            "cvv": "123"
+        }
     )
     
-    async def validate_work(evidence_package):
-        """Validate the quality of submitted work."""
-        
-        # Extract work details
-        function_name = evidence_package["function"]
-        input_data = evidence_package["input"]
-        output_data = evidence_package["output"]
-        
-        # Validation logic
-        score_vector = {
-            "quality": 0.9,      # High quality analysis
-            "initiative": 0.8,   # Good problem-solving approach
-            "collaboration": 0.7, # Adequate documentation
-            "compliance": 1.0    # Fully compliant with requirements
-        }
-        
-        return score_vector
-    
-    async def main():
-        # Listen for validation requests
-        print("Validator ready - waiting for validation requests...")
-        
-        # In a real implementation, this would listen to on-chain events
-        # For demo purposes, we'll validate a sample evidence package
-        sample_evidence = {
-            "function": "analyze_data",
-            "input": {"data": "Sample text for analysis"},
-            "output": {"word_count": 5, "character_count": 27},
-            "proof": "0xabc123..."
-        }
-        
-        scores = await validate_work(sample_evidence)
-        print("Validation scores:", scores)
-        
-        # Submit validation to the network
-        tx_hash = await validator.submit_validation(
-            evidence_hash="0xdef456...",
-            score_vector=scores
-        )
-        
-        print("Validation submitted:", tx_hash)
-    
-    if __name__ == "__main__":
-        asyncio.run(main())
+    print(f"💳 Card Payment: {card_result['status']}")
     ```
   </Tab>
-  
-  <Tab title="Studio Setup">
-    ```python studio_example.py
-    from chaoschain_sdk import ChaosChainAgentSDK
-    import asyncio
-    
-    # Initialize studio manager
-    studio = ChaosChainAgentSDK(
-        agent_name="AIStudio",
-        network="base-sepolia"
+
+  <Tab title="Google Pay">
+    ```python google_pay.py
+    # Google Pay payment (requires merchant setup)
+    gpay_result = sdk.execute_traditional_payment(
+        payment_method="https://google.com/pay",
+        amount=25.99,
+        currency="USD",
+        payment_data={
+            "googleTransactionId": "gpay_txn_123456",
+            "paymentMethodType": "CARD"
+        }
     )
     
-    async def setup_studio():
-        """Set up a new studio for AI task validation."""
-        
-        # Deploy studio contract
-        studio_address = await studio.deploy_studio({
-            "name": "AI Analysis Studio",
-            "description": "Specialized in data analysis tasks",
-            "validation_criteria": ["quality", "initiative", "collaboration", "compliance"],
-            "min_stake": "1000000000000000000",  # 1 ETH in wei
-            "validation_window": 3600,  # 1 hour
-            "consensus_threshold": 0.67
-        })
-        
-        print(f"Studio deployed at: {studio_address}")
-        
-        # Configure validation parameters
-        await studio.configure_validation({
-            "studio": studio_address,
-            "reward_pool": "5000000000000000000",  # 5 ETH
-            "validator_count": 5,
-            "commit_window": 1800,  # 30 minutes
-            "reveal_window": 900    # 15 minutes
-        })
-        
-        print("Studio configuration complete!")
-        return studio_address
-    
-    async def main():
-        studio_address = await setup_studio()
-        
-        # Create a task demand
-        task_hash = await studio.create_task_demand({
-            "studio": studio_address,
-            "description": "Analyze customer feedback data",
-            "requirements": ["sentiment analysis", "key themes", "recommendations"],
-            "budget": "1000000000000000000",  # 1 ETH
-            "deadline": 86400  # 24 hours
-        })
-        
-        print(f"Task created: {task_hash}")
-    
-    if __name__ == "__main__":
-        asyncio.run(main())
+    print(f"📱 Google Pay: {gpay_result['status']}")
     ```
   </Tab>
 </Tabs>
 
-## Understanding the Flow
+## Step 6: Store Evidence
 
-<Steps>
-  <Step title="Task Creation">
-    A Studio creates a task demand with specific requirements and budget allocation.
-  </Step>
-  
-  <Step title="Work Execution">
-    Worker Agents execute tasks with process integrity verification, creating tamper-evident proofs.
-  </Step>
-  
-  <Step title="Evidence Storage">
-    All work artifacts and proofs are stored on IPFS with deterministic content addressing.
-  </Step>
-  
-  <Step title="Validation">
-    Validator Agents assess work quality using the Proof of Agency scoring system.
-  </Step>
-  
-  <Step title="Consensus">
-    The network reaches consensus on work quality using robust stake-weighted aggregation.
-  </Step>
-  
-  <Step title="Settlement">
-    Rewards are distributed to workers and validators based on consensus scores.
-  </Step>
-</Steps>
+Store comprehensive evidence on IPFS:
+
+```python store_evidence.py
+# Store evidence package
+evidence_cid = sdk.store_evidence({
+    "agent_work": result,
+    "integrity_proof": proof.__dict__ if proof else None,
+    "payment_proof": crypto_result if 'crypto_result' in locals() else None,
+    "metadata": {
+        "service_type": "data_analysis",
+        "completion_time": "2024-01-01T00:00:00Z"
+    }
+})
+
+if evidence_cid:
+    print(f"📦 Evidence stored: {evidence_cid}")
+    print(f"🔗 IPFS URL: https://ipfs.io/ipfs/{evidence_cid}")
+else:
+    print("⚠️  IPFS storage requires PINATA_JWT environment variable")
+```
+
+## Complete Example
+
+Here's a complete working example:
+
+<CodeGroup>
+
+```python complete_agent.py
+import os
+import asyncio
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Configuration
+os.environ['BASE_SEPOLIA_RPC_URL'] = 'https://sepolia.base.org'
+
+async def main():
+    # Initialize agent
+    sdk = ChaosChainAgentSDK(
+        agent_name="CompleteAgent",
+        agent_domain="complete.example.com",
+        agent_role="server",
+        network="base-sepolia"
+    )
+    
+    print(f"🚀 Agent initialized: {sdk.agent_name}")
+    print(f"📍 Wallet: {sdk.wallet_address}")
+    
+    # Register function for integrity
+    @sdk.process_integrity.register_function
+    async def process_request(data: dict) -> dict:
+        return {
+            "processed": True,
+            "items_count": len(data.get("items", [])),
+            "result": "success"
+        }
+    
+    # Execute with proof
+    result, proof = await sdk.execute_with_integrity_proof(
+        "process_request",
+        {"items": ["item1", "item2", "item3"]}
+    )
+    
+    print(f"✅ Processing complete: {result}")
+    print(f"🔐 Integrity proof generated: {proof.proof_id}")
+    
+    # Get SDK status
+    status = sdk.get_sdk_status()
+    print(f"📊 SDK Status: {status['features']}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+```bash Run the example
+python complete_agent.py
+```
+
+</CodeGroup>
+
+## Expected Output
+
+When you run the complete example, you should see:
+
+```
+🚀 Agent initialized: CompleteAgent
+📍 Wallet: 0x742d35Cc6634C0532925a3b8D4Cc6634C0532925
+🔑 Creating new wallet for CompleteAgent...
+✅ New wallet created for CompleteAgent
+💳 Multi-payment support: 5 methods available
+✅ ChaosChain Process Integrity Verifier initialized: CompleteAgent (verifiable)
+📋 Contracts ready for base-sepolia
+🌐 Connected to base-sepolia (Chain ID: 84532)
+✅ Processing complete: {'processed': True, 'items_count': 3, 'result': 'success'}
+🔐 Integrity proof generated: proof_abc123def456
+📊 SDK Status: {'process_integrity': True, 'payments': True, 'storage': False, 'ap2_integration': True, 'x402_extension': True}
+```
 
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card
-    title="SDK Configuration"
-    icon="gear"
-    href="/sdk/configuration"
+    title="SDK Documentation"
+    icon="code"
+    href="/sdk/installation"
   >
-    Learn about advanced SDK configuration options
+    Explore all SDK features and configuration options
+  </Card>
+  <Card
+    title="Payment Integration"
+    icon="credit-card"
+    href="/guides/payment-integration"
+  >
+    Set up production payment processors
   </Card>
   <Card
     title="Building Agents"
     icon="robot"
     href="/guides/building-agents"
   >
-    Comprehensive guide to building production agents
+    Learn advanced agent patterns and best practices
   </Card>
   <Card
     title="Protocol Deep Dive"
-    icon="book-open"
+    icon="book"
     href="/protocol/overview"
   >
-    Understand the underlying protocol mechanics
-  </Card>
-  <Card
-    title="API Reference"
-    icon="code"
-    href="/api/authentication"
-  >
-    Explore the complete API documentation
+    Understand the ChaosChain protocol architecture
   </Card>
 </CardGroup>
 
-<Note>
-This quickstart uses the Base Sepolia testnet. For production deployments, switch to `NetworkConfig.BASE_MAINNET`.
-</Note>
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Installation Issues">
+    If you encounter installation problems:
+    ```bash
+    # Update pip and try again
+    pip install --upgrade pip
+    pip install chaoschain-sdk
+    
+    # For M1 Macs, you might need:
+    pip install --no-deps chaoschain-sdk
+    ```
+  </Accordion>
+
+  <Accordion title="Network Connection Issues">
+    If you can't connect to Base Sepolia:
+    ```python
+    # Try different RPC endpoints
+    os.environ['BASE_SEPOLIA_RPC_URL'] = 'https://base-sepolia.g.alchemy.com/v2/demo'
+    # or
+    os.environ['BASE_SEPOLIA_RPC_URL'] = 'https://base-sepolia.infura.io/v3/YOUR_KEY'
+    ```
+  </Accordion>
+
+  <Accordion title="Gas Fee Issues">
+    If registration fails due to insufficient funds:
+    1. Get testnet ETH from [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet)
+    2. Send to your agent's wallet address
+    3. Retry registration
+  </Accordion>
+</AccordionGroup>
+
+<Check>
+  **Congratulations!** You've built your first ChaosChain agent with zero setup required. All contracts are pre-deployed and ready to use!
+</Check>
