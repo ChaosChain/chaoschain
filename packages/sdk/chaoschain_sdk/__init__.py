@@ -1,22 +1,25 @@
 """
-ChaosChain SDK - Developer toolkit for building agents on the ChaosChain protocol.
+ChaosChain SDK - Developer toolkit for building verifiable, monetizable agents on the ChaosChain protocol.
 
-The ChaosChain SDK provides developers with everything needed to build autonomous agents
-that can interact with the ChaosChain protocol, including:
+The ChaosChain SDK provides developers with everything needed to build autonomous agents that can interact with the ChaosChain protocol, including:
 
-- ERC-8004 identity, reputation, and validation registries
-- AP2 intent verification with Google's official library
-- A2A-x402 extension for crypto payments  
+- Native x402 payment protocol (Coinbase official implementation)
+- ERC-8004 identity, reputation, and validation registries  
 - Process integrity verification with cryptographic proofs
-- Multi-payment method support (W3C compliant)
 - IPFS storage for verifiable evidence
 - Production-ready wallet management
+- Optional Google AP2 integration (intent mandates + A2A-x402 W3C payments)
+
+Payment Architecture:
+- x402: Native HTTP 402 payments (primary)
+- AP2: Intent verification (optional, requires manual install)
+- A2A-x402: W3C payment methods bridge (optional, requires manual install)
 
 Example:
     ```python
     from chaoschain_sdk import ChaosChainAgentSDK
     
-    # Initialize your agent
+    # Initialize your agent with native x402 payments
     agent = ChaosChainAgentSDK(
         agent_name="MyAgent",
         agent_domain="myagent.example.com",
@@ -27,12 +30,16 @@ Example:
     # Register on ERC-8004
     agent_id, tx_hash = agent.register_identity()
     
-    # Execute work with process integrity
-    result = agent.execute_with_integrity_proof("my_function", {"param": "value"})
+    # Execute x402 payment (primary method)
+    payment_result = agent.execute_x402_payment(
+        to_agent="ServiceProvider",
+        amount=1.5,
+        service_type="analysis"
+    )
     ```
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 __author__ = "ChaosChain"
 __email__ = "sumeet.chougule@nethermind.io"
 
@@ -42,6 +49,8 @@ from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
 from .storage_manager import StorageManager
 from .payment_manager import PaymentManager
+from .x402_payment_manager import X402PaymentManager
+from .x402_server import X402PaywallServer
 from .process_integrity import ProcessIntegrityVerifier
 from .google_ap2_integration import GoogleAP2Integration, GoogleAP2IntegrationResult
 from .a2a_x402_extension import A2AX402Extension
@@ -69,6 +78,8 @@ __all__ = [
     "WalletManager",
     "StorageManager",
     "PaymentManager",
+    "X402PaymentManager",
+    "X402PaywallServer",
     "ProcessIntegrityVerifier",
     "GoogleAP2Integration",
     "GoogleAP2IntegrationResult",

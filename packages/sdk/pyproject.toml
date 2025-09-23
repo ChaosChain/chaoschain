@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.1.0"
-description = "Developer SDK for building agents on the ChaosChain protocol"
+version = "0.1.2"
+description = "Developer SDK for building verifiable, monetizable agents on the ChaosChain protocol"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -49,6 +49,9 @@ dependencies = [
     "web3>=6.0.0",
     "eth-account>=0.8.0",
     
+    # x402 Payment Protocol (Coinbase official - PRIMARY payment method)
+    "x402>=0.2.1",
+    
     # HTTP and API clients
     "requests>=2.28.0",
     "httpx>=0.24.0",
@@ -87,6 +90,10 @@ ap2 = [
     # Note: AP2 must be installed manually from GitHub
     # This section serves as documentation only
     # Install with: pip install git+https://github.com/google-agentic-commerce/AP2.git@main
+]
+server = [
+    # x402 paywall server dependencies
+    "flask>=3.0.0",
 ]
 dev = [
     "pytest>=7.0.0",
