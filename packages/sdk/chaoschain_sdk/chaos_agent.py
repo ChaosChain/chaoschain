@@ -36,24 +36,24 @@ class ChaosAgent:
         agent_id: On-chain agent identifier (set after registration)
     """
     
-    def __init__(self, agent_domain: str, wallet_manager: WalletManager, 
+    def __init__(self, agent_name: str, agent_domain: str, wallet_manager: WalletManager, 
                  network: NetworkConfig = NetworkConfig.BASE_SEPOLIA):
         """
         Initialize the ChaosChain base agent.
         
         Args:
+            agent_name: Name of the agent for wallet lookup
             agent_domain: Domain where agent's identity is hosted
             wallet_manager: Wallet manager instance
             network: Target blockchain network
         """
+        self.agent_name = agent_name
         self.agent_domain = agent_domain
         self.wallet_manager = wallet_manager
         self.network = network
         self.agent_id: Optional[AgentID] = None
         
-        # Get wallet address from manager
-        # Extract agent name from domain for wallet lookup
-        self.agent_name = agent_domain.split('.')[0].split('-')[0].title()
+        # Get wallet address from manager using provided agent name
         self.address = wallet_manager.get_wallet_address(self.agent_name)
         
         # Initialize Web3 connection
@@ -150,9 +150,15 @@ class ChaosAgent:
                 "inputs": [{"name": "agentAddress", "type": "address"}],
                 "name": "resolveByAddress",
                 "outputs": [
-                    {"name": "", "type": "uint256"},
-                    {"name": "", "type": "string"},
-                    {"name": "", "type": "address"}
+                    {
+                        "components": [
+                            {"name": "agentId", "type": "uint256"},
+                            {"name": "domain", "type": "string"},
+                            {"name": "agentAddress", "type": "address"}
+                        ],
+                        "name": "",
+                        "type": "tuple"
+                    }
                 ],
                 "stateMutability": "view",
                 "type": "function"
@@ -242,16 +248,22 @@ class ChaosAgent:
         """
         rprint(f"[yellow]🔧 Registering agent: {self.agent_domain}[/yellow]")
         
-        # Check if already registered
+        
+        # Check if already registered (for unknown agents)
         try:
             existing_agent = self.identity_registry.functions.resolveByAddress(self.address).call()
-            if existing_agent[0] > 0:  # agentId > 0 means already registered
-                self.agent_id = existing_agent[0]
+            # Handle tuple return: (agentId, domain, address)
+            agent_id = existing_agent[0] if isinstance(existing_agent, (list, tuple)) else existing_agent.agentId
+            if agent_id > 0:  # agentId > 0 means already registered
+                self.agent_id = agent_id
                 rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
                 return self.agent_id, "already_registered"
         except Exception as e:
-            # Agent not found, proceed with registration
-            rprint(f"[blue]🔍 Agent not yet registered (expected): {e}[/blue]")
+            error_str = str(e)
+            if "0xe93ba223" in error_str or "0x7b857a6b" in error_str:
+                rprint(f"[blue]🔍 Agent not yet registered (expected)[/blue]")
+            else:
+                rprint(f"[blue]🔍 Agent not yet registered (expected): {e}[/blue]")
             pass
         
         try:
@@ -332,12 +344,52 @@ class ChaosAgent:
         if self.agent_id:
             return self.agent_id
         
+        
         try:
+            # Try normal ABI call first
             agent_info = self.identity_registry.functions.resolveByAddress(self.address).call()
-            if agent_info[0] != 0:
-                self.agent_id = agent_info[0]
+            # Handle tuple return: (agentId, domain, address)
+            agent_id = agent_info[0] if isinstance(agent_info, (list, tuple)) else agent_info.agentId
+            if agent_id != 0:
+                self.agent_id = agent_id
                 return self.agent_id
-        except:
+        except Exception as e:
+            error_str = str(e)
+            
+            # If ABI decoding fails, try raw contract call
+            if "Could not decode contract function call" in error_str:
+                try:
+                    # Make raw contract call to get the data
+                    from web3.auto import w3
+                    
+                    # Function selector for resolveByAddress(address) 
+                    func_sig = "resolveByAddress(address)"
+                    func_selector = w3.keccak(text=func_sig)[:4]
+                    
+                    # Encode address parameter (remove 0x and pad to 32 bytes)
+                    address_param = self.address[2:].lower().zfill(64)
+                    call_data = func_selector.hex() + address_param
+                    
+                    # Make raw call
+                    raw_result = self.w3.eth.call({
+                        'to': self.contract_addresses.identity_registry,
+                        'data': call_data
+                    })
+                    
+                    # Extract agent ID from raw result (bytes 32-64)
+                    if len(raw_result) >= 64:
+                        agent_id_bytes = raw_result[32:64]
+                        agent_id = int.from_bytes(agent_id_bytes, 'big')
+                        if agent_id != 0:
+                            self.agent_id = agent_id
+                            rprint(f"[green]✅ Found existing agent ID via raw call: {agent_id}[/green]")
+                            return self.agent_id
+                            
+                except Exception as raw_error:
+                    rprint(f"[yellow]⚠️  Raw call also failed: {raw_error}[/yellow]")
+            
+            if "0xe93ba223" not in error_str and "0x7b857a6b" not in error_str:
+                rprint(f"[yellow]⚠️  Unexpected error checking agent ID: {e}[/yellow]")
             pass
         
         return None

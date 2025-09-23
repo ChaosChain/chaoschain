@@ -1,12 +1,12 @@
 # ChaosChain SDK
 
-**Developer SDK for building agents on the ChaosChain protocol**
+**Developer SDK for building verifiable, monetizable agents on the ChaosChain protocol**
 
 [![PyPI version](https://badge.fury.io/py/chaoschain-sdk.svg)](https://badge.fury.io/py/chaoschain-sdk)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-The ChaosChain SDK provides everything developers need to build autonomous agents that can interact with the ChaosChain protocol. **Zero setup required** - all ERC-8004 contracts are pre-deployed and embedded, with support for process integrity verification, multi-payment methods (A2A-x402), and IPFS storage.
+The ChaosChain SDK provides everything developers need to build autonomous agents that can interact with the ChaosChain protocol. **Zero setup required** - all ERC-8004 contracts are pre-deployed and embedded, with support for process integrity verification, multi-payment methods (including native x402), and IPFS storage.
 
 ## Quick Start
 
@@ -19,6 +19,9 @@ pip install chaoschain-sdk
 # With production payment processor integrations
 pip install chaoschain-sdk[payments]
 
+# With x402 paywall server support
+pip install chaoschain-sdk[server]
+
 # With Google AP2 support (required for intent verification)
 pip install chaoschain-sdk
 pip install git+https://github.com/google-agentic-commerce/AP2.git@main
@@ -27,7 +30,7 @@ pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 pip install chaoschain-sdk[dev]
 
 # Full installation (all features)
-pip install chaoschain-sdk[payments,dev]
+pip install chaoschain-sdk[payments,server,dev]
 pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 ```
 
@@ -82,12 +85,11 @@ cart_result = sdk.create_cart_mandate(
     currency="USD"
 )
 
-# 5. Execute A2A-x402 crypto payment (Layer 3: Payment Settlement)
-x402_request = sdk.create_x402_payment_request(
-    cart_id="payment_cart_456",
-    total_amount=5.0,
-    currency="USDC",
-    items=[{"name": "AI Analysis Service", "price": 5.0}]
+# 5. Execute payment (multiple options available including x402)
+payment_result = sdk.execute_x402_payment(
+    to_agent="ServiceProvider",
+    amount=5.0,
+    service_type="analysis"
 )
 
 # 6. Store comprehensive evidence on IPFS
@@ -96,7 +98,7 @@ evidence_cid = sdk.store_evidence({
     "cart_mandate": cart_result.cart_mandate.model_dump() if cart_result.success else None,
     "analysis": result,
     "integrity_proof": proof.__dict__,
-    "x402_request": x402_request.__dict__
+    "payment_proof": payment_result
 })
 
 print(f"🎉 Triple-Verified Stack complete! Evidence: {evidence_cid}")
@@ -127,16 +129,18 @@ ChaosChain runs 2 out of 3 verification layers!
 - Function registration and integrity checking
 - IPFS storage for verifiable evidence
 
-### ✅ Multi-Payment Support (W3C Compliant)
-- **5 Payment Methods**: Full W3C Payment Request API compliance
+### ✅ Multi-Payment Support (W3C Compliant + x402)
+- **6 Payment Methods**: Full W3C Payment Request API compliance + native x402
   - `basic-card`: **Integration template** for Stripe (requires API implementation)
   - `https://google.com/pay`: **Integration template** for Google Pay (requires merchant setup)
   - `https://apple.com/apple-pay`: **Integration template** for Apple Pay (requires certificates)
   - `https://paypal.com`: **Integration template** for PayPal (requires API implementation)
   - `https://a2a.org/x402`: **LIVE crypto payments** (real USDC on Base Sepolia)
+  - **Native x402**: Coinbase official HTTP 402 protocol support
 - **Crypto Ready**: Real USDC transfers work out-of-the-box
 - **Traditional Ready**: Production-ready templates (developers add API integrations)
-- **Protocol Fees**: Automatic 2.5% fee collection to ChaosChain treasury
+- **x402 Server Support**: Create paywall servers with `@require_payment` decorator
+- **Protocol Fees**: Automatic 2.5% fee collection to ChaosChain treasury (ChaosChain.eth)
 
 ### ✅ Production-Ready Infrastructure
 - **Multi-Network**: Ethereum, Base, Optimism Sepolia testnets
@@ -161,6 +165,7 @@ ChaosChain runs 2 out of 3 verification layers!
 | Method | W3C Identifier | Status | Settlement |
 |--------|---------------|--------|------------|
 | A2A-x402 Crypto | `https://a2a.org/x402` | ✅ **LIVE** | **Real USDC Transfers on Base Sepolia** |
+| Native x402 | Coinbase Official | ✅ **LIVE** | **Real USDC + HTTP 402 Protocol** |
 
 ### 🔧 **REAL API INTEGRATIONS (Add Your Credentials)**
 | Method | W3C Identifier | Status | What You Need |
@@ -177,8 +182,9 @@ ChaosChain runs 2 out of 3 verification layers!
 - **Demo Mode**: Automatically falls back to demo mode if credentials not provided
 - **Production Ready**: Add your API keys and process real payments immediately
 - **Clear Feedback**: Console output shows whether using real APIs or demo mode
+- **x402 Server Support**: Create HTTP 402 paywall servers with `@require_payment` decorator
 
-## 🛠️ Advanced Usage
+## Advanced Usage
 
 ### Process Integrity with Custom Functions
 
@@ -205,9 +211,9 @@ print(f"Code Hash: {integrity_proof.code_hash}")
 print(f"IPFS CID: {integrity_proof.ipfs_cid}")
 ```
 
-### Multi-Payment Method Support (W3C Compliant)
+### Multi-Payment Method Support (W3C Compliant + x402)
 
-The SDK supports 5 W3C-compliant payment methods:
+The SDK supports 6 payment methods including the new native x402 support:
 
 ```python
 # 1. Basic Card Payment (Visa, Mastercard, Amex, Discover)
@@ -274,15 +280,30 @@ crypto_payment = sdk.execute_x402_crypto_payment(
     service_description="AI Analysis Service"
 )
 
+# 6. Native x402 Payment (Coinbase Official Protocol)
+x402_payment = sdk.execute_x402_payment(
+    to_agent="ServiceProvider",
+    amount=25.99,
+    service_type="analysis"
+)
+
+# 7. x402 Paywall Server (Receive Payments)
+server = sdk.create_x402_paywall_server(port=8402)
+
+@server.require_payment(amount=2.0, description="Premium Analysis")
+def premium_analysis(data):
+    return {"analysis": f"Deep analysis of {data}"}
+
+# server.run()  # Start HTTP 402 server
+
 print(f"Crypto Payment: {crypto_payment.transaction_hash}")
-print(f"Settlement Address: {crypto_payment.settlement_address}")
-print(f"Protocol Fee: ${crypto_payment.protocol_fee}")
+print(f"x402 Payment: {x402_payment['main_transaction_hash']}")
 
 # Get all supported payment methods
 supported_methods = sdk.get_supported_payment_methods()
-print(f"Supported W3C Payment Methods: {supported_methods}")
-# Output: ['basic-card', 'https://google.com/pay', 'https://apple.com/apple-pay', 
-#          'https://paypal.com', 'https://a2a.org/x402']
+print(f"Supported Payment Methods: {supported_methods}")
+# Output: ['x402 (Coinbase Official)', 'basic-card', 'https://google.com/pay', 
+#          'https://apple.com/apple-pay', 'https://paypal.com', 'https://a2a.org/x402']
 ```
 
 ### Evidence Package Creation
@@ -333,31 +354,59 @@ Create a `.env` file with your configuration:
 # Network Configuration
 NETWORK=base-sepolia
 BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+ETHEREUM_SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+OPTIMISM_SEPOLIA_RPC_URL=https://opt-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+
+# x402 Payment Configuration (PRIMARY)
+X402_USE_FACILITATOR=false  # Set to true to use facilitator
+X402_FACILITATOR_URL=https://facilitator.example.com
+
+# ChaosChain Protocol Configuration
+CHAOSCHAIN_FEE_PERCENTAGE=2.5
+# CHAOSCHAIN_TREASURY_ADDRESS=0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70  # Optional: Override treasury (use with caution)
+CHAOSCHAIN_OPERATOR_PRIVATE_KEY=your_operator_private_key  # Optional
 
 # IPFS Storage (Pinata)
 PINATA_JWT=your_pinata_jwt_token
 PINATA_GATEWAY=https://your-gateway.mypinata.cloud
 
-# Payment Processor Integrations (Production)
-# Stripe (for basic-card payments)
+# Optional: Legacy Payment Processor Integrations
+# Stripe (for basic-card payments via A2A-x402 bridge)
 STRIPE_SECRET_KEY=sk_live_your_stripe_secret_key
 STRIPE_PUBLISHABLE_KEY=pk_live_your_stripe_publishable_key
 
-# Google Pay (for Google Pay payments)
+# Google Pay (for Google Pay payments via A2A-x402 bridge)
 GOOGLE_PAY_MERCHANT_ID=merchant.your-domain.com
 GOOGLE_PAY_ENVIRONMENT=PRODUCTION
 
-# Apple Pay (for Apple Pay payments)
+# Apple Pay (for Apple Pay payments via A2A-x402 bridge)
 APPLE_PAY_MERCHANT_ID=merchant.your-domain.com
 APPLE_PAY_CERTIFICATE_PATH=/path/to/apple-pay-cert.pem
 
-# PayPal (for PayPal payments)
+# PayPal (for PayPal payments via A2A-x402 bridge)
 PAYPAL_CLIENT_ID=your_paypal_client_id
 PAYPAL_CLIENT_SECRET=your_paypal_client_secret
 PAYPAL_ENVIRONMENT=live
 
 # Optional: Custom wallet file
 CHAOSCHAIN_WALLET_FILE=my_agent_wallets.json
+```
+
+### Treasury Address Security
+
+**Important**: The ChaosChain protocol collects a 2.5% fee on all x402 payments to fund development and operations.
+
+- **Default**: Uses official ChaosChain treasury addresses (verified)
+- **Override**: Set `CHAOSCHAIN_TREASURY_ADDRESS` environment variable (use with caution)
+- **Validation**: Custom addresses are validated for proper format
+- **Warning**: Custom treasury addresses will display a warning message
+
+```bash
+# Default: Uses official ChaosChain treasury (recommended)
+# No configuration needed
+
+# Custom treasury (for testing/private deployments only)
+CHAOSCHAIN_TREASURY_ADDRESS=0xYourCustomTreasuryAddress
 ```
 
 ### Wallet Security
@@ -436,12 +485,20 @@ ChaosChainAgentSDK(
 |--------|-------------|---------|
 | `register_identity()` | Register agent on ERC-8004 | `(agent_id, tx_hash)` |
 | `execute_with_integrity_proof()` | Execute function with proof | `(result, proof)` |
+| **x402 Payment Methods (PRIMARY)** |
+| `execute_x402_payment()` | Execute native x402 payment | `Dict[str, Any]` |
+| `create_x402_payment_requirements()` | Create x402 payment requirements | `Dict[str, Any]` |
+| `get_x402_payment_history()` | Get x402 payment history | `List[Dict[str, Any]]` |
+| `get_x402_payment_summary()` | Get x402 payment analytics | `Dict[str, Any]` |
+| `create_x402_paywall_server()` | Create HTTP 402 paywall server | `X402PaywallServer` |
+| **Legacy Payment Methods (FALLBACK)** |
 | `execute_payment()` | Process A2A-x402 payment | `PaymentProof` |
 | `execute_traditional_payment()` | Process traditional payment | `PaymentResponse` |
-| `execute_x402_crypto_payment()` | Process crypto payment | `X402PaymentResponse` |
-| `get_supported_payment_methods()` | Get W3C payment methods | `List[str]` |
+| `get_supported_payment_methods()` | Get all payment methods | `List[str]` |
+| **Optional AP2 Integration** |
 | `create_intent_mandate()` | Create AP2 intent mandate | `GoogleAP2IntegrationResult` |
 | `create_cart_mandate()` | Create AP2 cart mandate | `GoogleAP2IntegrationResult` |
+| **Storage & Evidence** |
 | `store_evidence()` | Store data on IPFS | `cid` |
 | `create_evidence_package()` | Create proof package | `EvidencePackage` |
 | `request_validation()` | Request peer validation | `tx_hash` |
@@ -452,15 +509,58 @@ The SDK provides comprehensive type definitions:
 
 ```python
 from chaoschain_sdk import (
-    AgentRole,           # SERVER, VALIDATOR, CLIENT
-    NetworkConfig,       # BASE_SEPOLIA, ETHEREUM_SEPOLIA, etc.
-    PaymentMethod,       # BASIC_CARD, GOOGLE_PAY, A2A_X402, etc.
-    IntegrityProof,      # Process integrity proof
-    PaymentProof,        # Payment transaction proof
-    EvidencePackage,     # Comprehensive evidence package
-    AgentIdentity        # Agent identity information
+    # Core SDK Classes
+    ChaosChainAgentSDK,     # Main SDK class
+    X402PaymentManager,     # Native x402 payment manager
+    X402PaywallServer,      # HTTP 402 paywall server
+    
+    # Configuration Enums
+    AgentRole,              # SERVER, VALIDATOR, CLIENT
+    NetworkConfig,          # BASE_SEPOLIA, ETHEREUM_SEPOLIA, etc.
+    PaymentMethod,          # BASIC_CARD, GOOGLE_PAY, A2A_X402, etc.
+    
+    # Data Classes
+    IntegrityProof,         # Process integrity proof
+    PaymentProof,           # Payment transaction proof
+    EvidencePackage,        # Comprehensive evidence package
+    AgentIdentity,          # Agent identity information
+    
+    # Optional AP2 Integration
+    GoogleAP2Integration,   # AP2 intent verification
+    A2AX402Extension,       # A2A-x402 W3C payment bridge
 )
 ```
+
+## **Native x402 Support**
+
+The ChaosChain SDK includes **native integration** with Coinbase's x402 payment protocol, enabling developers to build **verifiable, monetizable agents** that can autonomously handle payments while maintaining cryptographic proof of their work.
+
+### Key Features:
+- **HTTP 402 Payment Required**: Official Coinbase x402 protocol implementation
+- **Paywall Server Support**: Create payment-required services with decorators
+- **Facilitator Integration**: Optional third-party verification/settlement
+- **Cryptographic Receipts**: Every payment includes verifiable proof
+- **Multi-Agent Commerce**: Enable agent-to-agent payment flows
+- **Production Ready**: Real USDC transfers on Base, Ethereum, and Optimism
+
+### Quick x402 Example:
+```python
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Initialize agent with x402 payments
+agent = ChaosChainAgentSDK(agent_name="PaymentAgent", ...)
+
+# Execute x402 payment (Coinbase official protocol)
+payment_result = agent.execute_x402_payment(
+    to_agent="ServiceProvider",
+    amount=5.0,  # USDC
+    service_type="ai_analysis"
+)
+```
+
+**📚 Complete x402 Integration Guide**: [X402_INTEGRATION_GUIDE.md](https://github.com/ChaosChain/chaoschain/blob/main/docs/X402_INTEGRATION_GUIDE.md)
+
+**Learn More**: [x402.org](https://www.x402.org/) | [Coinbase x402 GitHub](https://github.com/coinbase/x402)
 
 ##  Contributing
 

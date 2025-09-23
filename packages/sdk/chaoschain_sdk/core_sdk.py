@@ -32,6 +32,8 @@ from .exceptions import (
 from .wallet_manager import WalletManager
 from .storage_manager import StorageManager
 from .payment_manager import PaymentManager
+from .x402_payment_manager import X402PaymentManager
+from .x402_server import X402PaywallServer
 from .process_integrity import ProcessIntegrityVerifier
 from .chaos_agent import ChaosAgent
 from .google_ap2_integration import GoogleAP2Integration, GoogleAP2IntegrationResult
@@ -143,7 +145,8 @@ class ChaosChainAgentSDK:
         # Initialize core components
         self._initialize_wallet_manager(wallet_file)
         self._initialize_storage_manager(enable_storage, storage_jwt, storage_gateway)
-        self._initialize_payment_manager(enable_payments)
+        self._initialize_x402_payment_manager(enable_payments)  # x402 is now primary
+        self._initialize_payment_manager(enable_payments)  # Keep for backward compatibility
         self._initialize_process_integrity(enable_process_integrity)
         self._initialize_ap2_integration(enable_ap2)
         self._initialize_chaos_agent()
@@ -163,12 +166,14 @@ class ChaosChainAgentSDK:
             "wallet_address": self.wallet_address if hasattr(self, 'wallet_manager') else None,
             "agent_id": getattr(self.chaos_agent, 'agent_id', None) if hasattr(self, 'chaos_agent') else None,
             "features": {
+                "x402_enabled": hasattr(self, 'x402_payment_manager') and self.x402_payment_manager is not None,
                 "process_integrity": hasattr(self, 'process_integrity') and self.process_integrity is not None,
                 "payments": hasattr(self, 'payment_manager') and self.payment_manager is not None,
                 "storage": hasattr(self, 'storage_manager') and self.storage_manager is not None,
                 "ap2_integration": hasattr(self, 'google_ap2') and self.google_ap2 is not None,
                 "x402_extension": hasattr(self, 'a2a_x402') and self.a2a_x402 is not None,
             },
+            "x402_enabled": hasattr(self, 'x402_payment_manager') and self.x402_payment_manager is not None,
             "payment_methods": self.get_supported_payment_methods() if hasattr(self, 'payment_manager') and self.payment_manager else [],
             "chain_id": getattr(self.chaos_agent, 'chain_id', None) if hasattr(self, 'chaos_agent') else None,
         }
@@ -196,8 +201,23 @@ class ChaosChainAgentSDK:
         else:
             self.storage_manager = None
     
+    def _initialize_x402_payment_manager(self, enabled: bool):
+        """Initialize native x402 payment processing (PRIMARY)."""
+        if enabled:
+            try:
+                self.x402_payment_manager = X402PaymentManager(
+                    wallet_manager=self.wallet_manager,
+                    network=self.network
+                )
+                rprint(f"[green]💳 Native x402 payments enabled (Coinbase protocol)[/green]")
+            except Exception as e:
+                rprint(f"[yellow]⚠️  x402 payment processing not available: {e}[/yellow]")
+                self.x402_payment_manager = None
+        else:
+            self.x402_payment_manager = None
+    
     def _initialize_payment_manager(self, enabled: bool):
-        """Initialize payment processing."""
+        """Initialize legacy payment processing (FALLBACK)."""
         if enabled:
             try:
                 self.payment_manager = PaymentManager(
@@ -255,6 +275,7 @@ class ChaosChainAgentSDK:
         """Initialize core ChaosChain agent."""
         try:
             self.chaos_agent = ChaosAgent(
+                agent_name=self.agent_name,
                 agent_domain=self.agent_domain,
                 wallet_manager=self.wallet_manager,
                 network=self.network
@@ -524,7 +545,100 @@ class ChaosChainAgentSDK:
             payment_data=payment_data
         )
 
-    # === PAYMENT PROCESSING ===
+    # === x402 PAYMENT PROCESSING (PRIMARY) ===
+    
+    def execute_x402_payment(
+        self,
+        to_agent: str,
+        amount: float,
+        service_type: str,
+        evidence_cid: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute native x402 payment to another agent (PRIMARY payment method).
+        
+        Args:
+            to_agent: Name of the receiving agent
+            amount: Amount in USDC to pay
+            service_type: Type of service being paid for
+            evidence_cid: Optional IPFS CID of related evidence
+            
+        Returns:
+            Payment result with x402 headers and transaction hashes
+        """
+        if not self.x402_payment_manager:
+            raise PaymentError("x402 payment manager not initialized")
+        
+        return self.x402_payment_manager.execute_agent_payment(
+            from_agent=self.agent_name,
+            to_agent=to_agent,
+            amount_usdc=amount,
+            service_description=f"ChaosChain {service_type} Service",
+            evidence_cid=evidence_cid
+        )
+    
+    def create_x402_payment_requirements(
+        self,
+        amount: float,
+        service_description: str,
+        evidence_cid: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Create x402 PaymentRequirements for this agent's services.
+        
+        Args:
+            amount: Amount in USDC required
+            service_description: Description of the service
+            evidence_cid: Optional IPFS CID of related evidence
+            
+        Returns:
+            x402 PaymentRequirements data
+        """
+        if not self.x402_payment_manager:
+            raise PaymentError("x402 payment manager not initialized")
+        
+        payment_requirements = self.x402_payment_manager.create_payment_requirements(
+            to_agent=self.agent_name,
+            amount_usdc=amount,
+            service_description=service_description,
+            evidence_cid=evidence_cid
+        )
+        
+        return payment_requirements.model_dump()
+    
+    def get_x402_payment_history(self) -> List[Dict[str, Any]]:
+        """Get x402 payment history for this agent."""
+        if not self.x402_payment_manager:
+            return []
+        
+        return self.x402_payment_manager.get_payment_history(self.agent_name)
+    
+    def get_x402_payment_summary(self) -> Dict[str, Any]:
+        """Get comprehensive x402 payment summary."""
+        if not self.x402_payment_manager:
+            return {"error": "x402 payment manager not available"}
+        
+        return self.x402_payment_manager.generate_payment_summary()
+    
+    def create_x402_paywall_server(self, port: int = 8402) -> X402PaywallServer:
+        """
+        Create an x402 paywall server for this agent.
+        
+        Args:
+            port: Port to run the server on (default 8402)
+            
+        Returns:
+            X402PaywallServer instance
+        """
+        if not self.x402_payment_manager:
+            raise PaymentError("x402 payment manager not initialized")
+        
+        return X402PaywallServer(
+            agent_name=self.agent_name,
+            payment_manager=self.x402_payment_manager
+        )
+    
+    # === LEGACY PAYMENT PROCESSING (FALLBACK) ===
     
     def create_payment_request(
         self, 
@@ -588,15 +702,28 @@ class ChaosChainAgentSDK:
     
     def get_supported_payment_methods(self) -> List[str]:
         """
-        Get list of all supported payment methods (W3C compliant).
+        Get list of all supported payment methods.
         
         Returns:
-            List of W3C payment method identifiers
+            List of payment method identifiers
         """
-        if not self.payment_manager:
-            return []
+        methods = []
         
-        return self.payment_manager.get_supported_payment_methods()
+        # x402 is the primary payment method
+        if self.x402_payment_manager:
+            methods.append("x402 (Coinbase Official)")
+        
+        # Legacy payment methods
+        if self.payment_manager:
+            methods.extend(self.payment_manager.get_supported_payment_methods())
+        
+        # Optional enhancements
+        if self.google_ap2:
+            methods.append("Google AP2")
+        if self.a2a_x402:
+            methods.append("A2A-x402")
+        
+        return methods
     
     # === STORAGE MANAGEMENT ===
     
