@@ -30,7 +30,7 @@ from .exceptions import (
     IntegrityVerificationError
 )
 from .wallet_manager import WalletManager
-from .storage_manager import StorageManager
+from .storage import UnifiedStorageManager, create_storage_manager, StorageProvider
 from .payment_manager import PaymentManager
 from .x402_payment_manager import X402PaymentManager
 from .x402_server import X402PaywallServer
@@ -88,7 +88,7 @@ class ChaosChainAgentSDK:
         agent_role: Role of the agent (server, validator, client)
         network: Target blockchain network
         wallet_manager: Wallet management instance
-        storage_manager: IPFS storage management instance
+        storage_manager: Pluggable storage management instance
         payment_manager: Payment processing instance
         process_integrity: Process integrity verification instance
         chaos_agent: Core agent for ERC-8004 interactions
@@ -191,12 +191,23 @@ class ChaosChainAgentSDK:
             raise ChaosChainSDKError(f"Failed to initialize wallet manager: {str(e)}")
     
     def _initialize_storage_manager(self, enabled: bool, jwt: str = None, gateway: str = None):
-        """Initialize IPFS storage management."""
+        """Initialize pluggable storage management."""
         if enabled:
             try:
-                self.storage_manager = StorageManager(jwt_token=jwt, gateway_url=gateway)
+                # Try to create storage manager with auto-detection
+                # If Pinata credentials provided, use them
+                if jwt and gateway:
+                    self.storage_manager = UnifiedStorageManager(
+                        primary_provider=StorageProvider.PINATA,
+                        config={'pinata': {'jwt_token': jwt, 'gateway_url': gateway}}
+                    )
+                else:
+                    # Auto-detect best available provider
+                    self.storage_manager = create_storage_manager()
+                    
+                rprint(f"[green]✅ Storage initialized: {self.storage_manager.get_provider_info()['name']}[/green]")
             except Exception as e:
-                rprint(f"[yellow]⚠️  IPFS storage not available: {e}[/yellow]")
+                rprint(f"[yellow]⚠️  Storage not available: {e}[/yellow]")
                 self.storage_manager = None
         else:
             self.storage_manager = None

@@ -39,7 +39,7 @@ Example:
     ```
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "ChaosChain"
 __email__ = "sumeet.chougule@nethermind.io"
 
@@ -47,13 +47,17 @@ __email__ = "sumeet.chougule@nethermind.io"
 from .core_sdk import ChaosChainAgentSDK
 from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
-from .storage_manager import StorageManager
 from .payment_manager import PaymentManager
 from .x402_payment_manager import X402PaymentManager
 from .x402_server import X402PaywallServer
 from .process_integrity import ProcessIntegrityVerifier
 from .google_ap2_integration import GoogleAP2Integration, GoogleAP2IntegrationResult
 from .a2a_x402_extension import A2AX402Extension
+
+# New pluggable storage system
+from .storage import UnifiedStorageManager, create_storage_manager
+# Backward compatibility alias (old storage_manager.py was deprecated and removed)
+StorageManager = UnifiedStorageManager
 from .exceptions import (
     ChaosChainSDKError,
     AgentRegistrationError,
@@ -76,7 +80,9 @@ __all__ = [
     "ChaosChainAgentSDK",
     "ChaosAgent", 
     "WalletManager",
-    "StorageManager",
+    "StorageManager",  # Backward compatibility alias
+    "UnifiedStorageManager",  # New pluggable storage
+    "create_storage_manager",  # Factory function
     "PaymentManager",
     "X402PaymentManager",
     "X402PaywallServer",

@@ -6,7 +6,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-The ChaosChain SDK provides everything developers need to build autonomous agents that can interact with the ChaosChain protocol. **Zero setup required** - all ERC-8004 contracts are pre-deployed and embedded, with support for process integrity verification, multi-payment methods (including native x402), and IPFS storage.
+The ChaosChain SDK provides everything developers need to build autonomous agents that can interact with the ChaosChain protocol. **Zero setup required** - all ERC-8004 contracts are pre-deployed and embedded, with support for process integrity verification, multi-payment methods (including native x402), and **pluggable storage** with free local IPFS as default.
 
 ## Quick Start
 
@@ -37,6 +37,66 @@ pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 > **Zero Setup**: All ERC-8004 contracts are pre-deployed on Base Sepolia, Ethereum Sepolia, and Optimism Sepolia. No deployment or configuration needed!
 > 
 > **Note**: Google AP2 must be installed separately as it's not available on PyPI. This is required for intent verification features.
+
+### Storage Setup (Optional - Free Local IPFS Recommended)
+
+The SDK uses **Local IPFS as the default** storage provider because it's **completely free** and gives you full control over your data! No API keys or costs required.
+
+#### 🆓 **Option 1: Local IPFS (Recommended - FREE!)**
+
+**macOS:**
+```bash
+# Install and setup IPFS (one-time setup)
+brew install ipfs
+ipfs init
+ipfs daemon  # Keep running in background
+```
+
+**Linux:**
+```bash
+# Install IPFS
+wget https://dist.ipfs.tech/kubo/v0.24.0/kubo_v0.24.0_linux-amd64.tar.gz
+tar -xvzf kubo_v0.24.0_linux-amd64.tar.gz
+sudo bash kubo/install.sh
+
+# Setup and start
+ipfs init
+ipfs daemon  # Keep running in background
+```
+
+**Windows:**
+1. Download from https://dist.ipfs.tech/kubo/
+2. Extract and run `ipfs.exe init`
+3. Run `ipfs.exe daemon`
+
+**Verify Setup:**
+```python
+from chaoschain_sdk.storage import create_storage_manager
+
+# Should work without errors if IPFS daemon is running
+storage = create_storage_manager()
+print("✅ Local IPFS working!")
+```
+
+#### 💰 **Option 2: Pinata (Cloud - Paid)**
+
+If you prefer managed cloud storage:
+
+```bash
+# Set environment variables
+export PINATA_JWT="your_jwt_token_here"
+export PINATA_GATEWAY="https://gateway.pinata.cloud"
+```
+
+#### 🔮 **Option 3: Irys (Programmable - Paid)**
+
+For advanced programmable data features:
+
+```bash
+export IRYS_WALLET_KEY="your_wallet_private_key"
+```
+
+> **Auto-Detection**: The SDK automatically detects what storage providers you have available and uses the best option. Local IPFS is tried first (free), then Pinata, then Irys.
 
 ### Basic Usage
 
@@ -92,7 +152,7 @@ payment_result = sdk.execute_x402_payment(
     service_type="analysis"
 )
 
-# 6. Store comprehensive evidence on IPFS
+# 6. Store comprehensive evidence using pluggable storage
 evidence_cid = sdk.store_evidence({
     "intent_mandate": intent_result.intent_mandate.model_dump() if intent_result.success else None,
     "cart_mandate": cart_result.cart_mandate.model_dump() if cart_result.success else None,
@@ -101,7 +161,61 @@ evidence_cid = sdk.store_evidence({
     "payment_proof": payment_result
 })
 
+# Alternative: Use storage system directly for more control
+from chaoschain_sdk.storage import create_storage_manager
+storage = create_storage_manager()  # Auto-detects Local IPFS (free) or other providers
+custom_cid = storage.upload_json({"custom": "data"}, "custom.json")
+
 print(f"🎉 Triple-Verified Stack complete! Evidence: {evidence_cid}")
+```
+
+## Pluggable Storage System
+
+The SDK features a **revolutionary pluggable storage architecture** that eliminates vendor lock-in and provides multiple storage options:
+
+### 🆓 **No Vendor Lock-in**
+- **Choose any provider**: Local IPFS (free), Pinata (cloud), Irys (programmable)
+- **Switch anytime**: Same API across all providers
+- **Auto-detection**: SDK automatically finds the best available option
+
+### 🎯 **Storage Options**
+
+```python
+from chaoschain_sdk.storage import create_storage_manager
+
+# Auto-detect best available provider (recommended)
+storage = create_storage_manager()
+
+# Or choose specific provider
+storage = create_storage_manager("local_ipfs")    # FREE!
+storage = create_storage_manager("pinata", jwt_token="...")
+storage = create_storage_manager("irys", wallet_key="...")
+
+# Same API regardless of provider
+cid = storage.upload_json({"data": "value"}, "file.json")
+data = storage.retrieve_json(cid)
+print(f"Stored at: {storage.get_gateway_url(cid)}")
+```
+
+### 🔄 **Provider Comparison**
+
+| Provider | Cost | Setup | Best For |
+|----------|------|-------|----------|
+| **Local IPFS** | 🆓 Free | `brew install ipfs` | Development, full control |
+| **Pinata** | 💰 Paid | Set env vars | Production, reliability |
+| **Irys** | 💰 Paid | Wallet key | Advanced, programmable data |
+
+### 🚀 **Easy Switching**
+
+```python
+# Start with free local IPFS for development
+dev_storage = create_storage_manager("local_ipfs")
+
+# Switch to Pinata for production - same API!
+prod_storage = create_storage_manager("pinata", jwt_token="...")
+
+# All methods work the same
+cid = prod_storage.upload_json(data, "file.json")  # Same call!
 ```
 
 ## Architecture
@@ -127,7 +241,7 @@ ChaosChain runs 2 out of 3 verification layers!
 ### ✅ Process Integrity Verification
 - Cryptographic proof of correct code execution
 - Function registration and integrity checking
-- IPFS storage for verifiable evidence
+- Pluggable storage for verifiable evidence (Local IPFS, Pinata, Irys)
 
 ### ✅ Multi-Payment Support (W3C Compliant + x402)
 - **6 Payment Methods**: Full W3C Payment Request API compliance + native x402
@@ -146,7 +260,8 @@ ChaosChain runs 2 out of 3 verification layers!
 - **Multi-Network**: Ethereum, Base, Optimism Sepolia testnets
 - **Pre-Deployed Contracts**: Real contract addresses embedded - no deployment needed
 - **Secure Wallets**: Automatic wallet generation and management
-- **IPFS Storage**: Pinata integration for permanent evidence storage
+- **Pluggable Storage**: Choose from Local IPFS (free), Pinata (cloud), or Irys (programmable)
+- **No Vendor Lock-in**: Switch storage providers without code changes
 - **Error Handling**: Comprehensive exception handling and logging
 
 ## Supported Networks
@@ -366,9 +481,16 @@ CHAOSCHAIN_FEE_PERCENTAGE=2.5
 # CHAOSCHAIN_TREASURY_ADDRESS=0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70  # Optional: Override treasury (use with caution)
 CHAOSCHAIN_OPERATOR_PRIVATE_KEY=your_operator_private_key  # Optional
 
-# IPFS Storage (Pinata)
+# Storage Options (choose one or let SDK auto-detect)
+# Option 1: Local IPFS (FREE - recommended for development)
+# Just run: ipfs daemon (no env vars needed)
+
+# Option 2: Pinata (Cloud storage)
 PINATA_JWT=your_pinata_jwt_token
 PINATA_GATEWAY=https://your-gateway.mypinata.cloud
+
+# Option 3: Irys (Programmable datachain)
+IRYS_WALLET_KEY=your_wallet_private_key
 
 # Optional: Legacy Payment Processor Integrations
 # Stripe (for basic-card payments via A2A-x402 bridge)
@@ -498,8 +620,13 @@ ChaosChainAgentSDK(
 | **Optional AP2 Integration** |
 | `create_intent_mandate()` | Create AP2 intent mandate | `GoogleAP2IntegrationResult` |
 | `create_cart_mandate()` | Create AP2 cart mandate | `GoogleAP2IntegrationResult` |
-| **Storage & Evidence** |
-| `store_evidence()` | Store data on IPFS | `cid` |
+| **Pluggable Storage System** |
+| `create_storage_manager()` | Auto-detect storage provider | `UnifiedStorageManager` |
+| `storage.upload_json()` | Store JSON data | `cid` |
+| `storage.retrieve_json()` | Retrieve JSON data | `dict` |
+| `storage.get_provider_info()` | Get provider details | `dict` |
+| **Legacy Storage & Evidence** |
+| `store_evidence()` | Store data using configured storage | `cid` |
 | `create_evidence_package()` | Create proof package | `EvidencePackage` |
 | `request_validation()` | Request peer validation | `tx_hash` |
 

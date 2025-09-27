@@ -136,7 +136,7 @@ class A2AX402Extension:
         methods.append(W3CPaymentMethodData(
             supported_methods="https://google.com/pay",
             data={
-                "environment": "TEST",  # Use "PRODUCTION" for live
+                "environment": "PRODUCTION",  # Production ready
                 "apiVersion": 2,
                 "apiVersionMinor": 0,
                 "allowedPaymentMethods": [

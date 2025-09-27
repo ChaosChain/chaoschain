@@ -17,7 +17,7 @@ from rich import print as rprint
 
 from .types import IntegrityProof
 from .exceptions import IntegrityVerificationError
-from .storage_manager import StorageManager
+from .storage import UnifiedStorageManager
 
 console = Console()
 
@@ -31,17 +31,17 @@ class ProcessIntegrityVerifier:
     
     Attributes:
         agent_name: Name of the agent using this verifier
-        storage_manager: Storage manager for proof persistence
+        storage_manager: Pluggable storage manager for proof persistence
         registered_functions: Dictionary of registered integrity-checked functions
     """
     
-    def __init__(self, agent_name: str, storage_manager: StorageManager = None):
+    def __init__(self, agent_name: str, storage_manager: UnifiedStorageManager = None):
         """
         Initialize the process integrity verifier.
         
         Args:
             agent_name: Name of the agent
-            storage_manager: Optional storage manager for proof persistence
+            storage_manager: Optional pluggable storage manager for proof persistence
         """
         self.agent_name = agent_name
         self.storage_manager = storage_manager

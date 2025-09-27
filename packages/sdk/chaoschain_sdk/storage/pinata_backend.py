@@ -1,8 +1,9 @@
 """
-Production-ready storage management for ChaosChain agents.
+Pinata IPFS pinning service backend.
 
-This module provides IPFS storage capabilities for verifiable evidence,
-proofs, and other data that needs to be permanently stored and accessible.
+This backend uses Pinata's IPFS pinning service for reliable storage.
+While not free, it provides excellent reliability and performance for
+production applications that need guaranteed uptime.
 """
 
 import os
@@ -12,27 +13,30 @@ from typing import Dict, Any, Optional, Union, List
 from rich.console import Console
 from rich import print as rprint
 
-from .types import IPFSHash
-from .exceptions import StorageError, ConfigurationError
+from .base import StorageBackend, StorageProvider
+from ..types import IPFSHash
+from ..exceptions import StorageError, ConfigurationError
 
 console = Console()
 
 
-class StorageManager:
+class PinataBackend(StorageBackend):
     """
-    Production-ready IPFS storage manager for ChaosChain agents.
+    Pinata IPFS pinning service backend.
     
-    Handles uploading and retrieving data from IPFS using Pinata as the
-    pinning service, with support for JSON data, files, and metadata.
+    Provides reliable IPFS storage through Pinata's managed service.
+    Requires a Pinata account and JWT token.
     
-    Attributes:
-        gateway_url: IPFS gateway URL for retrieving content
-        base_url: Pinata API base URL
+    Features:
+    - Reliable IPFS pinning
+    - Global CDN distribution
+    - Metadata support
+    - Pin management
     """
     
     def __init__(self, jwt_token: str = None, gateway_url: str = None):
         """
-        Initialize the storage manager.
+        Initialize Pinata backend.
         
         Args:
             jwt_token: Pinata JWT token (defaults to PINATA_JWT env var)
@@ -44,12 +48,18 @@ class StorageManager:
         if not self.jwt_token:
             raise ConfigurationError(
                 "Pinata JWT token is required",
-                {"required_env_var": "PINATA_JWT"}
+                {
+                    "required_env_var": "PINATA_JWT",
+                    "get_token": "https://app.pinata.cloud/keys"
+                }
             )
         if not self.gateway_url:
             raise ConfigurationError(
                 "Pinata gateway URL is required", 
-                {"required_env_var": "PINATA_GATEWAY"}
+                {
+                    "required_env_var": "PINATA_GATEWAY",
+                    "example": "https://gateway.pinata.cloud"
+                }
             )
         
         # Ensure gateway URL has proper scheme
@@ -61,20 +71,35 @@ class StorageManager:
             "Authorization": f"Bearer {self.jwt_token}",
             "Content-Type": "application/json"
         }
+        
+        self._test_connection()
+    
+    def _test_connection(self) -> None:
+        """Test connection to Pinata API."""
+        try:
+            response = requests.get(
+                f"{self.base_url}/data/testAuthentication",
+                headers=self.headers,
+                timeout=10
+            )
+            if response.status_code == 200:
+                result = response.json()
+                rprint(f"[green]✅ Connected to Pinata[/green]")
+                rprint(f"   Message: {result.get('message', 'Authentication successful')}")
+            else:
+                raise StorageError(f"Pinata authentication failed: {response.status_code}")
+        except requests.RequestException as e:
+            raise ConfigurationError(
+                f"Cannot connect to Pinata API",
+                {
+                    "error": str(e),
+                    "check_token": "Verify your PINATA_JWT token is valid"
+                }
+            )
     
     def upload_json(self, data: Dict[Any, Any], filename: str, 
                    metadata: Dict[str, Any] = None) -> Optional[IPFSHash]:
-        """
-        Upload JSON data to IPFS and return the CID.
-        
-        Args:
-            data: JSON-serializable data to upload
-            filename: Name for the uploaded file
-            metadata: Optional metadata for the upload
-            
-        Returns:
-            IPFS CID (Content Identifier) if successful, None otherwise
-        """
+        """Upload JSON data to Pinata."""
         try:
             # Convert data to JSON string
             json_content = json.dumps(data, indent=2, default=str)
@@ -116,7 +141,7 @@ class StorageManager:
                 cid = result.get('IpfsHash')
                 
                 if cid:
-                    rprint(f"[green]📁 Successfully uploaded {filename} to IPFS[/green]")
+                    rprint(f"[green]📁 Successfully uploaded {filename} to Pinata[/green]")
                     rprint(f"   CID: {cid}")
                     rprint(f"   Gateway URL: {self.gateway_url}/ipfs/{cid}")
                     return cid
@@ -137,17 +162,7 @@ class StorageManager:
     
     def upload_file(self, file_path: str, filename: str = None,
                    metadata: Dict[str, Any] = None) -> Optional[IPFSHash]:
-        """
-        Upload a file to IPFS and return the CID.
-        
-        Args:
-            file_path: Path to the file to upload
-            filename: Optional custom filename (defaults to original filename)
-            metadata: Optional metadata for the upload
-            
-        Returns:
-            IPFS CID if successful, None otherwise
-        """
+        """Upload a file to Pinata."""
         try:
             if not os.path.exists(file_path):
                 raise StorageError(f"File not found: {file_path}")
@@ -188,7 +203,7 @@ class StorageManager:
                     cid = result.get('IpfsHash')
                     
                     if cid:
-                        rprint(f"[green]📁 Successfully uploaded {upload_filename} to IPFS[/green]")
+                        rprint(f"[green]📁 Successfully uploaded {upload_filename} to Pinata[/green]")
                         rprint(f"   CID: {cid}")
                         return cid
                     else:
@@ -203,15 +218,7 @@ class StorageManager:
             raise StorageError(f"File upload error: {str(e)}")
     
     def retrieve_json(self, cid: IPFSHash) -> Optional[Dict[Any, Any]]:
-        """
-        Retrieve JSON data from IPFS using the CID.
-        
-        Args:
-            cid: IPFS Content Identifier
-            
-        Returns:
-            Parsed JSON data if successful, None otherwise
-        """
+        """Retrieve JSON data from Pinata gateway."""
         try:
             url = f"{self.gateway_url}/ipfs/{cid}"
             response = requests.get(url, timeout=30)
@@ -232,16 +239,7 @@ class StorageManager:
             raise StorageError(f"Unexpected error retrieving from IPFS: {str(e)}")
     
     def retrieve_file(self, cid: IPFSHash, save_path: str = None) -> Union[bytes, str]:
-        """
-        Retrieve file data from IPFS using the CID.
-        
-        Args:
-            cid: IPFS Content Identifier
-            save_path: Optional path to save the file
-            
-        Returns:
-            File content as bytes, or saved file path if save_path provided
-        """
+        """Retrieve file data from Pinata gateway."""
         try:
             url = f"{self.gateway_url}/ipfs/{cid}"
             response = requests.get(url, timeout=60)
@@ -262,29 +260,12 @@ class StorageManager:
         except Exception as e:
             raise StorageError(f"File retrieval error: {str(e)}")
     
-    def get_clickable_link(self, cid: IPFSHash) -> str:
-        """
-        Get a clickable IPFS gateway link for a CID.
-        
-        Args:
-            cid: IPFS Content Identifier
-            
-        Returns:
-            Full gateway URL for the content
-        """
+    def get_gateway_url(self, cid: IPFSHash) -> str:
+        """Get Pinata gateway URL for content."""
         return f"{self.gateway_url}/ipfs/{cid}"
     
-    def pin_by_cid(self, cid: IPFSHash, name: str = None) -> bool:
-        """
-        Pin existing content by CID to ensure persistence.
-        
-        Args:
-            cid: IPFS Content Identifier to pin
-            name: Optional name for the pinned content
-            
-        Returns:
-            True if successful, False otherwise
-        """
+    def pin_content(self, cid: IPFSHash, name: str = None) -> bool:
+        """Pin existing content by CID to Pinata."""
         try:
             payload = {
                 "hashToPin": cid,
@@ -300,22 +281,18 @@ class StorageManager:
                 timeout=30
             )
             
-            return response.status_code == 200
+            success = response.status_code == 200
+            if success and name:
+                rprint(f"[green]📌 Pinned {name} to Pinata[/green]")
+            
+            return success
             
         except Exception as e:
             rprint(f"[red]❌ Error pinning CID {cid}: {e}[/red]")
             return False
     
-    def list_pins(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        List pinned content.
-        
-        Args:
-            limit: Maximum number of pins to return
-            
-        Returns:
-            List of pinned content information
-        """
+    def list_content(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """List pinned content on Pinata."""
         try:
             params = {"pageLimit": limit}
             response = requests.get(
@@ -326,17 +303,36 @@ class StorageManager:
             )
             
             if response.status_code == 200:
-                return response.json().get('rows', [])
+                result = response.json()
+                pins = []
+                
+                for pin in result.get('rows', []):
+                    pins.append({
+                        'cid': pin.get('ipfs_pin_hash'),
+                        'name': pin.get('metadata', {}).get('name'),
+                        'size': pin.get('size'),
+                        'timestamp': pin.get('date_pinned'),
+                        'gateway_url': self.get_gateway_url(pin.get('ipfs_pin_hash'))
+                    })
+                
+                return pins
             else:
                 raise StorageError(f"Failed to list pins: {response.status_code}")
                 
         except Exception as e:
             raise StorageError(f"Error listing pins: {str(e)}")
-
-
-# Alias for backward compatibility
-class GenesisIPFSManager:
-    """Legacy alias for StorageManager."""
     
-    def __init__(self):
-        self.storage = StorageManager()
+    @property
+    def provider_name(self) -> str:
+        """Return provider name."""
+        return "Pinata"
+    
+    @property
+    def is_free(self) -> bool:
+        """Pinata is a paid service."""
+        return False
+    
+    @property
+    def requires_api_key(self) -> bool:
+        """Pinata requires a JWT token."""
+        return True
