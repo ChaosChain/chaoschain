@@ -39,7 +39,7 @@ Example:
     ```
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __author__ = "ChaosChain"
 __email__ = "sumeet.chougule@nethermind.io"
 
