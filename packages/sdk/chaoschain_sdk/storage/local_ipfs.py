@@ -48,7 +48,7 @@ class LocalIPFSBackend(StorageBackend):
     def _test_connection(self) -> None:
         """Test connection to local IPFS node."""
         try:
-            response = requests.get(f"{self.api_url}/api/v0/version", timeout=5)
+            response = requests.post(f"{self.api_url}/api/v0/version", timeout=5)
             if response.status_code == 200:
                 version_info = response.json()
                 rprint(f"[green]✅ Connected to IPFS node v{version_info.get('Version', 'unknown')}[/green]")
