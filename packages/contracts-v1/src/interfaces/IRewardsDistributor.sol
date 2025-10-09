@@ -90,6 +90,22 @@ interface IRewardsDistributor {
         uint256 slashAmount,
         uint256 errorMetric
     );
+    
+    /**
+     * @dev Emitted when evidence is anchored on-chain (canonical event for indexers)
+     * @param agentId The worker agent ID
+     * @param workId Unique work identifier: keccak(domain|nonce|timestamp)
+     * @param evidenceCid IPFS CID as bytes32 (multihash)
+     * @param chainId The chain ID where evidence is anchored
+     * @param timestamp Block timestamp of anchoring
+     */
+    event EvidenceAnchored(
+        uint256 indexed agentId,
+        bytes32 indexed workId,
+        bytes32 evidenceCid,
+        uint64 chainId,
+        uint64 timestamp
+    );
 
     // ============ Core Functions ============
     

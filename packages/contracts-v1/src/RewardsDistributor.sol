@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Ownable} from "@openzeppelin/access/Ownable.sol";
 import {IRewardsDistributor} from "./interfaces/IRewardsDistributor.sol";
 import {IChaosChainRegistry} from "./interfaces/IChaosChainRegistry.sol";
-import {IERC8004Identity} from "./interfaces/IERC8004Identity.sol";
+import {IERC8004IdentityV1} from "./interfaces/IERC8004IdentityV1.sol";
 import {IERC8004Validation} from "./interfaces/IERC8004Validation.sol";
 import {StudioProxy} from "./StudioProxy.sol";
 
