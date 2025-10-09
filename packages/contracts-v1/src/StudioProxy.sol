@@ -2,6 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {IStudioProxy} from "./interfaces/IStudioProxy.sol";
+import {EIP712} from "@openzeppelin/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/utils/cryptography/ECDSA.sol";
+import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
 
 /**
  * @title StudioProxy
@@ -23,7 +26,14 @@ import {IStudioProxy} from "./interfaces/IStudioProxy.sol";
  * 
  * @author ChaosChain Labs
  */
-contract StudioProxy is IStudioProxy {
+contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
+    
+    // ============ Constants ============
+    
+    /// @dev EIP-712 typehash for score submission
+    bytes32 private constant SCORE_TYPEHASH = keccak256(
+        "ScoreSubmission(bytes32 workId,bytes scoreVector,uint256 nonce,uint256 deadline)"
+    );
     
     // ============ Storage Layout ============
     // CRITICAL: Storage layout must never change to maintain upgrade safety
@@ -48,6 +58,12 @@ contract StudioProxy is IStudioProxy {
     
     /// @dev Total escrow in the Studio
     uint256 private _totalEscrow;
+    
+    /// @dev Nonces for EIP-712 score submission (validator => workId => nonce)
+    mapping(address => mapping(bytes32 => uint256)) private _scoreNonces;
+    
+    /// @dev Withdrawable balances for pull payment pattern (address => amount)
+    mapping(address => uint256) private _withdrawable;
     
     // ============ Modifiers ============
     
@@ -79,7 +95,7 @@ contract StudioProxy is IStudioProxy {
         address chaosCore_,
         address logicModule_,
         address rewardsDistributor_
-    ) {
+    ) EIP712("ChaosChain StudioProxy", "1") {
         require(chaosCore_ != address(0), "Invalid ChaosCore");
         require(logicModule_ != address(0), "Invalid logic module");
         require(rewardsDistributor_ != address(0), "Invalid RewardsDistributor");
@@ -124,8 +140,52 @@ contract StudioProxy is IStudioProxy {
         require(scoreVector.length > 0, "Empty score vector");
         
         _scoreVectors[dataHash][msg.sender] = scoreVector;
+        _scoreNonces[msg.sender][dataHash]++;
         
         emit ScoreVectorSubmitted(0, dataHash, scoreVector, block.timestamp); // validatorAgentId from logic
+    }
+    
+    /**
+     * @notice Submit score vector with EIP-712 signature (anti-replay protection)
+     * @param dataHash The work hash
+     * @param scoreVector The score vector
+     * @param deadline Signature expiration timestamp
+     * @param signature EIP-712 signature from validator
+     */
+    function submitScoreVectorSigned(
+        bytes32 dataHash,
+        bytes calldata scoreVector,
+        uint256 deadline,
+        bytes calldata signature
+    ) external {
+        require(block.timestamp <= deadline, "Signature expired");
+        require(dataHash != bytes32(0), "Invalid dataHash");
+        require(_workSubmissions[dataHash] != address(0), "Work not found");
+        require(scoreVector.length > 0, "Empty score vector");
+        
+        // Get current nonce
+        uint256 nonce = _scoreNonces[msg.sender][dataHash];
+        
+        // Reconstruct EIP-712 hash
+        bytes32 structHash = keccak256(abi.encode(
+            SCORE_TYPEHASH,
+            dataHash,
+            keccak256(scoreVector),
+            nonce,
+            deadline
+        ));
+        
+        bytes32 digest = _hashTypedDataV4(structHash);
+        
+        // Recover signer and verify
+        address signer = ECDSA.recover(digest, signature);
+        require(signer == msg.sender, "Invalid signature");
+        
+        // Store score and increment nonce
+        _scoreVectors[dataHash][msg.sender] = scoreVector;
+        _scoreNonces[msg.sender][dataHash]++;
+        
+        emit ScoreVectorSubmitted(0, dataHash, scoreVector, block.timestamp);
     }
     
     /// @inheritdoc IStudioProxy
@@ -133,17 +193,30 @@ contract StudioProxy is IStudioProxy {
         address to,
         uint256 amount,
         bytes32 dataHash
-    ) external override onlyRewardsDistributor {
+    ) external override onlyRewardsDistributor nonReentrant {
         require(to != address(0), "Invalid recipient");
         require(amount > 0, "Invalid amount");
         require(amount <= _totalEscrow, "Insufficient escrow");
         
+        // Use pull payment pattern - credit withdrawable balance
         _totalEscrow -= amount;
-        
-        (bool success, ) = to.call{value: amount}("");
-        require(success, "Transfer failed");
+        _withdrawable[to] += amount;
         
         emit FundsReleased(to, amount, dataHash);
+    }
+    
+    /**
+     * @notice Withdraw funds (pull payment pattern)
+     * @dev Prevents reentrancy by using pull over push
+     */
+    function withdraw() external nonReentrant {
+        uint256 amount = _withdrawable[msg.sender];
+        require(amount > 0, "No funds to withdraw");
+        
+        _withdrawable[msg.sender] = 0;
+        
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
     }
     
     /// @inheritdoc IStudioProxy
@@ -194,6 +267,25 @@ contract StudioProxy is IStudioProxy {
      */
     function getRewardsDistributor() external view returns (address distributor) {
         return _rewardsDistributor;
+    }
+    
+    /**
+     * @notice Get score submission nonce for replay protection
+     * @param validator The validator address
+     * @param workId The work ID
+     * @return nonce The current nonce
+     */
+    function getScoreNonce(address validator, bytes32 workId) external view returns (uint256 nonce) {
+        return _scoreNonces[validator][workId];
+    }
+    
+    /**
+     * @notice Get withdrawable balance (pull payment pattern)
+     * @param account The account to check
+     * @return balance The withdrawable balance
+     */
+    function getWithdrawableBalance(address account) external view returns (uint256 balance) {
+        return _withdrawable[account];
     }
     
     /**

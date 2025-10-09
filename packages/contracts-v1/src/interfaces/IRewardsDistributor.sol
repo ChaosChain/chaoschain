@@ -126,7 +126,7 @@ interface IRewardsDistributor {
     function calculateConsensus(
         bytes32 dataHash,
         ScoreVector[] calldata scoreVectors
-    ) external view returns (uint8[] memory consensusScores);
+    ) external returns (uint8[] memory consensusScores);
     
     /**
      * @notice Get consensus result for a work submission

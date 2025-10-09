@@ -62,16 +62,6 @@ contract PredictionMarketLogic is LogicModule {
         // Could be extended to set minimum escrow, challenge parameters, etc.
     }
     
-    /// @inheritdoc LogicModule
-    function getStudioType() external pure override returns (string memory) {
-        return "PredictionMarket";
-    }
-    
-    /// @inheritdoc LogicModule
-    function getVersion() external pure override returns (string memory) {
-        return "1.0.0";
-    }
-    
     // ============ Custom Business Logic ============
     
     /**
@@ -117,12 +107,11 @@ contract PredictionMarketLogic is LogicModule {
      * @notice Submit a prediction for a challenge
      * @param challengeId The challenge ID
      * @param predictionHash Hash of the prediction data
-     * @param evidenceUri URI to prediction evidence on IPFS/Irys
      */
     function submitPrediction(
         bytes32 challengeId,
         bytes32 predictionHash,
-        string calldata evidenceUri
+        string calldata /* evidenceUri */
     ) external {
         Challenge storage challenge = _challenges[challengeId];
         require(challenge.active, "Challenge not active");
@@ -168,6 +157,38 @@ contract PredictionMarketLogic is LogicModule {
     function isChallengeActive(bytes32 challengeId) external view returns (bool active) {
         Challenge storage challenge = _challenges[challengeId];
         return challenge.active && block.timestamp < challenge.deadline;
+    }
+    
+    // ============ LogicModule Overrides ============
+    
+    /// @inheritdoc LogicModule
+    function getStudioType() external pure override returns (string memory studioType) {
+        return "PredictionMarket";
+    }
+    
+    /// @inheritdoc LogicModule
+    function getVersion() external pure override returns (string memory version) {
+        return "1.0.0";
+    }
+    
+    /// @inheritdoc LogicModule
+    function getScoringCriteria() external pure override returns (
+        string[] memory names,
+        uint16[] memory weights
+    ) {
+        // Define 4 scoring criteria for prediction markets
+        names = new string[](4);
+        names[0] = "Accuracy";      // How correct was the prediction?
+        names[1] = "Timeliness";    // How early was it submitted?
+        names[2] = "Reasoning";     // Quality of justification
+        names[3] = "Confidence";    // Stake + conviction alignment
+        
+        // Weights (100 = 1.0x baseline)
+        weights = new uint16[](4);
+        weights[0] = 150;  // 1.5x weight on accuracy (most important)
+        weights[1] = 100;  // 1.0x weight on timeliness
+        weights[2] = 80;   // 0.8x weight on reasoning quality
+        weights[3] = 70;   // 0.7x weight on confidence calibration
     }
 }
 

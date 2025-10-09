@@ -178,7 +178,7 @@ library Scoring {
         
         // Find weighted median
         uint256 cumWeight = 0;
-        uint256 targetWeight = totalStake / 2;
+        uint256 targetWeight = totalWeight / 2;
         
         for (uint256 i = 0; i < n; i++) {
             cumWeight += weights[i];

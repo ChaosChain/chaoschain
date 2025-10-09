@@ -86,6 +86,25 @@ abstract contract LogicModule {
      */
     function getVersion() external pure virtual returns (string memory version);
     
+    /**
+     * @notice Get scoring criteria metadata for this Studio type
+     * @dev REQUIRED: Override in derived contracts to expose criteria for Explorer UI
+     * @return names Array of criterion names (e.g., ["Quality", "Initiative", "Collaboration"])
+     * @return weights Array of weights per criterion (e.g., [100, 80, 120] where 100 = 1.0x)
+     * 
+     * Example for a prediction market:
+     *   names: ["Accuracy", "Timeliness", "Reasoning"]
+     *   weights: [150, 100, 50] // 1.5x, 1.0x, 0.5x
+     */
+    function getScoringCriteria() external virtual view returns (
+        string[] memory names,
+        uint16[] memory weights
+    ) {
+        // Default: empty (override required)
+        names = new string[](0);
+        weights = new uint16[](0);
+    }
+    
     // ============ Internal Helper Functions ============
     
     /**

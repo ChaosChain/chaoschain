@@ -24,7 +24,12 @@ gas_reports = ["*"]
 
 # RPC endpoints
 [rpc_endpoints]
-base_sepolia = "https://sepolia.base.org"
+base_sepolia = "${BASE_SEPOLIA_RPC}"
+sepolia = "${SEPOLIA_RPC}"
+zerog_newton = "${ZEROG_NEWTON_RPC}"
 
+# Etherscan verification
 [etherscan]
-base_sepolia = { key = "${BASESCAN_API_KEY}" }
+base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
+sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.etherscan.io/api" }
+# 0G Newton uses custom explorer (not etherscan compatible)
