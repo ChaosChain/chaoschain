@@ -1,0 +1,30 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Solidity compiler settings
+solc = "0.8.24"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+
+# Remappings
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/contracts/",
+    "@erc8004/=src/ERC-8004-v1/",
+    "@chaoschain/=src/"
+]
+
+# Gas reporting
+gas_reports = ["*"]
+
+# RPC endpoints
+[rpc_endpoints]
+base_sepolia = "https://sepolia.base.org"
+
+[etherscan]
+base_sepolia = { key = "${BASESCAN_API_KEY}" }
