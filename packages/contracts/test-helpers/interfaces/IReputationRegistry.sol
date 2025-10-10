@@ -46,7 +46,8 @@ interface IReputationRegistry {
         address indexed clientAddress,
         uint64 feedbackIndex,
         address indexed responder,
-        string responseUri
+        string responseUri,
+        bytes32 responseHash
     );
 
     // ============ Core Functions ============

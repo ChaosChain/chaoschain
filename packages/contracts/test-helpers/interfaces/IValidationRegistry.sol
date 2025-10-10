@@ -35,6 +35,7 @@ interface IValidationRegistry {
         bytes32 indexed requestHash,
         uint8 response,
         string responseUri,
+        bytes32 responseHash,
         bytes32 tag
     );
 

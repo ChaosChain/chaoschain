@@ -68,6 +68,9 @@ contract ReputationRegistry is IReputationRegistry {
     /// @dev agentId => clientAddress => feedbackIndex => responder => response count
     mapping(uint256 => mapping(address => mapping(uint64 => mapping(address => uint64)))) private _responseCount;
 
+    /// @dev Size of FeedbackAuth struct in bytes (7 fields × 32 bytes each)
+    uint256 private constant FEEDBACK_AUTH_STRUCT_SIZE = 224;
+
     // ============ Constructor ============
     
     /**
@@ -140,12 +143,12 @@ contract ReputationRegistry is IReputationRegistry {
         uint8 v;
         
         assembly {
-            // feedbackAuth layout: [length][224 bytes struct][32 bytes r][32 bytes s][1 byte v]
-            let dataPtr := add(feedbackAuth, 32) // Skip length prefix
-            let sigStart := add(dataPtr, 224)     // Start of signature
-            r := mload(sigStart)                  // Load r (32 bytes)
-            s := mload(add(sigStart, 32))         // Load s (32 bytes)
-            v := byte(0, mload(add(sigStart, 64))) // Load v (1 byte)
+            // feedbackAuth layout: [length][FEEDBACK_AUTH_STRUCT_SIZE bytes struct][32 bytes r][32 bytes s][1 byte v]
+            let dataPtr := add(feedbackAuth, 32)                 // Skip length prefix
+            let sigStart := add(dataPtr, FEEDBACK_AUTH_STRUCT_SIZE) // Start of signature
+            r := mload(sigStart)                                 // Load r (32 bytes)
+            s := mload(add(sigStart, 32))                        // Load s (32 bytes)
+            v := byte(0, mload(add(sigStart, 64)))               // Load v (1 byte)
         }
         
         // Verify signature using EIP-191 (personal sign) or ERC-1271 (smart contract)
@@ -228,17 +231,22 @@ contract ReputationRegistry is IReputationRegistry {
         // Increment response count for this responder
         _responseCount[agentId][clientAddress][feedbackIndex][msg.sender]++;
         
-        emit ResponseAppended(agentId, clientAddress, feedbackIndex, msg.sender, responseUri);
+        emit ResponseAppended(agentId, clientAddress, feedbackIndex, msg.sender, responseUri, responseHash);
     }
 
     // ============ Read Functions ============
     
     /**
      * @notice Get aggregated summary for an agent
+     * @dev IMPORTANT: This function is designed for OFF-CHAIN consumption.
+     *      For agents with many feedback entries, calling without filters may exceed gas limits.
+     *      ALWAYS use the `clientAddresses` filter for popular agents to prevent DoS.
+     *      As per ERC-8004 v1.0 spec (line 209): "Without filtering by clientAddresses,
+     *      results are subject to Sybil/spam attacks."
      * @param agentId The agent ID (mandatory)
-     * @param clientAddresses Filter by specific clients (optional)
-     * @param tag1 Filter by tag1 (optional, use bytes32(0) to skip)
-     * @param tag2 Filter by tag2 (optional, use bytes32(0) to skip)
+     * @param clientAddresses Filter by specific clients (RECOMMENDED for popular agents)
+     * @param tag1 Filter by tag1 (optional, bytes32(0) to skip)
+     * @param tag2 Filter by tag2 (optional, bytes32(0) to skip)
      * @return count Number of feedback entries
      * @return averageScore Average score (0-100)
      */
@@ -307,10 +315,14 @@ contract ReputationRegistry is IReputationRegistry {
     
     /**
      * @notice Read all feedback for an agent
+     * @dev IMPORTANT: This function is designed for OFF-CHAIN consumption (indexers, frontends).
+     *      For agents with many feedback entries, calling without filters may exceed gas limits.
+     *      ALWAYS use the `clientAddresses` filter for popular agents to prevent DoS.
+     *      As per ERC-8004 v1.0 spec: "more complex reputation aggregation will happen off-chain"
      * @param agentId The agent ID (mandatory)
-     * @param clientAddresses Filter by clients (optional)
-     * @param tag1 Filter by tag1 (optional)
-     * @param tag2 Filter by tag2 (optional)
+     * @param clientAddresses Filter by clients (RECOMMENDED for popular agents)
+     * @param tag1 Filter by tag1 (optional, bytes32(0) to ignore)
+     * @param tag2 Filter by tag2 (optional, bytes32(0) to ignore)
      * @param includeRevoked Whether to include revoked feedback
      * @return clients Array of client addresses
      * @return scores Array of scores
@@ -420,12 +432,17 @@ contract ReputationRegistry is IReputationRegistry {
     }
     
     /**
-     * @notice Get response count for a feedback entry
+     * @notice Get response count for feedback entries
+     * @dev IMPORTANT: This function has a known limitation due to gas-efficient storage design.
+     *      When `responders` array is empty, the function returns 0 because the contract
+     *      only tracks responses per-responder (not aggregate counts). To get accurate counts,
+     *      you MUST provide the responders array. This is a design tradeoff to optimize gas
+     *      costs for the more common write operations (appendResponse).
      * @param agentId The agent ID (mandatory)
-     * @param clientAddress The client address (optional)
-     * @param feedbackIndex The feedback index (optional)
-     * @param responders Filter by responders (optional)
-     * @return count Total response count
+     * @param clientAddress The client address (optional, address(0) for all clients)
+     * @param feedbackIndex The feedback index (optional, 0 for all feedback)
+     * @param responders Filter by specific responders (REQUIRED for non-zero counts)
+     * @return count Total response count from specified responders
      */
     function getResponseCount(
         uint256 agentId,
@@ -433,38 +450,34 @@ contract ReputationRegistry is IReputationRegistry {
         uint64 feedbackIndex,
         address[] calldata responders
     ) external view returns (uint64 count) {
+        // Early return if no responders specified (known limitation)
+        if (responders.length == 0) {
+            return 0;
+        }
+        
         if (clientAddress == address(0)) {
-            // Count all responses for all clients
+            // Count all responses for all clients from specified responders
             address[] memory clients = _clients[agentId];
             for (uint256 i = 0; i < clients.length; i++) {
                 uint64 lastIdx = _lastIndex[agentId][clients[i]];
                 for (uint64 j = 1; j <= lastIdx; j++) {
-                    if (responders.length > 0) {
-                        for (uint256 k = 0; k < responders.length; k++) {
-                            count += _responseCount[agentId][clients[i]][j][responders[k]];
-                        }
-                    } else {
-                        // This would require tracking all responders - simplified
-                        count++;
+                    for (uint256 k = 0; k < responders.length; k++) {
+                        count += _responseCount[agentId][clients[i]][j][responders[k]];
                     }
                 }
             }
         } else if (feedbackIndex == 0) {
-            // Count all responses for specific client
+            // Count all responses for specific client from specified responders
             uint64 lastIdx = _lastIndex[agentId][clientAddress];
             for (uint64 j = 1; j <= lastIdx; j++) {
-                if (responders.length > 0) {
-                    for (uint256 k = 0; k < responders.length; k++) {
-                        count += _responseCount[agentId][clientAddress][j][responders[k]];
-                    }
+                for (uint256 k = 0; k < responders.length; k++) {
+                    count += _responseCount[agentId][clientAddress][j][responders[k]];
                 }
             }
         } else {
-            // Count responses for specific feedback
-            if (responders.length > 0) {
-                for (uint256 k = 0; k < responders.length; k++) {
-                    count += _responseCount[agentId][clientAddress][feedbackIndex][responders[k]];
-                }
+            // Count responses for specific feedback from specified responders
+            for (uint256 k = 0; k < responders.length; k++) {
+                count += _responseCount[agentId][clientAddress][feedbackIndex][responders[k]];
             }
         }
     }
@@ -505,11 +518,11 @@ contract ReputationRegistry is IReputationRegistry {
      */
     function _decodeFeedbackAuth(bytes memory data) internal pure returns (FeedbackAuth memory auth) {
         // Data format: abi.encode(struct fields) + signature (65 bytes)
-        require(data.length >= 65 + 224, "Invalid auth data"); // 224 = 7 * 32 bytes for struct fields
+        require(data.length >= 65 + FEEDBACK_AUTH_STRUCT_SIZE, "Invalid auth data");
         
-        // Decode struct fields (first 224 bytes)
-        bytes memory structData = new bytes(224);
-        for (uint256 i = 0; i < 224; i++) {
+        // Decode struct fields (first FEEDBACK_AUTH_STRUCT_SIZE bytes)
+        bytes memory structData = new bytes(FEEDBACK_AUTH_STRUCT_SIZE);
+        for (uint256 i = 0; i < FEEDBACK_AUTH_STRUCT_SIZE; i++) {
             structData[i] = data[i];
         }
         

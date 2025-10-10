@@ -103,6 +103,11 @@ contract ValidationRegistry is IValidationRegistry {
             "Not authorized"
         );
         
+        // SECURITY: Prevent self-validation (defeats purpose of independent validation)
+        // As per ERC-8004 v1.0 intent: "independent validators checks"
+        require(validatorAddress != agentOwner, "Self-validation not allowed");
+        require(validatorAddress != msg.sender, "Self-validation not allowed");
+        
         // Generate requestHash if not provided (for non-IPFS URIs)
         bytes32 finalRequestHash = requestHash;
         if (finalRequestHash == bytes32(0)) {
@@ -178,6 +183,7 @@ contract ValidationRegistry is IValidationRegistry {
             requestHash,
             response,
             responseUri,
+            responseHash,
             tag
         );
     }
@@ -220,9 +226,13 @@ contract ValidationRegistry is IValidationRegistry {
     
     /**
      * @notice Get aggregated validation summary for an agent
+     * @dev IMPORTANT: This function is designed for OFF-CHAIN consumption.
+     *      For agents with many validation requests, calling without filters may exceed gas limits.
+     *      Use the `validatorAddresses` and/or `tag` filters for popular agents to prevent DoS.
+     *      As per ERC-8004 v1.0 spec: validation aggregation is expected to happen off-chain.
      * @param agentId The agent ID (mandatory)
-     * @param validatorAddresses Filter by validators (optional)
-     * @param tag Filter by tag (optional, use bytes32(0) to skip)
+     * @param validatorAddresses Filter by validators (RECOMMENDED for popular agents)
+     * @param tag Filter by tag (optional, bytes32(0) to skip)
      * @return count Number of validations
      * @return avgResponse Average response value (0-100)
      */

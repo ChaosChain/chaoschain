@@ -3,6 +3,7 @@ pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./interfaces/IIdentityRegistry.sol";
 
 /**
@@ -22,7 +23,7 @@ import "./interfaces/IIdentityRegistry.sol";
  * 
  * @author ChaosChain Labs
  */
-contract IdentityRegistry is ERC721URIStorage, IIdentityRegistry {
+contract IdentityRegistry is ERC721URIStorage, ReentrancyGuard, IIdentityRegistry {
     using Counters for Counters.Counter;
 
     // ============ State Variables ============
@@ -54,7 +55,7 @@ contract IdentityRegistry is ERC721URIStorage, IIdentityRegistry {
     function register(
         string calldata tokenURI_, 
         MetadataEntry[] calldata metadata
-    ) external returns (uint256 agentId) {
+    ) external nonReentrant returns (uint256 agentId) {
         agentId = _mintAgent(msg.sender, tokenURI_);
         
         // Set metadata if provided
@@ -68,7 +69,7 @@ contract IdentityRegistry is ERC721URIStorage, IIdentityRegistry {
      * @param tokenURI_ The URI pointing to the agent's registration JSON file
      * @return agentId The newly assigned agent ID
      */
-    function register(string calldata tokenURI_) external returns (uint256 agentId) {
+    function register(string calldata tokenURI_) external nonReentrant returns (uint256 agentId) {
         agentId = _mintAgent(msg.sender, tokenURI_);
     }
     
@@ -77,7 +78,7 @@ contract IdentityRegistry is ERC721URIStorage, IIdentityRegistry {
      * @dev The tokenURI can be set later using _setTokenURI() by the owner
      * @return agentId The newly assigned agent ID
      */
-    function register() external returns (uint256 agentId) {
+    function register() external nonReentrant returns (uint256 agentId) {
         agentId = _mintAgent(msg.sender, "");
     }
 
