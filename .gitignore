@@ -121,3 +121,11 @@ chaoschain_labs/
 .DS_Store 
 packages/sdk/keys
 packages/sdk/chaoschain_wallets.json
+
+
+*.md
+!README.md
+!docs/protocol_spec_v0.1.md
+!docs/X402_INTEGRATION_GUIDE.md
+
+packages/contracts-v1/IMPLEMENTATION_ROADMAP.md

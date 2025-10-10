@@ -1,0 +1,61 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Solidity compiler settings
+solc = "0.8.24"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+
+# Remappings
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/contracts/",
+    "@erc8004/=src/ERC-8004-v1/",
+    "@chaoschain/=src/"
+]
+
+# Gas reporting
+gas_reports = ["*"]
+
+# RPC endpoints (ChaosChain is chain-agnostic - deploy to any network with ERC-8004 v1)
+[rpc_endpoints]
+# Ethereum
+sepolia = "${SEPOLIA_RPC}"
+mainnet = "${MAINNET_RPC}"
+
+# Base
+base_sepolia = "${BASE_SEPOLIA_RPC}"
+base = "${BASE_RPC}"
+
+# Optimism
+optimism_sepolia = "${OPTIMISM_SEPOLIA_RPC}"
+optimism = "${OPTIMISM_RPC}"
+
+# Mode
+mode_testnet = "${MODE_TESTNET_RPC}"
+mode = "${MODE_RPC}"
+
+# 0G
+zerog_newton = "${ZEROG_NEWTON_RPC}"
+zerog = "${ZEROG_RPC}"
+
+# Arbitrum
+arbitrum_sepolia = "${ARBITRUM_SEPOLIA_RPC}"
+arbitrum = "${ARBITRUM_RPC}"
+
+# Etherscan verification
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.etherscan.io/api" }
+mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/api" }
+base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
+base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api" }
+optimism_sepolia = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", url = "https://api-sepolia-optimistic.etherscan.io/api" }
+optimism = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", url = "https://api-optimistic.etherscan.io/api" }
+arbitrum_sepolia = { key = "${ARBISCAN_API_KEY}", url = "https://api-sepolia.arbiscan.io/api" }
+arbitrum = { key = "${ARBISCAN_API_KEY}", url = "https://api.arbiscan.io/api" }
+# Mode and 0G use custom explorers (not etherscan compatible)
