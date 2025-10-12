@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.1.2"
-description = "Developer SDK for building verifiable, monetizable agents on the ChaosChain protocol"
+version = "0.2.0"
+description = "Minimal SDK for building verifiable agents on ChaosChain protocol - ERC-8004, x402, local storage"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -18,17 +18,12 @@ keywords = [
     "ai-agents", 
     "blockchain", 
     "erc-8004", 
-    "ap2", 
     "x402", 
-    "process-integrity",
     "web3",
     "autonomous-agents",
-    "triple-verified-stack",
     "chaoschain",
-    "google-ap2",
     "crypto-payments",
-    "agent-commerce",
-    "verifiable-ai"
+    "agent-commerce"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -45,56 +40,117 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    # Core Web3 and Blockchain
+    # ══════════════════════════════════════════════════════════════
+    # MINIMAL CORE (Lean Base Install)
+    # ══════════════════════════════════════════════════════════════
+    
+    # ERC-8004 Protocol (Identity/Reputation/Validation)
     "web3>=6.0.0",
     "eth-account>=0.8.0",
     
-    # x402 Payment Protocol (Coinbase official - PRIMARY payment method)
+    # x402 Payment Protocol (Coinbase official)
     "x402>=0.2.1",
     
-    # HTTP and API clients
-    "requests>=2.28.0",
-    "httpx>=0.24.0",
-    
-    # Cryptography and Security
+    # Wallet Manager
     "cryptography>=41.0.0",
     "pyjwt>=2.8.0",
     
-    # Data handling and validation
-    "pydantic>=2.0.0",
+    # Local IPFS Storage (Minimal - HTTP API only)
+    "requests>=2.28.0",
+    
+    # Essential utilities
     "python-dotenv>=1.0.0",
-    
-    # Note: IPFS storage handled via Pinata REST API (no ipfshttpclient needed)
-    
-    # Rich console output
     "rich>=13.0.0",
-    
-    # Async support
-    "aiohttp>=3.8.0",
-    
-    # Date/time handling
-    "python-dateutil>=2.8.0",
-    
-    # Note: Google AP2 integration available but requires manual installation
-    # Install with: pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 ]
 
 [project.optional-dependencies]
-payments = [
-    # Production payment processor integrations
+# ══════════════════════════════════════════════════════════════
+# PLUGGABLE PROVIDERS (Install What You Need)
+# Usage: pip install chaoschain-sdk[provider-name]
+# ══════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────
+# Storage Providers (Pluggable)
+# ─────────────────────────────────────────────────────────────
+
+pinata = [
+    "httpx>=0.24.0",
+]
+
+irys = [
+    "httpx>=0.24.0",
+]
+
+ipfs = [
+    "ipfshttpclient>=0.8.0",  # Enhanced IPFS client
+]
+
+0g-storage = [
+    "grpcio>=1.60.0,<2.0.0",
+    "grpcio-tools>=1.60.0,<2.0.0",
+    "protobuf>=4.25.0,<5.0.0",
+]
+
+# ─────────────────────────────────────────────────────────────
+# Compute Providers (Pluggable)
+# ─────────────────────────────────────────────────────────────
+
+0g-compute = [
+    "grpcio>=1.60.0,<2.0.0",
+    "grpcio-tools>=1.60.0,<2.0.0",
+    "protobuf>=4.25.0,<5.0.0",
+]
+
+morpheus = [
+    # Add when Morpheus SDK is available
+]
+
+chainlink = [
+    # Add when Chainlink Functions SDK is available
+]
+
+# ─────────────────────────────────────────────────────────────
+# Payment Extensions (Pluggable)
+# ─────────────────────────────────────────────────────────────
+
+ap2 = [
+    # Google AP2: pip install git+https://github.com/google-agentic-commerce/AP2.git@main
+    # Then: pip install chaoschain-sdk[ap2]
+]
+
+payments-fiat = [
     "stripe>=7.0.0",
     "paypalrestsdk>=1.13.0",
-    # Google Pay and Apple Pay integrations are handled via web APIs
 ]
-ap2 = [
-    # Note: AP2 must be installed manually from GitHub
-    # This section serves as documentation only
-    # Install with: pip install git+https://github.com/google-agentic-commerce/AP2.git@main
+
+# ─────────────────────────────────────────────────────────────
+# Full Stacks (Convenience Bundles)
+# ─────────────────────────────────────────────────────────────
+
+# 0G Full Stack (Storage + Compute)
+0g = [
+    "chaoschain-sdk[0g-storage,0g-compute]",
 ]
-server = [
-    # x402 paywall server dependencies
-    "flask>=3.0.0",
+
+# All Storage Providers
+storage-all = [
+    "chaoschain-sdk[pinata,irys,ipfs,0g-storage]",
 ]
+
+# All Compute Providers
+compute-all = [
+    "chaoschain-sdk[0g-compute,morpheus,chainlink]",
+]
+
+# Everything (All Providers)
+all = [
+    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,payments-fiat]",
+]
+
+# ─────────────────────────────────────────────────────────────
+# Development & Tools
+# ─────────────────────────────────────────────────────────────
+
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -102,38 +158,22 @@ dev = [
     "isort>=5.12.0",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
+    "ruff>=0.1.0",
 ]
+
 docs = [
     "sphinx>=6.0.0",
     "sphinx-rtd-theme>=1.2.0",
-    "myst-parser>=1.0.0",
 ]
 
 [project.urls]
-Homepage = "https://chaoscha.in"
-Documentation = "https://docs.chaoscha.in"
+Homepage = "https://chaoschain.io"
+Documentation = "https://docs.chaoschain.io"
 Repository = "https://github.com/ChaosChain/chaoschain"
-"Bug Reports" = "https://github.com/ChaosChain/chaoschain/issues"
-"Source Code" = "https://github.com/ChaosChain/chaoschain/tree/main/packages/sdk"
+Issues = "https://github.com/ChaosChain/chaoschain/issues"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["chaoschain_sdk*"]
+[tool.setuptools]
+packages = ["chaoschain_sdk"]
 
 [tool.setuptools.package-data]
-chaoschain_sdk = ["py.typed"]
-
-[tool.black]
-line-length = 100
-target-version = ['py39']
-include = '\.pyi?$'
-
-[tool.isort]
-profile = "black"
-line_length = 100
-
-[tool.mypy]
-python_version = "3.9"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
+chaoschain_sdk = ["py.typed", "*.pyi"]

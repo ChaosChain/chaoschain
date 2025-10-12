@@ -19,10 +19,12 @@ class AgentRole(str, Enum):
 
 
 class NetworkConfig(str, Enum):
-    """Supported blockchain networks."""
+    """Supported blockchain networks with ERC-8004 v1.0 deployments."""
     ETHEREUM_SEPOLIA = "ethereum-sepolia"
     BASE_SEPOLIA = "base-sepolia"
     OPTIMISM_SEPOLIA = "optimism-sepolia"
+    MODE_TESTNET = "mode-testnet"
+    ZEROG_TESTNET = "0g-testnet"
     LOCAL = "local"
 
 
@@ -33,6 +35,7 @@ class PaymentMethod(str, Enum):
     APPLE_PAY = "https://apple.com/apple-pay"
     PAYPAL = "https://paypal.com"
     A2A_X402 = "https://a2a.org/x402"
+    DIRECT_TRANSFER = "direct-transfer"  # Direct native token transfer (A0GI on 0G)
 
 
 @dataclass
@@ -73,6 +76,7 @@ class PaymentProof:
     transaction_hash: str
     timestamp: datetime
     receipt_data: Dict[str, Any]
+    network: Optional[str] = None  # Optional network identifier for ERC-8004 v1.0 compliance
 
 
 @dataclass

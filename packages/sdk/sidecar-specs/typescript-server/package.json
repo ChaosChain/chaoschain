@@ -1,0 +1,21 @@
+{
+  "name": "zerog-grpc-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["0g", "grpc", "storage", "compute"],
+  "author": "ChaosChain",
+  "license": "MIT",
+  "description": "Unified gRPC server for 0G Storage and Compute",
+  "dependencies": {
+    "@0glabs/0g-ts-sdk": "latest",
+    "@0glabs/0g-serving-broker": "latest",
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.0",
+    "dotenv": "^16.0.0",
+    "ethers": "^6.0.0"
+  }
+}

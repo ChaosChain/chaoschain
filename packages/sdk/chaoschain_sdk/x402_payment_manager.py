@@ -90,13 +90,26 @@ class X402PaymentManager:
                 "chain_id": 84532,
                 "usdc_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
                 "rpc_url": os.getenv("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
-                "x402_network": "base-sepolia"
+                "x402_network": "base-sepolia",
+                "token_symbol": "USDC",
+                "decimals": 6
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
                 "chain_id": 11155111,
                 "usdc_address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
                 "rpc_url": os.getenv("ETHEREUM_SEPOLIA_RPC_URL"),
-                "x402_network": "ethereum-sepolia"
+                "x402_network": "ethereum-sepolia",
+                "token_symbol": "USDC",
+                "decimals": 6
+            },
+            NetworkConfig.ZEROG_TESTNET: {
+                "chain_id": 16602,
+                "usdc_address": "0x0000000000000000000000000000000000000000",  # Placeholder for native A0GI
+                "rpc_url": os.getenv("ZEROG_TESTNET_RPC_URL", "https://evmrpc-testnet.0g.ai"),
+                "x402_network": "base-sepolia",  # Use base-sepolia for x402 protocol validation (Coinbase doesn't support 0G yet)
+                "token_symbol": "A0GI",
+                "decimals": 18,  # Native token, 18 decimals
+                "native_token": True  # Use native token instead of ERC-20
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 "chain_id": 11155420,
@@ -111,12 +124,21 @@ class X402PaymentManager:
             raise ConfigurationError(f"Unsupported network for x402: {self.network}")
         
         self.chain_id = config["chain_id"]
-        self.usdc_address = config["usdc_address"]
+        self.usdc_address = config.get("usdc_address")  # Can be None for native tokens
         self.rpc_url = config["rpc_url"]
         self.x402_network = config["x402_network"]
+        self.token_symbol = config.get("token_symbol", "USDC")
+        self.decimals = config.get("decimals", 6)
+        self.native_token = config.get("native_token", False)
         
         if not self.rpc_url:
             raise ConfigurationError(f"RPC URL not configured for {self.network}")
+        
+        # Log token configuration
+        if self.native_token:
+            rprint(f"[cyan]💰 Using native token: {self.token_symbol}[/cyan]")
+        else:
+            rprint(f"[cyan]💰 Using ERC-20 token: {self.token_symbol} at {self.usdc_address}[/cyan]")
     
     def _initialize_x402_client(self):
         """Initialize official Coinbase x402Client."""
@@ -419,7 +441,7 @@ class X402PaymentManager:
         Returns:
             Payment execution result with receipt and transaction hashes
         """
-        rprint(f"[blue]💰 Executing x402 payment: {from_agent} → {to_agent} ({amount_usdc} USDC)[/blue]")
+        rprint(f"[blue]💰 Executing x402 payment: {from_agent} → {to_agent} ({amount_usdc} {self.token_symbol})[/blue]")
         
         try:
             # Step 1: Create payment requirements
@@ -508,9 +530,9 @@ class X402PaymentManager:
             net_amount_usdc = amount_usdc - protocol_fee_usdc
             
             rprint(f"[blue]💰 ChaosChain Fee Collection:[/blue]")
-            rprint(f"   Total Payment: ${amount_usdc} USDC")
-            rprint(f"   Protocol Fee ({self.protocol_fee_percentage}%): ${protocol_fee_usdc:.6f} USDC")
-            rprint(f"   Net to {to_agent}: ${net_amount_usdc:.6f} USDC")
+            rprint(f"   Total Payment: ${amount_usdc} {self.token_symbol}")
+            rprint(f"   Protocol Fee ({self.protocol_fee_percentage}%): ${protocol_fee_usdc:.6f} {self.token_symbol}")
+            rprint(f"   Net to {to_agent}: ${net_amount_usdc:.6f} {self.token_symbol}")
             rprint(f"   Treasury: {self.chaoschain_treasury}")
             
             # Step 1: Collect protocol fee to treasury
