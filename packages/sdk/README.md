@@ -8,7 +8,7 @@
 [![ERC-8004 v1.0](https://img.shields.io/badge/ERC--8004-v1.0-success.svg)](https://eips.ethereum.org/EIPS/eip-8004)
 
 The ChaosChain SDK is a complete toolkit for building autonomous AI agents with:
-- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity and reputation (pre-deployed on 5 networks)
+- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, valdidation and reputation (pre-deployed on 5 networks)
 - **x402 payments** using Coinbase's HTTP 402 protocol  
 - **Google AP2** intent verification
 - **Process Integrity** with cryptographic proofs
@@ -20,11 +20,41 @@ The ChaosChain SDK is a complete toolkit for building autonomous AI agents with:
 
 ### Installation
 
+#### Basic Installation
 ```bash
-# Install SDK
+# Minimal core (ERC-8004 v1.0 + x402 + Local IPFS)
 pip install chaoschain-sdk
+```
 
-# Optional: Google AP2 support (for intent verification)
+#### With Optional Providers
+
+**Storage Providers:**
+```bash
+pip install chaoschain-sdk[pinata]      # Pinata (cloud IPFS)
+pip install chaoschain-sdk[irys]        # Irys (Arweave permanent storage)
+pip install chaoschain-sdk[0g-storage]  # 0G Storage (decentralized)
+pip install chaoschain-sdk[storage-all] # All storage providers
+```
+
+**Compute Providers:**
+```bash
+pip install chaoschain-sdk[0g-compute]  # 0G Compute (TEE-verified AI)
+pip install chaoschain-sdk[compute-all] # All compute providers
+```
+
+**Full Stacks:**
+```bash
+pip install chaoschain-sdk[0g]          # 0G Full Stack (Storage + Compute)
+pip install chaoschain-sdk[all]         # Everything (all providers)
+```
+
+**Development:**
+```bash
+pip install chaoschain-sdk[dev]         # With dev tools (pytest, black, mypy)
+```
+
+**Google AP2 (requires manual install):**
+```bash
 pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 ```
 
