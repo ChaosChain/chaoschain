@@ -53,6 +53,8 @@ class WalletManager:
             NetworkConfig.BASE_SEPOLIA: os.getenv('BASE_SEPOLIA_RPC_URL'),
             NetworkConfig.ETHEREUM_SEPOLIA: os.getenv('SEPOLIA_RPC_URL'), 
             NetworkConfig.OPTIMISM_SEPOLIA: os.getenv('OPTIMISM_SEPOLIA_RPC_URL'),
+            NetworkConfig.MODE_TESTNET: os.getenv('MODE_TESTNET_RPC_URL'),
+            NetworkConfig.ZEROG_TESTNET: os.getenv('ZEROG_TESTNET_RPC_URL'),
             NetworkConfig.LOCAL: os.getenv('LOCAL_RPC_URL', 'http://127.0.0.1:8545')
         }
         

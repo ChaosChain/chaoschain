@@ -1,0 +1,276 @@
+// Protocol Buffers definition for 0G Bridge gRPC Service
+// ChaosChain SDK x 0G Integration
+//
+// This service wraps 0G's native Go/Rust SDKs and exposes them via gRPC,
+// allowing the Python ChaosChain SDK to integrate with 0G Storage and Compute.
+
+syntax = "proto3";
+
+package zerog.bridge.v1;
+
+option go_package = "github.com/chaoschain/zerog-bridge/proto/v1;bridgev1";
+
+// =============================================================================
+// STORAGE SERVICE
+// =============================================================================
+
+service StorageService {
+  // Upload data to 0G Storage
+  rpc Put(PutRequest) returns (PutResponse);
+  
+  // Retrieve data from 0G Storage
+  rpc Get(GetRequest) returns (GetResponse);
+  
+  // Verify data integrity in 0G Storage
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+  
+  // Delete data from 0G Storage
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  
+  // Health check for storage service
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message PutRequest {
+  // Data to store (binary blob)
+  bytes data = 1;
+  
+  // Optional MIME type
+  string mime_type = 2;
+  
+  // Optional tags for metadata
+  map<string, string> tags = 3;
+  
+  // Optional idempotency key for safe retries
+  string idempotency_key = 4;
+}
+
+message PutResponse {
+  // Success status
+  bool success = 1;
+  
+  // URI for accessing the stored data (e.g., "0g://object/abc123")
+  string uri = 2;
+  
+  // 0G root hash (Merkle tree root)
+  string root_hash = 3;
+  
+  // Transaction hash from 0G chain
+  string tx_hash = 4;
+  
+  // KECCAK-256 hash of the data (for ERC-8004 compatibility)
+  string data_hash = 5;
+  
+  // Provider identifier
+  string provider = 6;
+  
+  // Additional metadata
+  map<string, string> metadata = 7;
+  
+  // Error message if success = false
+  string error = 8;
+}
+
+message GetRequest {
+  // URI of the data to retrieve
+  string uri = 1;
+}
+
+message GetResponse {
+  // Success status
+  bool success = 1;
+  
+  // Retrieved data (binary blob)
+  bytes data = 2;
+  
+  // Metadata associated with the data
+  map<string, string> metadata = 3;
+  
+  // Error message if success = false
+  string error = 4;
+}
+
+message VerifyRequest {
+  // URI of the data to verify
+  string uri = 1;
+  
+  // Expected KECCAK-256 hash
+  string expected_hash = 2;
+}
+
+message VerifyResponse {
+  // Whether the data matches the expected hash
+  bool is_valid = 1;
+  
+  // Actual hash computed
+  string actual_hash = 2;
+  
+  // Error message if verification failed
+  string error = 3;
+}
+
+message DeleteRequest {
+  // URI of the data to delete
+  string uri = 1;
+  
+  // Optional idempotency key
+  string idempotency_key = 2;
+}
+
+message DeleteResponse {
+  // Success status
+  bool success = 1;
+  
+  // Error message if success = false
+  string error = 2;
+}
+
+// =============================================================================
+// COMPUTE SERVICE
+// =============================================================================
+
+service ComputeService {
+  // Submit a compute task to 0G Compute Network
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  
+  // Get status of a compute job
+  rpc Status(StatusRequest) returns (StatusResponse);
+  
+  // Get result of a completed compute job
+  rpc Result(ResultRequest) returns (ResultResponse);
+  
+  // Get attestation (verification proof) for a compute job
+  rpc Attestation(AttestationRequest) returns (AttestationResponse);
+  
+  // Health check for compute service
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Verification method for compute tasks
+enum VerificationMethod {
+  VERIFICATION_METHOD_UNSPECIFIED = 0;
+  VERIFICATION_METHOD_NONE = 1;
+  VERIFICATION_METHOD_TEE_ML = 2;   // Trusted Execution Environment for ML
+  VERIFICATION_METHOD_ZK_ML = 3;    // Zero-Knowledge ML
+  VERIFICATION_METHOD_OP_ML = 4;    // Optimistic ML
+}
+
+message SubmitRequest {
+  // Task specification (JSON-encoded)
+  // Example: {"model": "llama2-7b", "prompt": "...", "max_tokens": 500}
+  string task_json = 1;
+  
+  // Desired verification method
+  VerificationMethod verification_method = 2;
+  
+  // Optional idempotency key
+  string idempotency_key = 3;
+}
+
+message SubmitResponse {
+  // Success status
+  bool success = 1;
+  
+  // Unique job ID for tracking
+  string job_id = 2;
+  
+  // Error message if success = false
+  string error = 3;
+}
+
+message StatusRequest {
+  // Job ID to query
+  string job_id = 1;
+}
+
+message StatusResponse {
+  // Success status
+  bool success = 1;
+  
+  // Job state (pending, running, completed, failed)
+  string state = 2;
+  
+  // Progress percentage (0-100)
+  int32 progress = 3;
+  
+  // Additional status metadata
+  map<string, string> metadata = 4;
+  
+  // Error message if success = false
+  string error = 5;
+}
+
+message ResultRequest {
+  // Job ID to retrieve results for
+  string job_id = 1;
+}
+
+message ResultResponse {
+  // Success status
+  bool success = 1;
+  
+  // Job output (JSON-encoded)
+  string output_json = 2;
+  
+  // Execution hash (KECCAK-256 of inputs + code + outputs)
+  string execution_hash = 3;
+  
+  // Verification method used
+  VerificationMethod verification_method = 4;
+  
+  // Verification proof (binary, e.g., TEE attestation)
+  bytes proof = 5;
+  
+  // Additional result metadata
+  map<string, string> metadata = 6;
+  
+  // Error message if success = false
+  string error = 7;
+}
+
+message AttestationRequest {
+  // Job ID to get attestation for
+  string job_id = 1;
+}
+
+message AttestationResponse {
+  // Success status
+  bool success = 1;
+  
+  // Attestation data (JSON-encoded)
+  string attestation_json = 2;
+  
+  // Attestation signature
+  bytes signature = 3;
+  
+  // Error message if success = false
+  string error = 4;
+}
+
+// =============================================================================
+// HEALTH CHECK (Shared)
+// =============================================================================
+
+message HealthCheckRequest {
+  // Service name to check (optional)
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  // Health status
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_HEALTHY = 1;
+    STATUS_UNHEALTHY = 2;
+    STATUS_DEGRADED = 3;
+  }
+  
+  Status status = 1;
+  
+  // Human-readable status message
+  string message = 2;
+  
+  // Additional health metrics
+  map<string, string> metrics = 3;
+}
+

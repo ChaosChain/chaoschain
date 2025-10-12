@@ -67,28 +67,52 @@ class ChaosAgent:
         rprint(f"[green]🌐 Connected to {self.network} (Chain ID: {self.chain_id})[/green]")
     
     def _load_contract_addresses(self):
-        """Load hardcoded deployed contract addresses."""
-        # Real deployed contract addresses for each network
+        """
+        Load deployed ERC-8004 v1.0 contract addresses.
+        
+        All networks use deterministic deployment addresses for the v1.0 contracts.
+        This ensures consistent addresses across all supported chains.
+        """
+        # ERC-8004 v1.0 Deterministic Addresses (same on all networks)
+        ERC8004_V1_IDENTITY = '0x7177a6867296406881E20d6647232314736Dd09A'
+        ERC8004_V1_REPUTATION = '0xB5048e3ef1DA4E04deB6f7d0423D06F63869e322'
+        ERC8004_V1_VALIDATION = '0x662b40A526cb4017d947e71eAF6753BF3eeE66d8'
+        
+        # Network-specific configuration
         contract_addresses = {
             NetworkConfig.BASE_SEPOLIA: {
-                'identity_registry': '0x19fad4adD9f8C4A129A078464B22E1506275FbDd',
-                'reputation_registry': '0xA13497975fd3f6cA74081B074471C753b622C903', 
-                'validation_registry': '0x6e24aA15e134AF710C330B767018d739CAeCE293',
+                'identity_registry': ERC8004_V1_IDENTITY,
+                'reputation_registry': ERC8004_V1_REPUTATION,
+                'validation_registry': ERC8004_V1_VALIDATION,
                 'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                'identity_registry': '0x127C86a24F46033E77C347258354ee4C739b139C',
-                'reputation_registry': '0x57396214E6E65E9B3788DE7705D5ABf3647764e0',
-                'validation_registry': '0x5d332cE798e491feF2de260bddC7f24978eefD85',
+                'identity_registry': ERC8004_V1_IDENTITY,
+                'reputation_registry': ERC8004_V1_REPUTATION,
+                'validation_registry': ERC8004_V1_VALIDATION,
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
-                'identity_registry': '0x19fad4adD9f8C4A129A078464B22E1506275FbDd',
-                'reputation_registry': '0xA13497975fd3f6cA74081B074471C753b622C903',
-                'validation_registry': '0x6e24aA15e134AF710C330B767018d739CAeCE293',
+                'identity_registry': ERC8004_V1_IDENTITY,
+                'reputation_registry': ERC8004_V1_REPUTATION,
+                'validation_registry': ERC8004_V1_VALIDATION,
                 'usdc_token': '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            },
+            NetworkConfig.MODE_TESTNET: {
+                'identity_registry': ERC8004_V1_IDENTITY,
+                'reputation_registry': ERC8004_V1_REPUTATION,
+                'validation_registry': ERC8004_V1_VALIDATION,
+                'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',  # To be confirmed
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            },
+            NetworkConfig.ZEROG_TESTNET: {
+                'identity_registry': ERC8004_V1_IDENTITY,
+                'reputation_registry': ERC8004_V1_REPUTATION,
+                'validation_registry': ERC8004_V1_VALIDATION,
+                'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',  # To be confirmed
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             }
         }
@@ -134,80 +158,372 @@ class ChaosAgent:
             raise ContractError(f"Failed to load contracts: {str(e)}")
     
     def _get_identity_registry_abi(self) -> list:
-        """Get embedded Identity Registry ABI."""
+        """
+        Get embedded Identity Registry ABI for ERC-8004 v1.0.
+        
+        v1.0 uses ERC-721 with URIStorage extension. Key changes:
+        - register() functions replace newAgent()
+        - Agents are ERC-721 NFTs with tokenURI
+        - ownerOf() to get agent owner
+        - tokenURI() to get registration file
+        """
         return [
+            # ERC-8004 v1.0 Registration Functions
             {
                 "inputs": [
-                    {"name": "agentDomain", "type": "string"},
-                    {"name": "agentAddress", "type": "address"}
+                    {"name": "tokenURI_", "type": "string"},
+                    {
+                        "name": "metadata",
+                        "type": "tuple[]",
+                        "components": [
+                            {"name": "key", "type": "string"},
+                            {"name": "value", "type": "bytes"}
+                        ]
+                    }
                 ],
-                "name": "newAgent",
+                "name": "register",
                 "outputs": [{"name": "agentId", "type": "uint256"}],
                 "stateMutability": "nonpayable",
                 "type": "function"
             },
             {
-                "inputs": [{"name": "agentAddress", "type": "address"}],
-                "name": "resolveByAddress",
-                "outputs": [
-                    {
-                        "components": [
-                            {"name": "agentId", "type": "uint256"},
-                            {"name": "domain", "type": "string"},
-                            {"name": "agentAddress", "type": "address"}
-                        ],
-                        "name": "",
-                        "type": "tuple"
-                    }
-                ],
+                "inputs": [{"name": "tokenURI_", "type": "string"}],
+                "name": "register",
+                "outputs": [{"name": "agentId", "type": "uint256"}],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "register",
+                "outputs": [{"name": "agentId", "type": "uint256"}],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            # ERC-721 Standard Functions
+            {
+                "inputs": [{"name": "tokenId", "type": "uint256"}],
+                "name": "ownerOf",
+                "outputs": [{"name": "owner", "type": "address"}],
                 "stateMutability": "view",
                 "type": "function"
             },
             {
-                "inputs": [{"name": "agentId", "type": "uint256"}],
-                "name": "resolveById",
-                "outputs": [
-                    {"name": "", "type": "string"},
-                    {"name": "", "type": "address"}
-                ],
+                "inputs": [{"name": "owner", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "balance", "type": "uint256"}],
                 "stateMutability": "view",
                 "type": "function"
-            }
-        ]
-    
-    def _get_reputation_registry_abi(self) -> list:
-        """Get embedded Reputation Registry ABI."""
-        return [
+            },
+            {
+                "inputs": [{"name": "tokenId", "type": "uint256"}],
+                "name": "tokenURI",
+                "outputs": [{"name": "", "type": "string"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
             {
                 "inputs": [
-                    {"name": "agentClientId", "type": "uint256"},
-                    {"name": "agentServerId", "type": "uint256"}
+                    {"name": "from", "type": "address"},
+                    {"name": "to", "type": "address"},
+                    {"name": "tokenId", "type": "uint256"}
                 ],
-                "name": "acceptFeedback",
+                "name": "transferFrom",
                 "outputs": [],
                 "stateMutability": "nonpayable",
                 "type": "function"
             },
             {
+                "inputs": [
+                    {"name": "to", "type": "address"},
+                    {"name": "tokenId", "type": "uint256"}
+                ],
+                "name": "approve",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "operator", "type": "address"},
+                    {"name": "approved", "type": "bool"}
+                ],
+                "name": "setApprovalForAll",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "tokenId", "type": "uint256"}],
+                "name": "getApproved",
+                "outputs": [{"name": "operator", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "owner", "type": "address"},
+                    {"name": "operator", "type": "address"}
+                ],
+                "name": "isApprovedForAll",
+                "outputs": [{"name": "approved", "type": "bool"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            # Metadata Functions
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "key", "type": "string"},
+                    {"name": "value", "type": "bytes"}
+                ],
+                "name": "setMetadata",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "key", "type": "string"}
+                ],
+                "name": "getMetadata",
+                "outputs": [{"name": "value", "type": "bytes"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            # View Functions
+            {
+                "inputs": [],
+                "name": "totalAgents",
+                "outputs": [{"name": "count", "type": "uint256"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
                 "inputs": [{"name": "agentId", "type": "uint256"}],
-                "name": "getReputation",
+                "name": "agentExists",
+                "outputs": [{"name": "exists", "type": "bool"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            # Events
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": False, "name": "tokenURI", "type": "string"},
+                    {"indexed": True, "name": "owner", "type": "address"}
+                ],
+                "name": "Registered",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": True, "name": "indexedKey", "type": "string"},
+                    {"indexed": False, "name": "key", "type": "string"},
+                    {"indexed": False, "name": "value", "type": "bytes"}
+                ],
+                "name": "MetadataSet",
+                "type": "event"
+            },
+            # ERC-721 Standard Events
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "from", "type": "address"},
+                    {"indexed": True, "name": "to", "type": "address"},
+                    {"indexed": True, "name": "tokenId", "type": "uint256"}
+                ],
+                "name": "Transfer",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "owner", "type": "address"},
+                    {"indexed": True, "name": "approved", "type": "address"},
+                    {"indexed": True, "name": "tokenId", "type": "uint256"}
+                ],
+                "name": "Approval",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "owner", "type": "address"},
+                    {"indexed": True, "name": "operator", "type": "address"},
+                    {"indexed": False, "name": "approved", "type": "bool"}
+                ],
+                "name": "ApprovalForAll",
+                "type": "event"
+            }
+        ]
+    
+    def _get_reputation_registry_abi(self) -> list:
+        """
+        Get embedded Reputation Registry ABI for ERC-8004 v1.0.
+        
+        v1.0 uses cryptographic signatures (EIP-191/ERC-1271) for feedback authorization.
+        Key changes:
+        - giveFeedback() with signature-based authorization
+        - On-chain scores (0-100) with tags
+        - revokeFeedback() support
+        - appendResponse() for audit trails
+        """
+        return [
+            # Core Functions
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "score", "type": "uint8"},
+                    {"name": "tag1", "type": "bytes32"},
+                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "fileuri", "type": "string"},
+                    {"name": "filehash", "type": "bytes32"},
+                    {"name": "feedbackAuth", "type": "bytes"}
+                ],
+                "name": "giveFeedback",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "feedbackIndex", "type": "uint64"}
+                ],
+                "name": "revokeFeedback",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "clientAddress", "type": "address"},
+                    {"name": "feedbackIndex", "type": "uint64"},
+                    {"name": "responseUri", "type": "string"},
+                    {"name": "responseHash", "type": "bytes32"}
+                ],
+                "name": "appendResponse",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            # Read Functions
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "clientAddresses", "type": "address[]"},
+                    {"name": "tag1", "type": "bytes32"},
+                    {"name": "tag2", "type": "bytes32"}
+                ],
+                "name": "getSummary",
                 "outputs": [
-                    {"name": "score", "type": "uint256"},
-                    {"name": "count", "type": "uint256"}
+                    {"name": "count", "type": "uint64"},
+                    {"name": "averageScore", "type": "uint8"}
                 ],
                 "stateMutability": "view",
                 "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "clientAddress", "type": "address"},
+                    {"name": "index", "type": "uint64"}
+                ],
+                "name": "readFeedback",
+                "outputs": [
+                    {"name": "score", "type": "uint8"},
+                    {"name": "tag1", "type": "bytes32"},
+                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "isRevoked", "type": "bool"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "clientAddresses", "type": "address[]"},
+                    {"name": "tag1", "type": "bytes32"},
+                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "includeRevoked", "type": "bool"}
+                ],
+                "name": "readAllFeedback",
+                "outputs": [
+                    {"name": "clients", "type": "address[]"},
+                    {"name": "scores", "type": "uint8[]"},
+                    {"name": "tag1s", "type": "bytes32[]"},
+                    {"name": "tag2s", "type": "bytes32[]"},
+                    {"name": "revokedStatuses", "type": "bool[]"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "agentId", "type": "uint256"}],
+                "name": "getClients",
+                "outputs": [{"name": "clientList", "type": "address[]"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "clientAddress", "type": "address"}
+                ],
+                "name": "getLastIndex",
+                "outputs": [{"name": "lastIndex", "type": "uint64"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getIdentityRegistry",
+                "outputs": [{"name": "registry", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            # Events
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": True, "name": "clientAddress", "type": "address"},
+                    {"indexed": False, "name": "score", "type": "uint8"},
+                    {"indexed": True, "name": "tag1", "type": "bytes32"},
+                    {"indexed": False, "name": "tag2", "type": "bytes32"},
+                    {"indexed": False, "name": "fileuri", "type": "string"},
+                    {"indexed": False, "name": "filehash", "type": "bytes32"}
+                ],
+                "name": "NewFeedback",
+                "type": "event"
             }
         ]
     
     def _get_validation_registry_abi(self) -> list:
-        """Get embedded Validation Registry ABI."""
+        """
+        Get embedded Validation Registry ABI for ERC-8004 v1.0.
+        
+        v1.0 uses URI-based validation with off-chain evidence storage.
+        Key changes:
+        - validationRequest() uses validatorAddress instead of validatorAgentId
+        - requestUri and requestHash for off-chain evidence
+        - validationResponse() uses requestHash with response (0-100)
+        - Support for multiple responses per request (progressive validation)
+        """
         return [
+            # Core Functions
             {
                 "inputs": [
-                    {"name": "validatorAgentId", "type": "uint256"},
+                    {"name": "validatorAddress", "type": "address"},
                     {"name": "agentId", "type": "uint256"},
-                    {"name": "dataHash", "type": "bytes32"}
+                    {"name": "requestUri", "type": "string"},
+                    {"name": "requestHash", "type": "bytes32"}
                 ],
                 "name": "validationRequest",
                 "outputs": [],
@@ -216,63 +532,189 @@ class ChaosAgent:
             },
             {
                 "inputs": [
-                    {"name": "dataHash", "type": "bytes32"},
-                    {"name": "score", "type": "uint256"}
+                    {"name": "requestHash", "type": "bytes32"},
+                    {"name": "response", "type": "uint8"},
+                    {"name": "responseUri", "type": "string"},
+                    {"name": "responseHash", "type": "bytes32"},
+                    {"name": "tag", "type": "bytes32"}
                 ],
                 "name": "validationResponse",
                 "outputs": [],
                 "stateMutability": "nonpayable",
                 "type": "function"
             },
+            # Read Functions
             {
-                "inputs": [{"name": "dataHash", "type": "bytes32"}],
-                "name": "getValidation",
+                "inputs": [{"name": "requestHash", "type": "bytes32"}],
+                "name": "getValidationStatus",
                 "outputs": [
-                    {"name": "validator", "type": "uint256"},
-                    {"name": "agent", "type": "uint256"},
-                    {"name": "score", "type": "uint256"},
+                    {"name": "validatorAddress", "type": "address"},
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "response", "type": "uint8"},
+                    {"name": "tag", "type": "bytes32"},
+                    {"name": "lastUpdate", "type": "uint256"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "validatorAddresses", "type": "address[]"},
+                    {"name": "tag", "type": "bytes32"}
+                ],
+                "name": "getSummary",
+                "outputs": [
+                    {"name": "count", "type": "uint64"},
+                    {"name": "avgResponse", "type": "uint8"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "agentId", "type": "uint256"}],
+                "name": "getAgentValidations",
+                "outputs": [{"name": "requestHashes", "type": "bytes32[]"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "validatorAddress", "type": "address"}],
+                "name": "getValidatorRequests",
+                "outputs": [{"name": "requestHashes", "type": "bytes32[]"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "requestHash", "type": "bytes32"}],
+                "name": "requestExists",
+                "outputs": [{"name": "exists", "type": "bool"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"name": "requestHash", "type": "bytes32"}],
+                "name": "getRequest",
+                "outputs": [
+                    {"name": "validatorAddress", "type": "address"},
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "requestUri", "type": "string"},
                     {"name": "timestamp", "type": "uint256"}
                 ],
                 "stateMutability": "view",
                 "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getIdentityRegistry",
+                "outputs": [{"name": "registry", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            # Events
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "validatorAddress", "type": "address"},
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": False, "name": "requestUri", "type": "string"},
+                    {"indexed": True, "name": "requestHash", "type": "bytes32"}
+                ],
+                "name": "ValidationRequest",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "validatorAddress", "type": "address"},
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": True, "name": "requestHash", "type": "bytes32"},
+                    {"indexed": False, "name": "response", "type": "uint8"},
+                    {"indexed": False, "name": "responseUri", "type": "string"},
+                    {"indexed": False, "name": "responseHash", "type": "bytes32"},
+                    {"indexed": False, "name": "tag", "type": "bytes32"}
+                ],
+                "name": "ValidationResponse",
+                "type": "event"
             }
         ]
     
     
-    def register_agent(self) -> Tuple[AgentID, TransactionHash]:
+    def _generate_token_uri(self) -> str:
         """
-        Register this agent on the ERC-8004 IdentityRegistry.
+        Generate ERC-8004 v1.0 compliant agent registration JSON.
+        
+        Returns inline data URI with registration metadata.
+        This can be replaced with IPFS or HTTP endpoints in production.
+        """
+        registration_data = {
+            "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+            "name": self.agent_name,
+            "description": f"ChaosChain agent deployed at {self.agent_domain}",
+            "image": "https://chaoscha.in/agent-avatar.png",  # Default avatar
+            "endpoints": [
+                {
+                    "name": "agentWallet",
+                    "endpoint": f"eip155:{self.chain_id}:{self.address}"
+                }
+            ],
+            "registrations": [
+                {
+                    "agentId": 0,  # Will be filled after registration
+                    "agentRegistry": f"eip155:{self.chain_id}:{self.contract_addresses.identity_registry}"
+                }
+            ],
+            "supportedTrust": ["reputation", "crypto-economic"]
+        }
+        
+        # Convert to inline data URI (can be replaced with IPFS in production)
+        json_str = json.dumps(registration_data)
+        return f"data:application/json;base64,{json_str}"
+    
+    def register_agent(self, token_uri: Optional[str] = None) -> Tuple[AgentID, TransactionHash]:
+        """
+        Register this agent on the ERC-8004 v1.0 IdentityRegistry.
+        
+        v1.0 uses ERC-721 based registration with tokenURI.
+        
+        Args:
+            token_uri: Optional custom tokenURI. If not provided, generates default.
         
         Returns:
             Tuple of (agent_id, transaction_hash)
         """
-        rprint(f"[yellow]🔧 Registering agent: {self.agent_domain}[/yellow]")
+        rprint(f"[yellow]🔧 Registering agent: {self.agent_name} ({self.agent_domain})[/yellow]")
         
-        
-        # Check if already registered (for unknown agents)
+        # v1.0: Check if already registered by iterating through tokens owned by this address
+        # In v1.0, agents are ERC-721 NFTs
         try:
-            existing_agent = self.identity_registry.functions.resolveByAddress(self.address).call()
-            # Handle tuple return: (agentId, domain, address)
-            agent_id = existing_agent[0] if isinstance(existing_agent, (list, tuple)) else existing_agent.agentId
-            if agent_id > 0:  # agentId > 0 means already registered
-                self.agent_id = agent_id
-                rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
-                return self.agent_id, "already_registered"
+            # Try to get total agents to search through
+            total_agents = self.identity_registry.functions.totalAgents().call()
+            rprint(f"[blue]🔍 Checking {total_agents} existing agents for ownership...[/blue]")
+            
+            # Check if this wallet owns any agents
+            for potential_id in range(1, min(total_agents + 1, 1000)):  # Limit search to 1000
+                try:
+                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                    if owner.lower() == self.address.lower():
+                        self.agent_id = potential_id
+                        rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                        return self.agent_id, "already_registered"
+                except:
+                    continue
+                    
         except Exception as e:
-            error_str = str(e)
-            if "0xe93ba223" in error_str or "0x7b857a6b" in error_str:
-                rprint(f"[blue]🔍 Agent not yet registered (expected)[/blue]")
-            else:
-                rprint(f"[blue]🔍 Agent not yet registered (expected): {e}[/blue]")
+            rprint(f"[blue]🔍 Could not check existing registrations: {e}[/blue]")
             pass
         
         try:
+            # Generate tokenURI if not provided
+            if token_uri is None:
+                token_uri = self._generate_token_uri()
+                rprint(f"[blue]📝 Generated tokenURI for registration[/blue]")
             
-            # Prepare registration transaction
-            contract_call = self.identity_registry.functions.newAgent(
-                self.agent_domain,
-                self.address
-            )
+            # v1.0: Use register(tokenURI) function
+            contract_call = self.identity_registry.functions['register(string)'](token_uri)
             
             # Estimate gas
             gas_estimate = contract_call.estimate_gas({'from': self.address})
@@ -303,20 +745,31 @@ class ChaosAgent:
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
             if receipt.status == 1:
-                # Extract agent ID from logs
-                # This is simplified - in production, parse logs properly
-                self.agent_id = receipt.blockNumber  # Placeholder
-                
-                # Try to get actual agent ID
+                # v1.0: Extract agent ID from Registered event logs
                 try:
-                    agent_info = self.identity_registry.functions.resolveByAddress(self.address).call()
-                    if agent_info[0] != 0:
-                        self.agent_id = agent_info[0]
-                except:
-                    pass
-                
-                rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
-                return self.agent_id, tx_hash.hex()
+                    # Find the Registered event in logs
+                    registered_event = self.identity_registry.events.Registered()
+                    logs = registered_event.process_receipt(receipt)
+                    if logs:
+                        self.agent_id = logs[0]['args']['agentId']
+                        rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
+                        rprint(f"[blue]📋 View on explorer: Transaction {tx_hash.hex()[:10]}...[/blue]")
+                        return self.agent_id, tx_hash.hex()
+                except Exception as log_error:
+                    rprint(f"[yellow]⚠️  Could not parse event logs: {log_error}[/yellow]")
+                    # Fallback: Check ownership to find agent ID
+                    total_agents = self.identity_registry.functions.totalAgents().call()
+                    for potential_id in range(total_agents, max(0, total_agents - 10), -1):
+                        try:
+                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                            if owner.lower() == self.address.lower():
+                                self.agent_id = potential_id
+                                rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
+                                return self.agent_id, tx_hash.hex()
+                        except:
+                            continue
+                    
+                    raise AgentRegistrationError("Registration succeeded but could not determine agent ID")
             else:
                 raise AgentRegistrationError("Transaction failed")
                 
@@ -329,14 +782,14 @@ class ChaosAgent:
                 rprint(f"[yellow]💰 Insufficient ETH for gas fees in wallet: {self.address}[/yellow]")
                 rprint(f"[blue]Please fund this wallet using Base Sepolia faucet:[/blue]")
                 rprint(f"[blue]https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet[/blue]")
-            elif "0x7b857a6b" in error_msg:
-                rprint(f"[yellow]⚠️  Contract revert - likely insufficient gas or contract issue[/yellow]")
             
             raise AgentRegistrationError(f"Failed to register {self.agent_domain}: {error_msg}")
     
     def get_agent_id(self) -> Optional[AgentID]:
         """
-        Get the agent's on-chain ID.
+        Get the agent's on-chain ID (ERC-8004 v1.0).
+        
+        v1.0: Agents are ERC-721 NFTs. Check if this wallet owns any agent tokens.
         
         Returns:
             Agent ID if registered, None otherwise
@@ -344,99 +797,100 @@ class ChaosAgent:
         if self.agent_id:
             return self.agent_id
         
-        
         try:
-            # Try normal ABI call first
-            agent_info = self.identity_registry.functions.resolveByAddress(self.address).call()
-            # Handle tuple return: (agentId, domain, address)
-            agent_id = agent_info[0] if isinstance(agent_info, (list, tuple)) else agent_info.agentId
-            if agent_id != 0:
-                self.agent_id = agent_id
-                return self.agent_id
-        except Exception as e:
-            error_str = str(e)
+            # v1.0: Check if this wallet owns any agents by iterating through tokens
+            total_agents = self.identity_registry.functions.totalAgents().call()
             
-            # If ABI decoding fails, try raw contract call
-            if "Could not decode contract function call" in error_str:
+            # Check ownership of recent agents first (more efficient)
+            for potential_id in range(total_agents, max(0, total_agents - 100), -1):
                 try:
-                    # Make raw contract call to get the data
-                    from web3.auto import w3
-                    
-                    # Function selector for resolveByAddress(address) 
-                    func_sig = "resolveByAddress(address)"
-                    func_selector = w3.keccak(text=func_sig)[:4]
-                    
-                    # Encode address parameter (remove 0x and pad to 32 bytes)
-                    address_param = self.address[2:].lower().zfill(64)
-                    call_data = func_selector.hex() + address_param
-                    
-                    # Make raw call
-                    raw_result = self.w3.eth.call({
-                        'to': self.contract_addresses.identity_registry,
-                        'data': call_data
-                    })
-                    
-                    # Extract agent ID from raw result (bytes 32-64)
-                    if len(raw_result) >= 64:
-                        agent_id_bytes = raw_result[32:64]
-                        agent_id = int.from_bytes(agent_id_bytes, 'big')
-                        if agent_id != 0:
-                            self.agent_id = agent_id
-                            rprint(f"[green]✅ Found existing agent ID via raw call: {agent_id}[/green]")
-                            return self.agent_id
-                            
-                except Exception as raw_error:
-                    rprint(f"[yellow]⚠️  Raw call also failed: {raw_error}[/yellow]")
+                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                    if owner.lower() == self.address.lower():
+                        self.agent_id = potential_id
+                        return self.agent_id
+                except:
+                    continue
             
-            if "0xe93ba223" not in error_str and "0x7b857a6b" not in error_str:
-                rprint(f"[yellow]⚠️  Unexpected error checking agent ID: {e}[/yellow]")
-            pass
-        
+            # If not found in recent agents, check older ones
+            for potential_id in range(1, min(max(0, total_agents - 100), 100)):
+                try:
+                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                    if owner.lower() == self.address.lower():
+                        self.agent_id = potential_id
+                        return self.agent_id
+                except:
+                    continue
+                    
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
+            
         return None
     
-    def request_validation(self, validator_agent_id: AgentID, data_hash: str) -> TransactionHash:
+    def request_validation(
+        self, 
+        validator_address: str, 
+        request_uri: str, 
+        request_hash: Optional[str] = None
+    ) -> TransactionHash:
         """
-        Request validation from another agent.
+        Request validation from another agent (ERC-8004 v1.0).
+        
+        v1.0: Uses validator addresses and URI-based evidence storage.
         
         Args:
-            validator_agent_id: ID of the validator agent
-            data_hash: Hash of data to validate
+            validator_address: Ethereum address of the validator (not agent ID)
+            request_uri: URI pointing to validation request data (IPFS, HTTP, etc.)
+            request_hash: Optional KECCAK-256 hash of request data (auto-generated if not provided)
             
         Returns:
             Transaction hash
         """
         try:
-            # Convert string hash to bytes32
-            if isinstance(data_hash, str):
-                if data_hash.startswith('0x'):
-                    data_hash_bytes = bytes.fromhex(data_hash[2:])
+            if not self.agent_id:
+                raise ContractError("Agent must be registered before requesting validation")
+            
+            # Generate request hash if not provided
+            if request_hash is None:
+                import hashlib
+                # Generate unique hash from validator, agent, URI, and timestamp
+                hash_input = f"{validator_address}{self.agent_id}{request_uri}{self.w3.eth.block_number}"
+                request_hash_bytes = hashlib.sha256(hash_input.encode()).digest()
+                request_hash = '0x' + request_hash_bytes.hex()
+            
+            # Convert hash to bytes32 if needed
+            if isinstance(request_hash, str):
+                if request_hash.startswith('0x'):
+                    request_hash_bytes = bytes.fromhex(request_hash[2:])
                 else:
-                    data_hash_bytes = bytes.fromhex(data_hash)
+                    request_hash_bytes = bytes.fromhex(request_hash)
             else:
-                data_hash_bytes = data_hash
+                request_hash_bytes = request_hash
             
             # Ensure 32 bytes
-            if len(data_hash_bytes) != 32:
-                import hashlib
-                data_hash_bytes = hashlib.sha256(data_hash.encode()).digest()
+            if len(request_hash_bytes) != 32:
+                raise ValueError("Request hash must be 32 bytes")
             
+            rprint(f"[yellow]📋 Requesting validation from {validator_address[:10]}...[/yellow]")
+            
+            # v1.0: validationRequest(validatorAddress, agentId, requestUri, requestHash)
             contract_call = self.validation_registry.functions.validationRequest(
-                validator_agent_id,
+                validator_address,
                 self.agent_id,
-                data_hash
+                request_uri,
+                request_hash_bytes
             )
             
             # Build and send transaction
+            gas_estimate = contract_call.estimate_gas({'from': self.address})
             transaction = contract_call.build_transaction({
                 'from': self.address,
-                'gas': 200000,
+                'gas': int(gas_estimate * 1.2),
                 'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
             account = self.wallet_manager.wallets[self.agent_name]
             signed_txn = self.w3.eth.account.sign_transaction(transaction, account.key)
-            # Handle both old and new Web3.py versions
             raw_transaction = getattr(signed_txn, 'raw_transaction', getattr(signed_txn, 'rawTransaction', None))
             if raw_transaction is None:
                 raise Exception("Could not get raw transaction from signed transaction")
@@ -446,6 +900,7 @@ class ChaosAgent:
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
             if receipt.status == 1:
+                rprint(f"[green]✅ Validation request submitted: {tx_hash.hex()[:10]}...[/green]")
                 return tx_hash.hex()
             else:
                 raise ContractError("Validation request transaction failed")
@@ -453,96 +908,417 @@ class ChaosAgent:
         except Exception as e:
             raise ContractError(f"Failed to request validation: {str(e)}")
     
-    def submit_validation_response(self, data_hash: str, score: int) -> TransactionHash:
+    def submit_validation_response(
+        self,
+        request_hash: str,
+        response: int,
+        response_uri: str = "",
+        response_hash: Optional[str] = None,
+        tag: str = ""
+    ) -> TransactionHash:
         """
-        Submit a validation response with score via ValidationRegistry.
+        Submit a validation response (ERC-8004 v1.0).
+        
+        v1.0: Uses requestHash from the validation request and supports URIs for evidence.
         
         Args:
-            data_hash: Hash of the data that was validated
-            score: Validation score (0-100)
+            request_hash: Hash of the validation request
+            response: Validation response (0-100, where 0=failed, 100=passed)
+            response_uri: Optional URI pointing to validation evidence
+            response_hash: Optional KECCAK-256 hash of response data
+            tag: Optional tag for categorization
             
         Returns:
             Transaction hash
         """
         try:
-            # Convert string hash to bytes32 if needed
-            if isinstance(data_hash, str):
-                if data_hash.startswith('0x'):
-                    data_hash_bytes = bytes.fromhex(data_hash[2:])
+            # Validate response range
+            response = min(100, max(0, int(response)))
+            
+            # Convert request hash to bytes32
+            if isinstance(request_hash, str):
+                if request_hash.startswith('0x'):
+                    request_hash_bytes = bytes.fromhex(request_hash[2:])
                 else:
-                    data_hash_bytes = bytes.fromhex(data_hash)
+                    request_hash_bytes = bytes.fromhex(request_hash)
             else:
-                data_hash_bytes = data_hash
-                
+                request_hash_bytes = request_hash
+            
+            # Ensure 32 bytes
+            if len(request_hash_bytes) != 32:
+                raise ValueError("Request hash must be 32 bytes")
+            
+            # Convert response hash to bytes32 if provided
+            response_hash_bytes = b'\x00' * 32  # Default empty hash
+            if response_hash:
+                if isinstance(response_hash, str):
+                    if response_hash.startswith('0x'):
+                        response_hash_bytes = bytes.fromhex(response_hash[2:])
+                    else:
+                        response_hash_bytes = bytes.fromhex(response_hash)
+                else:
+                    response_hash_bytes = response_hash
+            
+            # Convert tag to bytes32
+            tag_bytes = b'\x00' * 32  # Default empty tag
+            if tag:
+                tag_encoded = tag.encode()[:32]  # Truncate to 32 bytes if needed
+                tag_bytes = tag_encoded + b'\x00' * (32 - len(tag_encoded))  # Pad with zeros
+            
+            rprint(f"[yellow]✍️  Submitting validation response: {response}/100[/yellow]")
+            
+            # v1.0: validationResponse(requestHash, response, responseUri, responseHash, tag)
             contract_call = self.validation_registry.functions.validationResponse(
-                data_hash_bytes,
-                min(100, max(0, int(score)))  # Ensure score is 0-100
+                request_hash_bytes,
+                response,
+                response_uri,
+                response_hash_bytes,
+                tag_bytes
             )
             
+            # Build and send transaction
+            gas_estimate = contract_call.estimate_gas({'from': self.address})
             transaction = contract_call.build_transaction({
                 'from': self.address,
-                'gas': 150000,
+                'gas': int(gas_estimate * 1.2),
                 'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
             account = self.wallet_manager.wallets[self.agent_name]
             signed_txn = self.w3.eth.account.sign_transaction(transaction, account.key)
-            # Handle both old and new Web3.py versions
             raw_transaction = getattr(signed_txn, 'raw_transaction', getattr(signed_txn, 'rawTransaction', None))
             if raw_transaction is None:
                 raise Exception("Could not get raw transaction from signed transaction")
-            
             tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
-            return tx_hash.hex()
+            
+            # Wait for confirmation
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                rprint(f"[green]✅ Validation response submitted: {tx_hash.hex()[:10]}...[/green]")
+                return tx_hash.hex()
+            else:
+                raise ContractError("Validation response transaction failed")
             
         except Exception as e:
             raise ContractError(f"Failed to submit validation response: {str(e)}")
 
-    def submit_feedback(self, agent_id: AgentID, score: int, feedback: str) -> TransactionHash:
+    def generate_feedback_authorization(
+        self,
+        agent_id: AgentID,
+        client_address: str,
+        index_limit: int,
+        expiry: int
+    ) -> bytes:
         """
-        Submit feedback authorization for another agent via ReputationRegistry.
-        Note: This only authorizes feedback, doesn't store the score.
-        Use submit_validation_response() for actual score submission.
+        Generate EIP-191 signed feedback authorization (ERC-8004 v1.0).
+        
+        This signature allows a client to submit feedback to an agent's reputation.
+        The agent owner signs to authorize the client to give feedback up to a certain index.
         
         Args:
-            agent_id: Target agent ID
-            score: Feedback score (0-100) - not stored on-chain
-            feedback: Feedback text - not stored on-chain
+            agent_id: Target agent ID receiving feedback
+            client_address: Address of the client giving feedback
+            index_limit: Maximum feedback index this authorization permits
+            expiry: Unix timestamp when authorization expires
+            
+        Returns:
+            Signed feedbackAuth bytes for use in giveFeedback()
+        """
+        try:
+            # Pack the FeedbackAuth struct (7 fields)
+            # As per ERC-8004 v1.0 spec: (agentId, clientAddress, indexLimit, expiry, chainId, identityRegistry, signerAddress)
+            feedback_auth_data = self.w3.solidity_keccak(
+                ['uint256', 'address', 'uint64', 'uint256', 'uint256', 'address', 'address'],
+                [
+                    agent_id,
+                    client_address,
+                    index_limit,
+                    expiry,
+                    self.chain_id,
+                    self.contract_addresses.identity_registry,
+                    self.address  # signer address (agent owner)
+                ]
+            )
+            
+            # EIP-191 personal sign format
+            message_hash = self.w3.solidity_keccak(
+                ['string', 'bytes32'],
+                ['\x19Ethereum Signed Message:\n32', feedback_auth_data]
+            )
+            
+            # Sign with agent's private key
+            account = self.wallet_manager.wallets[self.agent_name]
+            # Use sign_message for LocalAccount (web3.py)
+            from eth_account.messages import encode_defunct
+            signed_message = account.sign_message(encode_defunct(hexstr=message_hash.hex()))
+            signature_bytes = bytes(signed_message.signature)  # Already 65 bytes (r + s + v)
+            
+            # Pack struct data + signature (224 bytes + 65 bytes = 289 bytes)
+            struct_bytes = (
+                agent_id.to_bytes(32, 'big') +
+                bytes.fromhex(client_address[2:].zfill(40)) +
+                index_limit.to_bytes(8, 'big') +
+                bytes(24) +  # Padding for uint64 in uint256 slot
+                expiry.to_bytes(32, 'big') +
+                self.chain_id.to_bytes(32, 'big') +
+                bytes.fromhex(self.contract_addresses.identity_registry[2:].zfill(40)) +
+                bytes.fromhex(self.address[2:].zfill(40))
+            )
+            
+            return struct_bytes + signature_bytes
+            
+        except Exception as e:
+            raise ContractError(f"Failed to generate feedback authorization: {str(e)}")
+    
+    def give_feedback(
+        self,
+        agent_id: AgentID,
+        score: int,
+        feedback_auth: bytes,
+        tag1: str = "",
+        tag2: str = "",
+        file_uri: str = "",
+        file_hash: Optional[str] = None
+    ) -> TransactionHash:
+        """
+        Submit feedback for another agent (ERC-8004 v1.0).
+        
+        v1.0: Uses cryptographic signatures for feedback authorization.
+        The agent owner must have pre-authorized this feedback via generate_feedback_authorization().
+        
+        Args:
+            agent_id: Target agent ID receiving feedback
+            score: Feedback score (0-100)
+            feedback_auth: Signed authorization from agent owner
+            tag1: Optional first tag for categorization
+            tag2: Optional second tag for categorization
+            file_uri: Optional URI to detailed feedback data (IPFS, 0G Storage, etc.)
+            file_hash: Optional KECCAK-256 hash of file content
             
         Returns:
             Transaction hash
         """
         try:
-            contract_call = self.reputation_registry.functions.acceptFeedback(
-                self.agent_id,  # client agent ID (Bob giving feedback)
-                agent_id        # server agent ID (Alice receiving feedback)
+            # Validate score
+            score = min(100, max(0, int(score)))
+            
+            # Convert tags to bytes32
+            tag1_bytes = b'\x00' * 32
+            if tag1:
+                tag1_encoded = tag1.encode()[:32]
+                tag1_bytes = tag1_encoded + b'\x00' * (32 - len(tag1_encoded))
+            
+            tag2_bytes = b'\x00' * 32
+            if tag2:
+                tag2_encoded = tag2.encode()[:32]
+                tag2_bytes = tag2_encoded + b'\x00' * (32 - len(tag2_encoded))
+            
+            # Convert file hash to bytes32 if provided
+            file_hash_bytes = b'\x00' * 32
+            if file_hash:
+                if isinstance(file_hash, str):
+                    if file_hash.startswith('0x'):
+                        file_hash_bytes = bytes.fromhex(file_hash[2:])
+                    else:
+                        file_hash_bytes = bytes.fromhex(file_hash)
+            
+            rprint(f"[yellow]💬 Submitting feedback: {score}/100 for agent #{agent_id}[/yellow]")
+            
+            # v1.0: giveFeedback(agentId, score, tag1, tag2, fileuri, filehash, feedbackAuth)
+            contract_call = self.reputation_registry.functions.giveFeedback(
+                agent_id,
+                score,
+                tag1_bytes,
+                tag2_bytes,
+                file_uri,
+                file_hash_bytes,
+                feedback_auth
             )
             
+            # Build and send transaction
+            gas_estimate = contract_call.estimate_gas({'from': self.address})
             transaction = contract_call.build_transaction({
                 'from': self.address,
-                'gas': 150000,
+                'gas': int(gas_estimate * 1.2),
                 'gasPrice': self.w3.eth.gas_price,
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
             account = self.wallet_manager.wallets[self.agent_name]
             signed_txn = self.w3.eth.account.sign_transaction(transaction, account.key)
-            # Handle both old and new Web3.py versions
             raw_transaction = getattr(signed_txn, 'raw_transaction', getattr(signed_txn, 'rawTransaction', None))
             if raw_transaction is None:
                 raise Exception("Could not get raw transaction from signed transaction")
             tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
             
+            # Wait for confirmation
             receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
             
             if receipt.status == 1:
+                rprint(f"[green]✅ Feedback submitted: {tx_hash.hex()[:10]}...[/green]")
                 return tx_hash.hex()
             else:
                 raise ContractError("Feedback submission failed")
                 
         except Exception as e:
             raise ContractError(f"Failed to submit feedback: {str(e)}")
+    
+    def create_feedback_with_payment(
+        self,
+        agent_id: AgentID,
+        score: int,
+        feedback_auth: bytes,
+        payment_proof: Optional['PaymentProof'] = None,
+        tag1: str = "",
+        tag2: str = "",
+        skill: Optional[str] = None,
+        task: Optional[str] = None,
+        capability: Optional[str] = None,
+        mcp_tool_name: Optional[str] = None,
+        **additional_fields
+    ) -> Tuple[str, str]:
+        """
+        Create ERC-8004 v1.0 compliant feedback JSON with optional payment proof.
+        
+        This is a convenience method that:
+        1. Generates the feedback JSON structure per ERC-8004 v1.0 spec
+        2. Optionally includes x402 payment proof
+        3. Uploads to storage (IPFS/0G)
+        4. Returns (file_uri, file_hash) ready for give_feedback()
+        
+        Args:
+            agent_id: Target agent ID receiving feedback
+            score: Feedback score (0-100)
+            feedback_auth: Signed authorization from agent owner
+            payment_proof: Optional PaymentProof from payment execution
+            tag1: Optional first tag for categorization
+            tag2: Optional second tag for categorization
+            skill: Optional A2A skill identifier
+            task: Optional A2A task identifier
+            capability: Optional MCP capability ("prompts", "resources", "tools", "completions")
+            mcp_tool_name: Optional MCP tool/prompt/resource name
+            **additional_fields: Any additional custom fields
+        
+        Returns:
+            Tuple of (file_uri, file_hash) ready for give_feedback()
+        
+        Example:
+            # Execute payment
+            payment_proof = sdk.x402_manager.execute_agent_payment(
+                from_agent="Alice",
+                to_agent="Bob",
+                amount_usdc=10.0,
+                service_description="Data analysis"
+            )
+            
+            # Create feedback with payment proof (automatic formatting!)
+            uri, hash = agent.create_feedback_with_payment(
+                agent_id=server_agent_id,
+                score=100,
+                feedback_auth=auth,
+                payment_proof=payment_proof,  # ✅ Automatically ERC-8004 v1.0 compliant
+                skill="data-analysis",
+                task="market-research"
+            )
+            
+            # Submit feedback (URI already includes payment proof!)
+            agent.give_feedback(agent_id, score, auth, file_uri=uri, file_hash=hash)
+        """
+        from datetime import datetime, timezone
+        import json
+        import hashlib
+        
+        # Build ERC-8004 v1.0 compliant feedback structure
+        feedback_data = {
+            # MUST fields (per ERC-8004 v1.0 spec)
+            "agentRegistry": f"eip155:{self.network.value.chain_id}:{self.identity_registry.address}",
+            "agentId": int(agent_id),
+            "clientAddress": f"eip155:{self.network.value.chain_id}:{self.address}",
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "feedbackAuth": feedback_auth.hex() if isinstance(feedback_auth, bytes) else feedback_auth,
+            "score": min(100, max(0, int(score))),
+        }
+        
+        # MAY fields (optional per spec)
+        if tag1:
+            feedback_data["tag1"] = tag1
+        if tag2:
+            feedback_data["tag2"] = tag2
+        if skill:
+            feedback_data["skill"] = skill
+        if task:
+            feedback_data["task"] = task
+        if capability:
+            feedback_data["capability"] = capability
+        if mcp_tool_name:
+            feedback_data["name"] = mcp_tool_name
+        
+        # ✅ Add payment proof if provided (ERC-8004 v1.0 compliant format)
+        if payment_proof:
+            # Extract addresses from payment proof
+            from_address = self.address  # Client wallet
+            
+            # Get to_address from payment proof
+            to_address = payment_proof.to_agent if hasattr(payment_proof, 'to_agent') else "unknown"
+            if hasattr(payment_proof, 'receipt_data') and isinstance(payment_proof.receipt_data, dict):
+                to_address = payment_proof.receipt_data.get('to_address', to_address)
+            
+            # Get network/chain ID
+            chain_id = str(self.network.value.chain_id)
+            if hasattr(payment_proof, 'network'):
+                if isinstance(payment_proof.network, str):
+                    # Extract chain ID from network string if present
+                    if ':' in payment_proof.network:
+                        chain_id = payment_proof.network.split(':')[-1]
+                elif hasattr(payment_proof.network, 'value') and hasattr(payment_proof.network.value, 'chain_id'):
+                    chain_id = str(payment_proof.network.value.chain_id)
+            
+            feedback_data["proof_of_payment"] = {
+                "fromAddress": from_address,
+                "toAddress": to_address,
+                "chainId": chain_id,
+                "txHash": payment_proof.transaction_hash  # ✅ On-chain verifiable
+            }
+            
+            rprint(f"[cyan]💳 Including payment proof: {payment_proof.transaction_hash[:10]}...[/cyan]")
+        
+        # Add any additional custom fields
+        feedback_data.update(additional_fields)
+        
+        # Convert to JSON
+        feedback_json = json.dumps(feedback_data, indent=2)
+        
+        rprint(f"[yellow]📝 Creating feedback JSON ({len(feedback_json)} bytes)[/yellow]")
+        
+        # Upload to storage (IPFS or 0G)
+        try:
+            # Import storage manager if not already available
+            from .storage_backends import UnifiedStorageManager
+            
+            # Create storage manager if needed
+            if not hasattr(self, '_feedback_storage'):
+                self._feedback_storage = UnifiedStorageManager(network=self.network)
+            
+            storage_result = self._feedback_storage.store(
+                feedback_json.encode('utf-8'),
+                f"feedback-{agent_id}-{int(datetime.now(timezone.utc).timestamp())}.json"
+            )
+            
+            if not storage_result.success:
+                raise Exception(f"Storage failed: {storage_result.error}")
+            
+            # Compute file hash (KECCAK-256 for ERC-8004 v1.0 compatibility)
+            file_hash = '0x' + hashlib.sha3_256(feedback_json.encode('utf-8')).hexdigest()
+            
+            rprint(f"[green]✅ Feedback uploaded: {storage_result.uri}[/green]")
+            rprint(f"[cyan]   Hash: {file_hash[:20]}...[/cyan]")
+            
+            return storage_result.uri, file_hash
+            
+        except Exception as e:
+            raise Exception(f"Failed to create feedback with payment: {str(e)}")
     
     @property
     def wallet_address(self) -> str:

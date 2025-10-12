@@ -19,10 +19,12 @@ class AgentRole(str, Enum):
 
 
 class NetworkConfig(str, Enum):
-    """Supported blockchain networks."""
+    """Supported blockchain networks with ERC-8004 v1.0 deployments."""
     ETHEREUM_SEPOLIA = "ethereum-sepolia"
     BASE_SEPOLIA = "base-sepolia"
     OPTIMISM_SEPOLIA = "optimism-sepolia"
+    MODE_TESTNET = "mode-testnet"
+    ZEROG_TESTNET = "0g-testnet"
     LOCAL = "local"
 
 
@@ -33,19 +35,30 @@ class PaymentMethod(str, Enum):
     APPLE_PAY = "https://apple.com/apple-pay"
     PAYPAL = "https://paypal.com"
     A2A_X402 = "https://a2a.org/x402"
+    DIRECT_TRANSFER = "direct-transfer"  # Direct native token transfer (A0GI on 0G)
 
 
 @dataclass
 class IntegrityProof:
-    """Cryptographic proof of process integrity."""
+    """
+    Cryptographic proof of process integrity.
+    
+    Combines local code hashing with optional TEE attestations for complete verification.
+    """
     proof_id: str
     function_name: str
-    code_hash: str
-    execution_hash: str
+    code_hash: str  # Local code hash (SHA-256)
+    execution_hash: str  # Execution data hash
     timestamp: datetime
     agent_name: str
     verification_status: str
     ipfs_cid: Optional[str] = None
+    
+    # Optional TEE attestation (from 0G Compute or similar)
+    tee_attestation: Optional[Dict[str, Any]] = None  # TEE execution proof
+    tee_provider: Optional[str] = None  # "0g-compute", "aws-nitro", etc.
+    tee_job_id: Optional[str] = None  # Job ID from TEE provider
+    tee_execution_hash: Optional[str] = None  # TEE-specific execution identifier
 
 
 @dataclass
@@ -73,6 +86,7 @@ class PaymentProof:
     transaction_hash: str
     timestamp: datetime
     receipt_data: Dict[str, Any]
+    network: Optional[str] = None  # Optional network identifier for ERC-8004 v1.0 compliance
 
 
 @dataclass

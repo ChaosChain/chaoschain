@@ -1,0 +1,372 @@
+openapi: 3.0.3
+info:
+  title: 0G Bridge Sidecar API
+  description: |
+    HTTP/gRPC gateway for 0G Storage and Compute SDKs.
+    
+    This sidecar wraps the official 0G Rust/Go SDKs and provides a simple HTTP API
+    for Python/JavaScript clients. It handles authentication, retry logic, and
+    verification.
+    
+    **GitHub**: https://github.com/ChaosChain/zerog-bridge
+    **Docker**: `docker run -p 8080:8080 -p 8081:8081 chaoschain/zerog-bridge`
+  version: 1.0.0
+  contact:
+    name: ChaosChain
+    email: sumeet.chougule@nethermind.io
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Storage API
+  - url: http://localhost:8081
+    description: Compute API
+
+tags:
+  - name: storage
+    description: 0G Storage operations
+  - name: compute
+    description: 0G Compute operations
+  - name: health
+    description: Health checks
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      tags: [health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /storage/put:
+    post:
+      summary: Store data on 0G Storage
+      tags: [storage]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Data to store
+                tags:
+                  type: string
+                  description: Comma-separated key:value tags
+                  example: "type:evidence,agent_id:1"
+      responses:
+        '200':
+          description: Data stored successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uri:
+                    type: string
+                    example: "0g://object/abc123"
+                  hash:
+                    type: string
+                    example: "0x789abc..."
+                  tx:
+                    type: string
+                    example: "0x123def..."
+                  view_url:
+                    type: string
+                    example: "https://explorer.0g.ai/object/abc123"
+        '400':
+          description: Bad request
+        '500':
+          description: Storage error
+
+  /storage/get:
+    get:
+      summary: Retrieve data from 0G Storage
+      tags: [storage]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uri
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "0g://object/abc123"
+      responses:
+        '200':
+          description: Data retrieved successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Type:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+        '404':
+          description: Object not found
+        '500':
+          description: Retrieval error
+
+  /storage/verify:
+    post:
+      summary: Verify data integrity
+      tags: [storage]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                uri:
+                  type: string
+                  example: "0g://object/abc123"
+                hash:
+                  type: string
+                  example: "0x789abc..."
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+
+  /storage/delete:
+    delete:
+      summary: Delete data (if supported by provider)
+      tags: [storage]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uri
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted successfully
+        '405':
+          description: Delete not supported (0G Log Layer is immutable)
+
+  /compute/submit:
+    post:
+      summary: Submit compute task
+      tags: [compute]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [llm_inference]
+                  example: "llm_inference"
+                prompt:
+                  type: string
+                  example: "Explain blockchain"
+                model:
+                  type: string
+                  example: "gpt-oss-120b"
+                provider:
+                  type: string
+                  example: "0xf07240Efa67755B5311bc75784a061eDB47165Dd"
+                verification:
+                  type: string
+                  enum: [tee-ml, none]
+                  example: "tee-ml"
+      responses:
+        '200':
+          description: Task submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    example: "pending"
+
+  /compute/status:
+    get:
+      summary: Check job status
+      tags: [compute]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, running, completed, failed]
+                  progress:
+                    type: integer
+                    minimum: 0
+                    maximum: 100
+                  metadata:
+                    type: object
+
+  /compute/result:
+    get:
+      summary: Get job result
+      tags: [compute]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  output:
+                    type: string
+                  verified:
+                    type: boolean
+                  chat_id:
+                    type: string
+                  model:
+                    type: string
+                  provider:
+                    type: string
+        '202':
+          description: Job still running
+        '404':
+          description: Job not found
+
+  /compute/attestation:
+    get:
+      summary: Get verification attestation
+      tags: [compute]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Attestation data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                  method:
+                    type: string
+                  proof:
+                    type: string
+                  signature:
+                    type: string
+                  certificate:
+                    type: object
+
+  /compute/job:
+    delete:
+      summary: Cancel job
+      tags: [compute]
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: job_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job cancelled
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key for authentication
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+
+

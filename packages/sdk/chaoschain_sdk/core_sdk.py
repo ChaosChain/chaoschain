@@ -6,6 +6,7 @@ It provides a unified API for all protocol interactions including identity manag
 payments, process integrity, and evidence storage.
 """
 
+import os
 import asyncio
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone
@@ -106,7 +107,9 @@ class ChaosChainAgentSDK:
         enable_ap2: bool = True,
         wallet_file: str = None,
         storage_jwt: str = None,
-        storage_gateway: str = None
+        storage_gateway: str = None,
+        storage_provider: Optional[Any] = None,  # Pluggable storage provider
+        compute_provider: Optional[Any] = None   # Pluggable compute provider
     ):
         """
         Initialize the ChaosChain Agent SDK.
@@ -123,6 +126,8 @@ class ChaosChainAgentSDK:
             wallet_file: Custom wallet storage file path
             storage_jwt: Custom Pinata JWT token
             storage_gateway: Custom IPFS gateway URL
+            storage_provider: Optional custom storage provider (0G, Pinata, local IPFS, etc.)
+            compute_provider: Optional custom compute provider (0G Compute, local, etc.)
         """
         # Convert string parameters to enums if needed
         if isinstance(agent_role, str):
@@ -142,12 +147,16 @@ class ChaosChainAgentSDK:
         self.agent_role = agent_role
         self.network = network
         
+        # Store optional provider references for pluggable architecture
+        self._custom_storage_provider = storage_provider
+        self._custom_compute_provider = compute_provider
+        
         # Initialize core components
         self._initialize_wallet_manager(wallet_file)
-        self._initialize_storage_manager(enable_storage, storage_jwt, storage_gateway)
+        self._initialize_storage_manager(enable_storage, storage_jwt, storage_gateway, storage_provider)
         self._initialize_x402_payment_manager(enable_payments)  # x402 is now primary
         self._initialize_payment_manager(enable_payments)  # Keep for backward compatibility
-        self._initialize_process_integrity(enable_process_integrity)
+        self._initialize_process_integrity(enable_process_integrity, compute_provider)
         self._initialize_ap2_integration(enable_ap2)
         self._initialize_chaos_agent()
         
@@ -190,22 +199,44 @@ class ChaosChainAgentSDK:
         except Exception as e:
             raise ChaosChainSDKError(f"Failed to initialize wallet manager: {str(e)}")
     
-    def _initialize_storage_manager(self, enabled: bool, jwt: str = None, gateway: str = None):
-        """Initialize pluggable storage management."""
+    def _initialize_storage_manager(self, enabled: bool, jwt: str = None, gateway: str = None, custom_provider: Any = None):
+        """Initialize pluggable storage management with optional custom provider."""
         if enabled:
             try:
-                # Try to create storage manager with auto-detection
-                # If Pinata credentials provided, use them
+                # If custom provider injected, use it directly
+                if custom_provider:
+                    rprint(f"[cyan]📦 Using custom storage provider: {custom_provider.__class__.__name__}[/cyan]")
+                    self.storage_manager = custom_provider
+                    return
+                
+                # Priority: 0G Storage -> Pinata -> IPFS -> Memory
+                zerog_storage_node = os.getenv('ZEROG_STORAGE_NODE')
+                
+                # 1. Try 0G Storage first (highest priority for 0G testnet)
+                if zerog_storage_node:
+                    try:
+                        from chaoschain_sdk.providers.storage import ZeroGStorageGRPC
+                        zerog_storage = ZeroGStorageGRPC(grpc_url=zerog_storage_node)
+                        if zerog_storage.is_available:
+                            self.storage_manager = zerog_storage
+                            rprint(f"[green]✅ Storage initialized: 0G Storage (decentralized)[/green]")
+                            return
+                    except Exception as e:
+                        rprint(f"[yellow]⚠️  0G Storage not available: {e}[/yellow]")
+                
+                # 2. Try Pinata if credentials provided
                 if jwt and gateway:
                     self.storage_manager = UnifiedStorageManager(
                         primary_provider=StorageProvider.PINATA,
                         config={'pinata': {'jwt_token': jwt, 'gateway_url': gateway}}
                     )
+                    rprint(f"[green]✅ Storage initialized: Pinata[/green]")
                 else:
-                    # Auto-detect best available provider
+                    # 3. Auto-detect best available provider
                     self.storage_manager = create_storage_manager()
+                    provider_name = getattr(self.storage_manager, 'provider_name', 'Storage')
+                    rprint(f"[green]✅ Storage initialized: {provider_name}[/green]")
                     
-                rprint(f"[green]✅ Storage initialized: {self.storage_manager.get_provider_info()['name']}[/green]")
             except Exception as e:
                 rprint(f"[yellow]⚠️  Storage not available: {e}[/yellow]")
                 self.storage_manager = None
@@ -229,6 +260,12 @@ class ChaosChainAgentSDK:
     
     def _initialize_payment_manager(self, enabled: bool):
         """Initialize legacy payment processing (FALLBACK)."""
+        # Disable legacy payment manager for 0G testnet - use x402 only
+        if self.network == NetworkConfig.ZEROG_TESTNET:
+            rprint(f"[cyan]ℹ️  Legacy payment manager disabled for 0G testnet (using x402 only)[/cyan]")
+            self.payment_manager = None
+            return
+            
         if enabled:
             try:
                 self.payment_manager = PaymentManager(
@@ -242,13 +279,20 @@ class ChaosChainAgentSDK:
         else:
             self.payment_manager = None
     
-    def _initialize_process_integrity(self, enabled: bool):
-        """Initialize process integrity verification."""
+    def _initialize_process_integrity(self, enabled: bool, custom_compute_provider: Any = None):
+        """Initialize process integrity verification with optional custom compute provider."""
         if enabled:
             try:
+                # Pass compute provider to ProcessIntegrityVerifier for TEE attestations
+                compute_provider_for_integrity = None
+                if custom_compute_provider:
+                    compute_provider_for_integrity = custom_compute_provider
+                    rprint(f"[cyan]⚙️  Using custom compute provider for TEE attestations: {custom_compute_provider.__class__.__name__}[/cyan]")
+                
                 self.process_integrity = ProcessIntegrityVerifier(
                     agent_name=self.agent_name,
-                    storage_manager=self.storage_manager
+                    storage_manager=self.storage_manager,
+                    compute_provider=compute_provider_for_integrity  # NEW: TEE attestation support
                 )
             except Exception as e:
                 rprint(f"[yellow]⚠️  Process integrity not available: {e}[/yellow]")
@@ -359,24 +403,30 @@ class ChaosChainAgentSDK:
         self, 
         function_name: str, 
         inputs: Dict[str, Any],
-        require_proof: bool = True
+        require_proof: bool = True,
+        use_tee: bool = True
     ) -> Tuple[Any, Optional[IntegrityProof]]:
         """
         Execute a registered function with integrity proof generation.
+        
+        Supports dual-layer verification:
+        - Local code hashing (always)
+        - TEE attestation from compute provider (if available and use_tee=True)
         
         Args:
             function_name: Name of the registered function
             inputs: Function input parameters
             require_proof: Whether to generate integrity proof
+            use_tee: Whether to use TEE attestation (requires compute_provider)
             
         Returns:
-            Tuple of (function_result, integrity_proof)
+            Tuple of (function_result, integrity_proof with optional TEE attestation)
         """
         if not self.process_integrity:
             raise IntegrityVerificationError("Process integrity not enabled")
         
         return await self.process_integrity.execute_with_proof(
-            function_name, inputs, require_proof
+            function_name, inputs, require_proof, use_tee
         )
     
     # === GOOGLE AP2 INTEGRATION ===
@@ -689,7 +739,7 @@ class ChaosChainAgentSDK:
         service_type: str = "agent_service"
     ) -> PaymentProof:
         """
-        Execute a payment using A2A-x402 protocol.
+        Execute a payment - direct transfers for 0G, x402 for other networks.
         
         Args:
             payment_request: Pre-created payment request, or
@@ -700,6 +750,94 @@ class ChaosChainAgentSDK:
         Returns:
             Payment proof with transaction details
         """
+        # For 0G Testnet, use direct native token transfers (A0GI)
+        if self.network == NetworkConfig.ZEROG_TESTNET:
+            if not to_agent or amount is None:
+                raise PaymentError("to_agent and amount must be provided")
+            
+            rprint(f"[blue]💰 Direct A0GI transfer: {self.agent_name} → {to_agent} ({amount} A0GI)[/blue]")
+            
+            # Get recipient address
+            to_address = self.wallet_manager.get_wallet_address(to_agent)
+            if not to_address:
+                raise PaymentError(f"Could not resolve address for agent: {to_agent}")
+            
+            # Execute direct native token transfer
+            from web3 import Web3
+            from eth_account import Account
+            import time
+            
+            # Get sender wallet
+            from_wallet = self.wallet_manager.wallets.get(self.agent_name)
+            if not from_wallet:
+                raise PaymentError(f"Wallet not found for agent: {self.agent_name}")
+            
+            # Use wallet manager's web3 instance
+            w3 = self.wallet_manager.w3
+            
+            # Convert amount to wei (A0GI has 18 decimals like ETH)
+            amount_wei = w3.to_wei(amount, 'ether')
+            
+            # Build transaction
+            nonce = w3.eth.get_transaction_count(from_wallet.address)
+            
+            tx = {
+                'nonce': nonce,
+                'to': to_address,
+                'value': amount_wei,
+                'gas': 21000,
+                'gasPrice': w3.eth.gas_price,
+                'chainId': w3.eth.chain_id
+            }
+            
+            # Sign and send transaction
+            signed_tx = w3.eth.account.sign_transaction(tx, from_wallet.key)
+            
+            # Handle both old and new Web3.py versions
+            raw_transaction = getattr(signed_tx, 'raw_transaction', getattr(signed_tx, 'rawTransaction', None))
+            if raw_transaction is None:
+                raise PaymentError("Could not get raw transaction from signed transaction")
+            
+            tx_hash = w3.eth.send_raw_transaction(raw_transaction)
+            tx_hash_hex = tx_hash.hex()
+            
+            rprint(f"[green]✅ A0GI transfer successful[/green]")
+            rprint(f"   TX: {tx_hash_hex}")
+            
+            # Create payment proof
+            from .types import PaymentProof, PaymentMethod
+            from datetime import datetime
+            
+            return PaymentProof(
+                payment_id=f"a0gi_{int(time.time())}",
+                from_agent=self.agent_name,
+                to_agent=to_agent,
+                amount=amount,
+                currency="A0GI",
+                payment_method=PaymentMethod.DIRECT_TRANSFER,
+                transaction_hash=tx_hash_hex,
+                timestamp=datetime.now(),
+                receipt_data={
+                    "service_type": service_type,
+                    "network": "0G Testnet",
+                    "amount_wei": str(amount_wei)
+                }
+            )
+        
+        # For other networks, use x402
+        if self.x402_payment_manager:
+            if not to_agent or amount is None:
+                raise PaymentError("to_agent and amount must be provided")
+            
+            result = self.x402_payment_manager.execute_agent_payment(
+                from_agent=self.agent_name,
+                to_agent=to_agent,
+                amount_usdc=amount,
+                service_description=f"ChaosChain {service_type} Service"
+            )
+            return result
+        
+        # Legacy path for other networks
         if not self.payment_manager:
             raise PaymentError("Payment processing not enabled")
         
@@ -759,6 +897,9 @@ class ChaosChainAgentSDK:
             rprint("[yellow]⚠️  Storage not available[/yellow]")
             return None
         
+        import json
+        from datetime import datetime as dt
+        
         filename = f"{evidence_type}_{self.agent_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
         # Add agent metadata
@@ -771,7 +912,15 @@ class ChaosChainAgentSDK:
         if metadata:
             storage_metadata.update(metadata)
         
-        return self.storage_manager.upload_json(data, filename, storage_metadata)
+        # Custom JSON encoder for datetime objects
+        def json_serial(obj):
+            if isinstance(obj, dt):
+                return obj.isoformat()
+            raise TypeError(f"Type {type(obj)} not serializable")
+        
+        data_bytes = json.dumps(data, indent=2, default=json_serial).encode('utf-8')
+        result = self.storage_manager.put(data_bytes, mime="application/json", tags=storage_metadata)
+        return result.uri if hasattr(result, 'uri') else result
     
     def retrieve_evidence(self, cid: str) -> Optional[Dict[str, Any]]:
         """
@@ -787,7 +936,21 @@ class ChaosChainAgentSDK:
             return None
         
         try:
-            return self.storage_manager.retrieve_json(cid)
+            # Use new storage provider interface
+            result = self.storage_manager.get(cid)
+            
+            # Handle tuple response (data, metadata)
+            if isinstance(result, tuple):
+                data, metadata = result
+                if data:
+                    import json
+                    return json.loads(data.decode('utf-8'))
+            # Handle object response with .data attribute
+            elif hasattr(result, 'data') and result.data:
+                import json
+                return json.loads(result.data.decode('utf-8'))
+            
+            return None
         except Exception as e:
             rprint(f"[red]❌ Failed to retrieve evidence: {e}[/red]")
             return None
