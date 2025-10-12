@@ -116,11 +116,11 @@ print(f"🎉 Complete verifiable workflow with on-chain identity!")
 
 ## Core Features
 
-### 🆔 **ERC-8004 v1.0 On-Chain Identity** ✅ **100% Compliant** (Pre-Deployed)
+### **ERC-8004 v1.0 On-Chain Identity** ✅ **100% Compliant** (Pre-Deployed)
 
 The SDK implements the full [ERC-8004 v1.0 standard](https://eips.ethereum.org/EIPS/eip-8004) with contracts pre-deployed on 5 networks. **All 12 compliance tests pass.**
 
-**🎨 Agents are ERC-721 NFTs!** - In v1.0, every agent is an NFT, making them:
+**Agents are ERC-721 NFTs!** - In v1.0, every agent is an NFT, making them:
 - ✅ **Instantly browsable** on OpenSea, Rarible, and all NFT marketplaces
 - ✅ **Transferable** like any ERC-721 token
 - ✅ **Compatible** with MetaMask, Rainbow, and all NFT wallets
@@ -288,7 +288,7 @@ print(f"Storage CID: {proof.ipfs_cid}")
 - ✅ Immutable evidence storage
 - ✅ Tamper-proof audit trail
 
-### 🔌 **Pluggable Architecture**
+### **Pluggable Architecture**
 
 Choose your infrastructure - no vendor lock-in:
 
