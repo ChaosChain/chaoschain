@@ -1,596 +1,720 @@
 # ChaosChain SDK
 
-**Developer SDK for building verifiable, monetizable agents on the ChaosChain protocol**
+**Production-ready SDK for building verifiable, monetizable AI agents with on-chain identity**
 
 [![PyPI version](https://badge.fury.io/py/chaoschain-sdk.svg)](https://badge.fury.io/py/chaoschain-sdk)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![ERC-8004 v1.0](https://img.shields.io/badge/ERC--8004-v1.0-success.svg)](https://eips.ethereum.org/EIPS/eip-8004)
 
-The ChaosChain SDK provides everything developers need to build autonomous agents that can interact with the ChaosChain protocol. **Zero setup required** - all ERC-8004 contracts are pre-deployed and embedded, with support for process integrity verification, multi-payment methods (including native x402), and IPFS storage.
+The ChaosChain SDK is a complete toolkit for building autonomous AI agents with:
+- **ERC-8004 v1.0** ✅ **100% compliant** - Agents are **ERC-721 NFTs** (tradable on OpenSea, MetaMask compatible)
+- **On-chain identity, validation & reputation** - Pre-deployed on 5 networks with deterministic addresses
+- **x402 payments** using Coinbase's HTTP 402 protocol  
+- **Google AP2** intent verification
+- **Process Integrity** with cryptographic proofs
+- **Pluggable architecture** - choose your compute, storage, and payment providers
+
+**Zero setup required** - all ERC-8004 v1.0 contracts are pre-deployed, just `pip install` and build!
 
 ## Quick Start
 
 ### Installation
 
+#### Basic Installation
 ```bash
-# Basic installation (includes all ERC-8004 contracts pre-deployed)
+# Minimal core (ERC-8004 v1.0 + x402 + Local IPFS)
 pip install chaoschain-sdk
-
-# With production payment processor integrations
-pip install chaoschain-sdk[payments]
-
-# With x402 paywall server support
-pip install chaoschain-sdk[server]
-
-# With Google AP2 support (required for intent verification)
-pip install chaoschain-sdk
-pip install git+https://github.com/google-agentic-commerce/AP2.git@main
-
-# With development tools
-pip install chaoschain-sdk[dev]
-
-# Full installation (all features)
-pip install chaoschain-sdk[payments,server,dev]
-pip install git+https://github.com/google-agentic-commerce/AP2.git@main
 ```
 
-> **Zero Setup**: All ERC-8004 contracts are pre-deployed on Base Sepolia, Ethereum Sepolia, and Optimism Sepolia. No deployment or configuration needed!
-> 
-> **Note**: Google AP2 must be installed separately as it's not available on PyPI. This is required for intent verification features.
+#### With Optional Providers
+
+**Storage Providers:**
+```bash
+pip install chaoschain-sdk[0g-storage]  # 0G Storage (decentralized)
+pip install chaoschain-sdk[pinata]      # Pinata (cloud IPFS)
+pip install chaoschain-sdk[irys]        # Irys (Arweave permanent storage)
+pip install chaoschain-sdk[storage-all] # All storage providers
+```
+
+**Compute Providers:**
+```bash
+pip install chaoschain-sdk[0g-compute]  # 0G Compute (TEE-verified AI)
+pip install chaoschain-sdk[compute-all] # All compute providers
+```
+
+**Full Stacks:**
+```bash
+pip install chaoschain-sdk[0g]          # 0G Full Stack (Storage + Compute)
+pip install chaoschain-sdk[all]         # Everything (all providers)
+```
+
+**Development:**
+```bash
+pip install chaoschain-sdk[dev]         # With dev tools (pytest, black, mypy)
+```
+
+**Google AP2 (requires manual install):**
+```bash
+pip install git+https://github.com/google-agentic-commerce/AP2.git@main
+```
 
 ### Basic Usage
 
 ```python
 from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
 
-# Initialize your agent with full Triple-Verified Stack
-# Uses pre-deployed contracts automatically - no setup needed!
+# Initialize your agent
 sdk = ChaosChainAgentSDK(
     agent_name="MyAgent",
     agent_domain="myagent.example.com", 
-    agent_role="server",  # or AgentRole.SERVER
-    network="base-sepolia",  # or NetworkConfig.BASE_SEPOLIA
-    enable_ap2=True,  # Enable Google AP2 integration
-    enable_process_integrity=True,
-    enable_payments=True
+    agent_role=AgentRole.SERVER,
+    network=NetworkConfig.BASE_SEPOLIA,  # or choose your network
+    enable_ap2=True,          # Google AP2 intent verification
+    enable_process_integrity=True,  # Cryptographic execution proofs
+    enable_payments=True      # x402 crypto payments
 )
 
-# 1. Create Google AP2 Intent Mandate (Layer 1: User Authorization)
+# 1. Register on-chain identity (ERC-8004)
+agent_id, tx_hash = sdk.register_identity()
+print(f"✅ Agent #{agent_id} registered on-chain")
+
+# 2. Create AP2 intent mandate (user authorization)
 intent_result = sdk.create_intent_mandate(
-    user_description="Find me a good AI analysis service under $10",
-    merchants=["TrustedAnalytics", "AIServices"],
+    user_description="Find me AI analysis under $10",
+    merchants=["TrustedAI", "AIServices"],
     expiry_minutes=60
 )
 
-# 2. Register on ERC-8004 (Identity Layer)
-agent_id, tx_hash = sdk.register_identity()
-print(f"Agent registered with ID: {agent_id}")
-
-# 3. Execute work with process integrity (Layer 2: Execution Verification)
+# 3. Execute work with process integrity
 @sdk.process_integrity.register_function
-async def my_analysis_function(data: str) -> dict:
-    # Your agent's work logic here
-    return {"result": f"Analyzed: {data}", "confidence": 0.95}
+async def analyze_data(data: dict) -> dict:
+    # Your agent's work logic
+    return {"result": f"Analyzed {data}", "confidence": 0.95}
 
 result, proof = await sdk.execute_with_integrity_proof(
-    "my_analysis_function",
-    {"data": "market_data"}
+    "analyze_data", 
+    {"data": "market_trends"}
 )
 
-# 4. Create AP2 Cart Mandate with JWT signing
-cart_result = sdk.create_cart_mandate(
-    cart_id="cart_123",
-    items=[{"name": "AI Analysis", "price": 5.0}],
-    total_amount=5.0,
-    currency="USD"
-)
-
-# 5. Execute payment (multiple options available including x402)
-payment_result = sdk.execute_x402_payment(
+# 4. Execute x402 payment
+payment = sdk.execute_x402_payment(
     to_agent="ServiceProvider",
-    amount=5.0,
+    amount=5.0,  # USDC
     service_type="analysis"
 )
 
-# 6. Store comprehensive evidence on IPFS
+# 5. Store evidence
 evidence_cid = sdk.store_evidence({
-    "intent_mandate": intent_result.intent_mandate.model_dump() if intent_result.success else None,
-    "cart_mandate": cart_result.cart_mandate.model_dump() if cart_result.success else None,
+    "intent": intent_result.intent_mandate,
     "analysis": result,
-    "integrity_proof": proof.__dict__,
-    "payment_proof": payment_result
+    "proof": proof,
+    "payment": payment
 })
 
-print(f"🎉 Triple-Verified Stack complete! Evidence: {evidence_cid}")
+print(f"🎉 Complete verifiable workflow with on-chain identity!")
 ```
 
-## Architecture
+## Core Features
 
-The ChaosChain SDK implements the **Triple-Verified Stack**:
+### 🆔 **ERC-8004 v1.0 On-Chain Identity** ✅ **100% Compliant** (Pre-Deployed)
 
-```
-Layer 3: ChaosChain Adjudication     🎯 "Was outcome valuable?"
-Layer 2: ChaosChain Process Integrity ⚡ "Was code executed right?"  
-Layer 1: Google AP2 Intent           📝 "Did human authorize?"
+**Agents are ERC-721 NFTs!** Each agent is a tradable, browsable NFT compatible with OpenSea, MetaMask, and all NFT marketplaces.
 
-ChaosChain runs 2 out of 3 verification layers!
-```
-
-##  Core Features
-
-### ✅ ERC-8004 Registry Integration (Pre-Deployed)
-- **Identity Registry**: On-chain agent registration and discovery
-- **Reputation Registry**: Feedback and reputation management  
-- **Validation Registry**: Peer validation and consensus
-- **Zero Setup**: All contracts pre-deployed with embedded addresses
-
-### ✅ Process Integrity Verification
-- Cryptographic proof of correct code execution
-- Function registration and integrity checking
-- IPFS storage for verifiable evidence
-
-### ✅ Multi-Payment Support (W3C Compliant + x402)
-- **6 Payment Methods**: Full W3C Payment Request API compliance + native x402
-  - `basic-card`: **Integration template** for Stripe (requires API implementation)
-  - `https://google.com/pay`: **Integration template** for Google Pay (requires merchant setup)
-  - `https://apple.com/apple-pay`: **Integration template** for Apple Pay (requires certificates)
-  - `https://paypal.com`: **Integration template** for PayPal (requires API implementation)
-  - `https://a2a.org/x402`: **LIVE crypto payments** (real USDC on Base Sepolia)
-  - **Native x402**: Coinbase official HTTP 402 protocol support
-- **Crypto Ready**: Real USDC transfers work out-of-the-box
-- **Traditional Ready**: Production-ready templates (developers add API integrations)
-- **x402 Server Support**: Create paywall servers with `@require_payment` decorator
-- **Protocol Fees**: Automatic 2.5% fee collection to ChaosChain treasury (ChaosChain.eth)
-
-### ✅ Production-Ready Infrastructure
-- **Multi-Network**: Ethereum, Base, Optimism Sepolia testnets
-- **Pre-Deployed Contracts**: Real contract addresses embedded - no deployment needed
-- **Secure Wallets**: Automatic wallet generation and management
-- **IPFS Storage**: Pinata integration for permanent evidence storage
-- **Error Handling**: Comprehensive exception handling and logging
-
-## Supported Networks
-
-| Network | Chain ID | Status | Contracts Pre-Deployed |
-|---------|----------|--------|------------------------|
-| Base Sepolia | 84532 | ✅ Active | ✅ ERC-8004 Suite (Embedded) |
-| Ethereum Sepolia | 11155111 | ✅ Active | ✅ ERC-8004 Suite (Embedded) |
-| Optimism Sepolia | 11155420 | ✅ Active | ✅ ERC-8004 Suite (Embedded) |
-
-> **Ready to Use**: All contract addresses are embedded in the SDK. Just `pip install` and start building!
-
-## Payment Methods: Real Integrations + Demo Mode
-
-### ✅ **LIVE & WORKING (Out-of-the-Box)**
-| Method | W3C Identifier | Status | Settlement |
-|--------|---------------|--------|------------|
-| A2A-x402 Crypto | `https://a2a.org/x402` | ✅ **LIVE** | **Real USDC Transfers on Base Sepolia** |
-| Native x402 | Coinbase Official | ✅ **LIVE** | **Real USDC + HTTP 402 Protocol** |
-
-### 🔧 **REAL API INTEGRATIONS (Add Your Credentials)**
-| Method | W3C Identifier | Status | What You Need |
-|--------|---------------|--------|---------------|
-| Basic Cards | `basic-card` | ✅ **REAL** Stripe API | Add `STRIPE_SECRET_KEY` |
-| PayPal | `https://paypal.com` | ✅ **REAL** PayPal API | Add `PAYPAL_CLIENT_ID` + `PAYPAL_CLIENT_SECRET` |
-| Google Pay | `https://google.com/pay` | ✅ **REAL** Token Validation | Add `GOOGLE_PAY_MERCHANT_ID` |
-| Apple Pay | `https://apple.com/apple-pay` | ✅ **REAL** Token Validation | Add `APPLE_PAY_MERCHANT_ID` |
-
-**Key Features:**
-- **Real API Calls**: All payment methods use actual API integrations
-- **Token Validation**: Google Pay and Apple Pay validate real payment tokens
-- **Gateway Integration**: Google Pay and Apple Pay can process via Stripe or other gateways
-- **Demo Mode**: Automatically falls back to demo mode if credentials not provided
-- **Production Ready**: Add your API keys and process real payments immediately
-- **Clear Feedback**: Console output shows whether using real APIs or demo mode
-- **x402 Server Support**: Create HTTP 402 paywall servers with `@require_payment` decorator
-
-## Advanced Usage
-
-### Process Integrity with Custom Functions
+The SDK implements the full [ERC-8004 v1.0 standard](https://eips.ethereum.org/EIPS/eip-8004) with contracts pre-deployed on 5 networks. **All 12 compliance tests pass.**
 
 ```python
-# Register a function for integrity checking
-@sdk.process_integrity.register_function
-async def complex_analysis(params: dict) -> dict:
-    # Your complex analysis logic
-    result = perform_analysis(params)
-    return {
-        "analysis": result,
-        "timestamp": datetime.now().isoformat(),
-        "confidence": calculate_confidence(result)
-    }
+# Register agent identity
+agent_id, tx = sdk.register_identity()
 
-# Execute with cryptographic proof
-result, integrity_proof = await sdk.execute_with_integrity_proof(
-    "complex_analysis",
-    {"market_data": data, "timeframe": "1d"}
-)
+# Update agent metadata (per ERC-8004 spec)
+sdk.update_agent_metadata({
+    "name": "MyAgent",
+    "description": "AI analysis service with verifiable integrity",
+    "image": "https://example.com/agent.png",
+    "capabilities": ["market_analysis", "sentiment"],
+    "contact": "agent@example.com",
+    # ERC-8004: Advertise supported trust models
+    "supportedTrust": [
+        "reputation",        # Uses Reputation Registry
+        "tee-attestation",   # Uses Process Integrity (0G Compute TEE)
+        "validation"         # Uses Validation Registry
+    ]
+})
 
-print(f"Proof ID: {integrity_proof.proof_id}")
-print(f"Code Hash: {integrity_proof.code_hash}")
-print(f"IPFS CID: {integrity_proof.ipfs_cid}")
-```
-
-### Multi-Payment Method Support (W3C Compliant + x402)
-
-The SDK supports 6 payment methods including the new native x402 support:
-
-```python
-# 1. Basic Card Payment (Visa, Mastercard, Amex, Discover)
-card_payment = sdk.execute_traditional_payment(
-    payment_method="basic-card",
-    amount=25.99,
-    currency="USD",
-    payment_data={
-        "cardNumber": "4111111111111111",
-        "cardType": "visa",
-        "expiryMonth": "12",
-        "expiryYear": "2025",
-        "cvv": "123"
-    }
-)
-
-# 2. Google Pay
-google_pay_result = sdk.execute_traditional_payment(
-    payment_method="https://google.com/pay",
-    amount=25.99,
-    currency="USD",
-    payment_data={
-        "googleTransactionId": "gpay_txn_123456",
-        "paymentMethodType": "CARD"
-    }
-)
-
-# 3. Apple Pay
-apple_pay_result = sdk.execute_traditional_payment(
-    payment_method="https://apple.com/apple-pay",
-    amount=25.99,
-    currency="USD",
-    payment_data={
-        "transactionIdentifier": "apay_txn_789012",
-        "paymentMethod": {
-            "displayName": "Visa ••••1234",
-            "network": "Visa"
+# Submit reputation feedback (with x402 payment proof per ERC-8004)
+payment = sdk.execute_x402_payment(to_agent="Provider", amount=10.0)
+sdk.submit_feedback(
+    agent_id=other_agent_id,
+    score=95,
+    feedback_uri="ipfs://Qm...",  # Full feedback details
+    feedback_data={
+        "score": 95,
+        "context": "smart_shopping_task",
+        # ERC-8004: Link payment proof to reputation
+        "proof_of_payment": {
+            "fromAddress": payment.from_agent,
+            "toAddress": payment.to_agent,
+            "chainId": payment.chain_id,
+            "txHash": payment.transaction_hash
         }
     }
 )
 
-# 4. PayPal
-paypal_result = sdk.execute_traditional_payment(
-    payment_method="https://paypal.com",
+# Request validation (link Process Integrity to Validation Registry)
+result, proof = await sdk.execute_with_integrity_proof("analyze", {...})
+sdk.request_validation(
+    validator_agent_id=validator_id,
+    request_uri=f"ipfs://{proof.ipfs_cid}",  # Points to integrity proof
+    request_hash=proof.execution_hash
+)
+```
+
+**Pre-deployed ERC-8004 v1.0 contracts** (no deployment needed):
+- ✅ `IdentityRegistry.sol` - **ERC-721 Agent NFTs** - Browse agents on OpenSea, transfer ownership, compatible with all NFT tools
+- ✅ `ReputationRegistry.sol` - Feedback and reputation scores (signature-based with EIP-191/ERC-1271)
+- ✅ `ValidationRegistry.sol` - Peer validation and consensus (URI-based with progressive validation)
+
+**Deterministic addresses** (same on all 5 networks):
+- Identity: `0x7177a6867296406881E20d6647232314736Dd09A`
+- Reputation: `0xB5048e3ef1DA4E04deB6f7d0423D06F63869e322`
+- Validation: `0x662b40A526cb4017d947e71eAF6753BF3eeE66d8`
+
+### 💳 **x402 Crypto Payments** (Coinbase Official)
+
+Native integration with [Coinbase's x402 HTTP 402 protocol](https://www.x402.org/):
+
+```python
+# Execute agent-to-agent payment
+payment_result = sdk.execute_x402_payment(
+    to_agent="ProviderAgent",
+    amount=10.0,  # USDC
+    service_type="ai_analysis"
+)
+
+# Create payment requirements (for receiving payments)
+requirements = sdk.create_x402_payment_requirements(
+    amount=5.0,
+    service_description="Premium AI Analysis"
+)
+
+# Create x402 paywall server
+server = sdk.create_x402_paywall_server(port=8402)
+
+@server.require_payment(amount=2.0, description="API Access")
+def protected_endpoint(data):
+    return {"result": f"Processed {data}"}
+
+# server.run()  # Start HTTP 402 server
+```
+
+**Features**:
+- ✅ Direct USDC transfers (Base, Ethereum, Optimism)
+- ✅ Automatic 2.5% protocol fee to ChaosChain treasury
+- ✅ Cryptographic payment receipts
+- ✅ Paywall server support
+- ✅ Payment history and analytics
+
+### 📝 **Google AP2 Intent Verification**
+
+Integrate [Google's Agentic Protocol (AP2)](https://github.com/google-agentic-commerce/AP2) for user authorization:
+
+```python
+# Create intent mandate (user's general authorization)
+intent_result = sdk.create_intent_mandate(
+    user_description="Buy me quality analysis services under $50",
+    merchants=["TrustedAI", "VerifiedAnalytics"],
+    expiry_minutes=120
+)
+
+# Create cart mandate with JWT (specific purchase authorization)
+cart_result = sdk.create_cart_mandate(
+    cart_id="cart_123",
+    items=[
+        {"name": "Market Analysis", "price": 10.0},
+        {"name": "Sentiment Report", "price": 5.0}
+    ],
+    total_amount=15.0,
+    currency="USD"
+)
+
+# Verify JWT signature
+if cart_result.success:
+    print(f"✅ Cart authorized with JWT: {cart_result.jwt[:50]}...")
+```
+
+**Benefits**:
+- ✅ Cryptographic user authorization (RSA signatures)
+- ✅ Intent-based commerce (users pre-authorize categories)
+- ✅ W3C Payment Request API compatible
+- ✅ JWT-based cart mandates
+
+### ⚡ **Process Integrity Verification**
+
+Cryptographic proof that your code executed correctly:
+
+```python
+# Register functions for integrity checking
+@sdk.process_integrity.register_function
+async def analyze_sentiment(text: str, model: str) -> dict:
+    # Your analysis logic
+    result = perform_analysis(text, model)
+    return {
+        "sentiment": result.sentiment,
+        "confidence": result.confidence,
+        "timestamp": datetime.now().isoformat()
+    }
+
+# Execute with proof generation
+result, proof = await sdk.execute_with_integrity_proof(
+    "analyze_sentiment",
+    {"text": "Market looks bullish", "model": "gpt-4"}
+)
+
+# Proof contains:
+print(f"Function: {proof.function_name}")
+print(f"Code Hash: {proof.code_hash}")
+print(f"Execution Hash: {proof.execution_hash}")
+print(f"Timestamp: {proof.timestamp}")
+print(f"Storage CID: {proof.ipfs_cid}")
+```
+
+**Features**:
+- ✅ Cryptographic code hashing
+- ✅ Execution verification
+- ✅ Immutable evidence storage
+- ✅ Tamper-proof audit trail
+
+### 🔌 **Pluggable Architecture**
+
+Choose your infrastructure - no vendor lock-in:
+
+#### **Storage Providers**
+
+```python
+from chaoschain_sdk.storage import create_storage_manager, StorageProvider
+
+# Auto-detect best available
+storage = create_storage_manager()
+
+# Or choose specific provider
+storage = create_storage_manager(StorageProvider.LOCAL_IPFS)   # Free, local
+storage = create_storage_manager(StorageProvider.PINATA)       # Cloud, reliable
+storage = create_storage_manager(StorageProvider.IRYS)         # Arweave, permanent
+storage = create_storage_manager(StorageProvider.ZEROG_GRPC)   # 0G Network (decentralized)
+
+# Same API regardless of provider
+cid = storage.upload_json({"data": "value"}, "file.json")
+data = storage.retrieve_json(cid)
+gateway_url = storage.get_gateway_url(cid)
+```
+
+**Storage Options**:
+
+| Provider | Cost | Setup | Best For |
+|----------|------|-------|----------|
+| **Local IPFS** | 🆓 Free | `ipfs daemon` | Development, full control |
+| **Pinata** | 💰 Paid | Set env vars | Production, reliability |
+| **Irys** | 💰 Paid | Wallet key | Permanent storage (Arweave) |
+| **0G Storage** | 💰 Gas | Start sidecar | Decentralized, verifiable |
+
+#### **Compute Providers**
+
+```python
+# Built-in: Local execution with integrity proofs
+result, proof = await sdk.execute_with_integrity_proof("func_name", args)
+
+# Optional: 0G Compute (TEE-verified AI)
+from chaoschain_sdk.providers.compute import ZeroGComputeGRPC
+
+compute = ZeroGComputeGRPC(grpc_url='localhost:50051')
+job_id = compute.submit(task={"model": "gpt-oss-120b", "prompt": "..."})
+result = compute.result(job_id)
+```
+
+#### **Payment Methods**
+
+```python
+# x402 (PRIMARY) - Real crypto payments
+payment = sdk.execute_x402_payment(to_agent="Provider", amount=10.0)
+
+# Traditional methods (with API keys)
+payment = sdk.execute_traditional_payment(
+    payment_method="basic-card",  # Stripe
+    # OR "https://google.com/pay"  # Google Pay
+    # OR "https://apple.com/apple-pay"  # Apple Pay
+    # OR "https://paypal.com"  # PayPal
     amount=25.99,
-    currency="USD",
-    payment_data={
-        "paypalTransactionId": "pp_txn_345678",
-        "payerEmail": "user@example.com"
+    currency="USD"
+)
+```
+
+## Architecture
+
+### **Triple-Verified Stack**
+
+```
+╔════════════════════════════════════════════════════════╗
+║          ChaosChain Triple-Verified Stack              ║
+╠════════════════════════════════════════════════════════╣
+║  Layer 3: x402 Crypto Settlement  →  Payment verified ║
+║  Layer 2: Process Integrity       →  Code verified    ║
+║  Layer 1: Google AP2 Intent       →  User authorized  ║
+╚════════════════════════════════════════════════════════╝
+         ChaosChain owns 2 out of 3 layers!
+```
+
+### **SDK Architecture**
+
+```
+┌─────────────────────────────────────────────────────┐
+│          Your Application / Agent                    │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────┴───────────────────────────────────┐
+│          ChaosChain SDK (Python)                     │
+│  ┌──────────────┐  ┌────────────┐  ┌─────────────┐ │
+│  │  ERC-8004    │  │  x402      │  │  Google AP2 │ │
+│  │  Identity    │  │  Payments  │  │  Intent     │ │
+│  └──────────────┘  └────────────┘  └─────────────┘ │
+│  ┌──────────────┐  ┌────────────┐  ┌─────────────┐ │
+│  │  Process     │  │  Pluggable │  │  Pluggable  │ │
+│  │  Integrity   │  │  Storage   │  │  Compute    │ │
+│  └──────────────┘  └────────────┘  └─────────────┘ │
+└─────────────────┬───────────────────────────────────┘
+                  │
+┌─────────────────┴───────────────────────────────────┐
+│     Your Choice of Infrastructure                    │
+│  • Storage: IPFS / Pinata / Irys / 0G               │
+│  • Compute: Local / 0G / Your provider              │
+│  • Network: Base / Ethereum / Optimism / 0G         │
+└─────────────────────────────────────────────────────┘
+```
+
+## Supported Networks
+
+All ERC-8004 v1.0 contracts are **pre-deployed with deterministic addresses** (no setup needed):
+
+| Network | Chain ID | Status | Contracts | Features |
+|---------|----------|--------|-----------|----------|
+| **Base Sepolia** | 84532 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
+| **Ethereum Sepolia** | 11155111 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
+| **Optimism Sepolia** | 11155420 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
+| **Mode Testnet** | 919 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 |
+| **0G Galileo** | 16602 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + A0GI + Compute + Storage |
+
+**All networks use the same deterministic contract addresses** (see above). Simply change the `network` parameter - no other config needed!
+
+## Advanced Examples
+
+### Complete Agent Workflow with ERC-8004 Integration
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
+import asyncio
+
+# Initialize
+sdk = ChaosChainAgentSDK(
+    agent_name="AnalysisAgent",
+    agent_domain="analysis.example.com",
+    agent_role=AgentRole.SERVER,
+    network=NetworkConfig.BASE_SEPOLIA,
+    enable_ap2=True,
+    enable_process_integrity=True,
+    enable_payments=True
+)
+
+# 1. Register on-chain identity (ERC-8004 Identity Registry)
+agent_id, tx = sdk.register_identity()
+print(f"✅ On-chain ID: {agent_id}")
+
+# 2. Set metadata with supported trust models (ERC-8004)
+sdk.update_agent_metadata({
+    "name": "AnalysisAgent",
+    "description": "Verifiable AI market analysis",
+    "image": "https://example.com/agent.png",
+    "supportedTrust": ["reputation", "tee-attestation", "validation"]
+})
+
+# 3. Create AP2 intent (user authorization)
+intent = sdk.create_intent_mandate(
+    user_description="Get market analysis under $20",
+    merchants=["AnalysisAgent"],
+    expiry_minutes=60
+)
+
+# 4. Execute work with TEE-verified integrity (Process Integrity)
+@sdk.process_integrity.register_function
+async def market_analysis(symbols: list) -> dict:
+    return {
+        "symbols": symbols,
+        "trend": "bullish",
+        "confidence": 0.87
+    }
+
+result, proof = await sdk.execute_with_integrity_proof(
+    "market_analysis",
+    {"symbols": ["BTC", "ETH"]}
+)
+
+# 5. Store evidence (integrity proof + results)
+evidence_cid = sdk.store_evidence({
+    "intent": intent.intent_mandate.model_dump() if intent.success else None,
+    "analysis": result,
+    "integrity_proof": proof.__dict__
+})
+
+# 6. Execute x402 payment
+payment = sdk.execute_x402_payment(
+    to_agent="AnalysisAgent",
+    amount=15.0,
+    service_type="market_analysis"
+)
+
+# 7. Client submits feedback to Reputation Registry (ERC-8004)
+sdk.submit_feedback(
+    agent_id=agent_id,
+    score=95,
+    feedback_uri=f"ipfs://{evidence_cid}",
+    feedback_data={
+        "score": 95,
+        "task": "market_analysis",
+        "proof_of_payment": {
+            "txHash": payment['main_transaction_hash'],
+            "amount": 15.0,
+            "currency": "USDC"
+        }
     }
 )
 
-# 5. A2A-x402 Crypto Payment (USDC on Base Sepolia)
-x402_request = sdk.create_x402_payment_request(
-    cart_id="crypto_cart_123",
-    total_amount=25.99,
-    currency="USDC",
-    items=[{"name": "AI Analysis Service", "price": 25.99}]
+# 8. Request validation via Validation Registry (ERC-8004)
+validation_request = sdk.request_validation(
+    validator_agent_id=validator_id,
+    request_uri=f"ipfs://{proof.ipfs_cid}",
+    request_hash=proof.execution_hash
 )
 
-crypto_payment = sdk.execute_x402_crypto_payment(
-    payment_request=x402_request,
-    payer_agent="PayerAgent",
-    service_description="AI Analysis Service"
-)
+print(f"✅ Complete ERC-8004 workflow!")
+print(f"   Agent ID: {agent_id}")
+print(f"   Evidence: {evidence_cid}")
+print(f"   Payment TX: {payment['main_transaction_hash']}")
+print(f"   Feedback submitted to Reputation Registry")
+print(f"   Validation requested from validator #{validator_id}")
+```
 
-# 6. Native x402 Payment (Coinbase Official Protocol)
-x402_payment = sdk.execute_x402_payment(
-    to_agent="ServiceProvider",
-    amount=25.99,
-    service_type="analysis"
-)
+### Multi-Storage Strategy
 
-# 7. x402 Paywall Server (Receive Payments)
+```python
+from chaoschain_sdk.storage import create_storage_manager, StorageProvider
+
+# Use local IPFS for development
+dev_storage = create_storage_manager(StorageProvider.LOCAL_IPFS)
+dev_cid = dev_storage.upload_json({"env": "dev"}, "dev.json")
+
+# Use Pinata for production
+prod_storage = create_storage_manager(
+    StorageProvider.PINATA,
+    jwt_token=os.getenv("PINATA_JWT")
+)
+prod_cid = prod_storage.upload_json({"env": "prod"}, "prod.json")
+
+# Use Irys for permanent archival
+archive_storage = create_storage_manager(
+    StorageProvider.IRYS,
+    wallet_key=os.getenv("IRYS_WALLET_KEY")
+)
+archive_cid = archive_storage.upload_json({"env": "archive"}, "archive.json")
+
+# Same API, different backends!
+```
+
+### x402 Paywall Server
+
+```python
+# Create server that requires payment
 server = sdk.create_x402_paywall_server(port=8402)
 
-@server.require_payment(amount=2.0, description="Premium Analysis")
+@server.require_payment(amount=5.0, description="Premium Analysis")
 def premium_analysis(data):
-    return {"analysis": f"Deep analysis of {data}"}
+    return {
+        "analysis": "Deep market analysis...",
+        "confidence": 0.95,
+        "timestamp": datetime.now().isoformat()
+    }
 
-# server.run()  # Start HTTP 402 server
+@server.require_payment(amount=2.0, description="Basic Query")
+def basic_query(question):
+    return {"answer": f"Response to: {question}"}
 
-print(f"Crypto Payment: {crypto_payment.transaction_hash}")
-print(f"x402 Payment: {x402_payment['main_transaction_hash']}")
-
-# Get all supported payment methods
-supported_methods = sdk.get_supported_payment_methods()
-print(f"Supported Payment Methods: {supported_methods}")
-# Output: ['x402 (Coinbase Official)', 'basic-card', 'https://google.com/pay', 
-#          'https://apple.com/apple-pay', 'https://paypal.com', 'https://a2a.org/x402']
+# Start server
+# server.run()
 ```
 
-### Evidence Package Creation
-
-```python
-# Create comprehensive evidence package
-evidence_package = sdk.create_evidence_package(
-    work_proof={
-        "service_type": "market_analysis",
-        "input_data": input_params,
-        "output_data": analysis_result,
-        "execution_time": execution_duration
-    },
-    integrity_proof=integrity_proof,
-    payment_proofs=[payment_proof],
-    validation_results=validation_results
-)
-
-print(f"Evidence Package ID: {evidence_package.package_id}")
-print(f"IPFS CID: {evidence_package.ipfs_cid}")
-```
-
-### Validation Workflow
-
-```python
-# Request validation from another agent
-validator_agent_id = 8  # On-chain ID of validator
-data_hash = "0x" + hashlib.sha256(json.dumps(analysis_result).encode()).hexdigest()
-
-validation_tx = sdk.request_validation(validator_agent_id, data_hash)
-print(f"Validation requested: {validation_tx}")
-
-# Submit feedback for another agent
-feedback_tx = sdk.submit_feedback(
-    agent_id=validator_agent_id,
-    score=95,
-    feedback="Excellent validation quality and fast response time"
-)
-```
-
-## Security & Configuration
+## Configuration
 
 ### Environment Variables
-
-Create a `.env` file with your configuration:
 
 ```bash
 # Network Configuration
 NETWORK=base-sepolia
-BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_API_KEY
-ETHEREUM_SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_API_KEY
-OPTIMISM_SEPOLIA_RPC_URL=https://opt-sepolia.g.alchemy.com/v2/YOUR_API_KEY
+BASE_SEPOLIA_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
+ETHEREUM_SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+OPTIMISM_SEPOLIA_RPC_URL=https://opt-sepolia.g.alchemy.com/v2/YOUR_KEY
 
-# x402 Payment Configuration (PRIMARY)
-X402_USE_FACILITATOR=false  # Set to true to use facilitator
-X402_FACILITATOR_URL=https://facilitator.example.com
+# x402 Configuration (Coinbase Protocol)
+CHAOSCHAIN_FEE_PERCENTAGE=2.5  # Protocol fee (default: 2.5%)
+X402_USE_FACILITATOR=false
 
-# ChaosChain Protocol Configuration
-CHAOSCHAIN_FEE_PERCENTAGE=2.5
-# CHAOSCHAIN_TREASURY_ADDRESS=0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70  # Optional: Override treasury (use with caution)
-CHAOSCHAIN_OPERATOR_PRIVATE_KEY=your_operator_private_key  # Optional
+# Storage Providers (auto-detected if not specified)
+# Local IPFS (free): Just run `ipfs daemon`
+PINATA_JWT=your_jwt_token
+PINATA_GATEWAY=https://gateway.pinata.cloud
+IRYS_WALLET_KEY=your_wallet_key
 
-# IPFS Storage (Pinata)
-PINATA_JWT=your_pinata_jwt_token
-PINATA_GATEWAY=https://your-gateway.mypinata.cloud
+# Optional: 0G Network
+ZEROG_TESTNET_RPC_URL=https://evmrpc-testnet.0g.ai
+ZEROG_TESTNET_PRIVATE_KEY=your_key
+ZEROG_GRPC_URL=localhost:50051  # If using 0G sidecar
 
-# Optional: Legacy Payment Processor Integrations
-# Stripe (for basic-card payments via A2A-x402 bridge)
-STRIPE_SECRET_KEY=sk_live_your_stripe_secret_key
-STRIPE_PUBLISHABLE_KEY=pk_live_your_stripe_publishable_key
-
-# Google Pay (for Google Pay payments via A2A-x402 bridge)
-GOOGLE_PAY_MERCHANT_ID=merchant.your-domain.com
-GOOGLE_PAY_ENVIRONMENT=PRODUCTION
-
-# Apple Pay (for Apple Pay payments via A2A-x402 bridge)
-APPLE_PAY_MERCHANT_ID=merchant.your-domain.com
-APPLE_PAY_CERTIFICATE_PATH=/path/to/apple-pay-cert.pem
-
-# PayPal (for PayPal payments via A2A-x402 bridge)
-PAYPAL_CLIENT_ID=your_paypal_client_id
-PAYPAL_CLIENT_SECRET=your_paypal_client_secret
-PAYPAL_ENVIRONMENT=live
-
-# Optional: Custom wallet file
-CHAOSCHAIN_WALLET_FILE=my_agent_wallets.json
+# Traditional Payment APIs (optional)
+STRIPE_SECRET_KEY=sk_live_...
+GOOGLE_PAY_MERCHANT_ID=merchant.example.com
+APPLE_PAY_MERCHANT_ID=merchant.example.com
+PAYPAL_CLIENT_ID=your_client_id
 ```
 
-### Treasury Address Security
+### Storage Setup
 
-**Important**: The ChaosChain protocol collects a 2.5% fee on all x402 payments to fund development and operations.
-
-- **Default**: Uses official ChaosChain treasury addresses (verified)
-- **Override**: Set `CHAOSCHAIN_TREASURY_ADDRESS` environment variable (use with caution)
-- **Validation**: Custom addresses are validated for proper format
-- **Warning**: Custom treasury addresses will display a warning message
+#### Local IPFS (Free, Recommended for Development)
 
 ```bash
-# Default: Uses official ChaosChain treasury (recommended)
-# No configuration needed
+# macOS
+brew install ipfs
+ipfs init
+ipfs daemon
 
-# Custom treasury (for testing/private deployments only)
-CHAOSCHAIN_TREASURY_ADDRESS=0xYourCustomTreasuryAddress
+# Linux
+wget https://dist.ipfs.tech/kubo/v0.24.0/kubo_v0.24.0_linux-amd64.tar.gz
+tar -xvzf kubo_v0.24.0_linux-amd64.tar.gz
+sudo bash kubo/install.sh
+ipfs init
+ipfs daemon
 ```
 
-### Wallet Security
-
-The SDK automatically generates and manages secure wallets:
-
-```python
-# Wallets are stored in chaoschain_wallets.json (gitignored by default)
-# Each agent gets a unique wallet with private key management
-sdk = ChaosChainAgentSDK(
-    agent_name="MyAgent",
-    agent_domain="myagent.example.com",
-    agent_role=AgentRole.SERVER,
-    wallet_file="custom_wallets.json"  # Optional custom file
-)
-
-print(f"Agent wallet: {sdk.wallet_address}")
-print(f"Network: {sdk.network_info}")
-```
-
-##  Testing & Development
-
-### Running Tests
+#### Pinata (Cloud)
 
 ```bash
-# Install development dependencies
-pip install chaoschain-sdk[dev]
-
-# Run tests
-pytest tests/
-
-# Run with coverage
-pytest --cov=chaoschain_sdk tests/
-```
-
-### Local Development
-
-```bash
-# Clone the repository
-git clone https://github.com/ChaosChain/chaoschain
-cd chaoschain/packages/sdk
-
-# Install in development mode
-pip install -e .
-
-# Run the example
-python examples/basic_agent.py
+# Get API keys from https://pinata.cloud
+export PINATA_JWT="your_jwt_token"
+export PINATA_GATEWAY="https://gateway.pinata.cloud"
 ```
 
 ## API Reference
 
 ### ChaosChainAgentSDK
 
-The main SDK class providing all functionality:
-
-#### Constructor
 ```python
 ChaosChainAgentSDK(
     agent_name: str,
-    agent_domain: str, 
-    agent_role: AgentRole | str,  # "server", "validator", "client" or enum
-    network: NetworkConfig | str = "base-sepolia",  # or enum
+    agent_domain: str,
+    agent_role: AgentRole | str,  # "server", "validator", "client"
+    network: NetworkConfig | str = "base-sepolia",
     enable_process_integrity: bool = True,
     enable_payments: bool = True,
     enable_storage: bool = True,
     enable_ap2: bool = True,
-    wallet_file: str = None,
-    storage_jwt: str = None,
-    storage_gateway: str = None
+    wallet_file: str = None
 )
 ```
 
-#### Core Methods
+#### Key Methods
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| `register_identity()` | Register agent on ERC-8004 | `(agent_id, tx_hash)` |
-| `execute_with_integrity_proof()` | Execute function with proof | `(result, proof)` |
-| **x402 Payment Methods (PRIMARY)** |
-| `execute_x402_payment()` | Execute native x402 payment | `Dict[str, Any]` |
-| `create_x402_payment_requirements()` | Create x402 payment requirements | `Dict[str, Any]` |
-| `get_x402_payment_history()` | Get x402 payment history | `List[Dict[str, Any]]` |
-| `get_x402_payment_summary()` | Get x402 payment analytics | `Dict[str, Any]` |
-| `create_x402_paywall_server()` | Create HTTP 402 paywall server | `X402PaywallServer` |
-| **Legacy Payment Methods (FALLBACK)** |
-| `execute_payment()` | Process A2A-x402 payment | `PaymentProof` |
-| `execute_traditional_payment()` | Process traditional payment | `PaymentResponse` |
-| `get_supported_payment_methods()` | Get all payment methods | `List[str]` |
-| **Optional AP2 Integration** |
-| `create_intent_mandate()` | Create AP2 intent mandate | `GoogleAP2IntegrationResult` |
-| `create_cart_mandate()` | Create AP2 cart mandate | `GoogleAP2IntegrationResult` |
-| **Storage & Evidence** |
-| `store_evidence()` | Store data on IPFS | `cid` |
-| `create_evidence_package()` | Create proof package | `EvidencePackage` |
-| `request_validation()` | Request peer validation | `tx_hash` |
+| **ERC-8004 Identity** |
+| `register_identity()` | Register on-chain | `(agent_id, tx_hash)` |
+| `update_agent_metadata()` | Update profile | `tx_hash` |
+| `submit_feedback()` | Submit reputation | `tx_hash` |
+| `request_validation()` | Request validation | `tx_hash` |
+| **x402 Payments** |
+| `execute_x402_payment()` | Execute payment | `Dict[str, Any]` |
+| `create_x402_payment_requirements()` | Create requirements | `Dict` |
+| `create_x402_paywall_server()` | Create paywall | `X402PaywallServer` |
+| `get_x402_payment_history()` | Payment history | `List[Dict]` |
+| **Google AP2** |
+| `create_intent_mandate()` | Create intent | `GoogleAP2IntegrationResult` |
+| `create_cart_mandate()` | Create cart + JWT | `GoogleAP2IntegrationResult` |
+| **Process Integrity** |
+| `execute_with_integrity_proof()` | Execute with proof | `(result, IntegrityProof)` |
+| **Pluggable Storage** |
+| `create_storage_manager()` | Create manager | `UnifiedStorageManager` |
+| `store_evidence()` | Store data | `cid` |
 
-### Types
+## Testing & Development
 
-The SDK provides comprehensive type definitions:
+```bash
+# Install with dev dependencies
+pip install -e ".[dev]"
 
-```python
-from chaoschain_sdk import (
-    # Core SDK Classes
-    ChaosChainAgentSDK,     # Main SDK class
-    X402PaymentManager,     # Native x402 payment manager
-    X402PaywallServer,      # HTTP 402 paywall server
-    
-    # Configuration Enums
-    AgentRole,              # SERVER, VALIDATOR, CLIENT
-    NetworkConfig,          # BASE_SEPOLIA, ETHEREUM_SEPOLIA, etc.
-    PaymentMethod,          # BASIC_CARD, GOOGLE_PAY, A2A_X402, etc.
-    
-    # Data Classes
-    IntegrityProof,         # Process integrity proof
-    PaymentProof,           # Payment transaction proof
-    EvidencePackage,        # Comprehensive evidence package
-    AgentIdentity,          # Agent identity information
-    
-    # Optional AP2 Integration
-    GoogleAP2Integration,   # AP2 intent verification
-    A2AX402Extension,       # A2A-x402 W3C payment bridge
-)
+# Run tests
+pytest tests/
+
+# Run with coverage
+pytest --cov=chaoschain_sdk tests/
+
+# Run examples
+python examples/basic_agent.py
 ```
 
-## **Native x402 Support**
+## FAQ
 
-The ChaosChain SDK includes **native integration** with Coinbase's x402 payment protocol, enabling developers to build **verifiable, monetizable agents** that can autonomously handle payments while maintaining cryptographic proof of their work.
+**Q: Do I need to deploy contracts?**  
+A: No! All ERC-8004 v1.0 contracts are pre-deployed on 5 testnets with deterministic addresses. Just `pip install` and start building.
 
-### Key Features:
-- **HTTP 402 Payment Required**: Official Coinbase x402 protocol implementation
-- **Paywall Server Support**: Create payment-required services with decorators
-- **Facilitator Integration**: Optional third-party verification/settlement
-- **Cryptographic Receipts**: Every payment includes verifiable proof
-- **Multi-Agent Commerce**: Enable agent-to-agent payment flows
-- **Production Ready**: Real USDC transfers on Base, Ethereum, and Optimism
+**Q: Can I use this in production?**  
+A: Yes! The SDK is production-ready and **100% ERC-8004 v1.0 compliant** (12/12 tests pass). Currently on testnets; mainnet deployment coming soon.
 
-### Quick x402 Example:
-```python
-from chaoschain_sdk import ChaosChainAgentSDK
+**Q: What's the difference between ERC-8004 and the SDK?**  
+A: ERC-8004 v1.0 is the **standard** (3 registries: Identity, Reputation, Validation). The SDK **implements** it fully + adds x402 payments, AP2 intent verification, and Process Integrity for a complete agent economy.
 
-# Initialize agent with x402 payments
-agent = ChaosChainAgentSDK(agent_name="PaymentAgent", ...)
+**Q: How do I verify v1.0 compliance?**  
+A: Run `pytest tests/test_erc8004_v1_compliance.py -v` - all 12 tests pass. See `SDK_V1_COMPLIANCE_REPORT.md` for detailed verification.
 
-# Execute x402 payment (Coinbase official protocol)
-payment_result = agent.execute_x402_payment(
-    to_agent="ServiceProvider",
-    amount=5.0,  # USDC
-    service_type="ai_analysis"
-)
-```
+**Q: What storage should I use?**  
+A: Start with Local IPFS (free), then Pinata for production. The SDK auto-detects available providers. ERC-8004 registration files can use any URI scheme (ipfs://, https://).
 
-**📚 Complete x402 Integration Guide**: [X402_INTEGRATION_GUIDE.md](https://github.com/ChaosChain/chaoschain/blob/main/docs/X402_INTEGRATION_GUIDE.md)
+**Q: Do I need 0G Network?**  
+A: No, 0G is optional. The SDK works great with Base/Ethereum/Optimism + IPFS/Pinata. 0G adds TEE-verified compute and decentralized storage.
 
-**Learn More**: [x402.org](https://www.x402.org/) | [Coinbase x402 GitHub](https://github.com/coinbase/x402)
+**Q: How do x402 payments work?**  
+A: Real USDC transfers using Coinbase's HTTP 402 protocol. Automatic 2.5% fee to ChaosChain treasury. Payment proofs can enrich ERC-8004 reputation feedback.
 
-##  Contributing
+**Q: What are "supportedTrust" models in ERC-8004?**  
+A: Agents advertise trust mechanisms: `reputation` (Reputation Registry), `validation` (Validation Registry with zkML/TEE), and `tee-attestation` (Process Integrity with 0G Compute). This SDK supports all three!
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+## Contributing
 
-### Development Setup
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file.
 
 ## Links
 
 - **Homepage**: [https://chaoscha.in](https://chaoscha.in)
 - **Documentation**: [https://docs.chaoscha.in](https://docs.chaoscha.in)
-- **GitHub**: [https://github.com/ChaosChain/chaoschain](https://github.com/ChaosChain/chaoschain)
+- **GitHub**: [https://github.com/ChaosChain/chaoschain-sdk](https://github.com/ChaosChain/chaoschain-sdk)
 - **PyPI**: [https://pypi.org/project/chaoschain-sdk/](https://pypi.org/project/chaoschain-sdk/)
+- **ERC-8004 Spec**: [https://eips.ethereum.org/EIPS/eip-8004](https://eips.ethereum.org/EIPS/eip-8004)
+- **x402 Protocol**: [https://www.x402.org/](https://www.x402.org/)
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/ChaosChain/chaoschain/issues)
+- **Issues**: [GitHub Issues](https://github.com/ChaosChain/chaoschain-sdk/issues)
 - **Discord**: [ChaosChain Community](https://discord.gg/chaoschain)
-- **Email**: [hello@chaoschain.com](mailto:hello@)
+- **Email**: hello@chaoschain.com
 
 ---
 
-**Building the future of trustworthy autonomous services.**
+**Build verifiable AI agents with on-chain identity, cryptographic proofs, and crypto payments.**
