@@ -30,9 +30,9 @@ pip install chaoschain-sdk
 
 **Storage Providers:**
 ```bash
+pip install chaoschain-sdk[0g-storage]  # 0G Storage (decentralized)
 pip install chaoschain-sdk[pinata]      # Pinata (cloud IPFS)
 pip install chaoschain-sdk[irys]        # Irys (Arweave permanent storage)
-pip install chaoschain-sdk[0g-storage]  # 0G Storage (decentralized)
 pip install chaoschain-sdk[storage-all] # All storage providers
 ```
 
@@ -119,6 +119,12 @@ print(f"🎉 Complete verifiable workflow with on-chain identity!")
 ### 🆔 **ERC-8004 v1.0 On-Chain Identity** ✅ **100% Compliant** (Pre-Deployed)
 
 The SDK implements the full [ERC-8004 v1.0 standard](https://eips.ethereum.org/EIPS/eip-8004) with contracts pre-deployed on 5 networks. **All 12 compliance tests pass.**
+
+**🎨 Agents are ERC-721 NFTs!** - In v1.0, every agent is an NFT, making them:
+- ✅ **Instantly browsable** on OpenSea, Rarible, and all NFT marketplaces
+- ✅ **Transferable** like any ERC-721 token
+- ✅ **Compatible** with MetaMask, Rainbow, and all NFT wallets
+- ✅ **Discoverable** through standard NFT indexers
 
 ```python
 # Register agent identity
@@ -613,7 +619,7 @@ export PINATA_GATEWAY="https://gateway.pinata.cloud"
 ```python
 ChaosChainAgentSDK(
     agent_name: str,
-    agent_domain: str,
+    agent_domain: str, 
     agent_role: AgentRole | str,  # "server", "validator", "client"
     network: NetworkConfig | str = "base-sepolia",
     enable_process_integrity: bool = True,
