@@ -283,14 +283,16 @@ class ChaosChainAgentSDK:
         """Initialize process integrity verification with optional custom compute provider."""
         if enabled:
             try:
-                # If custom compute provider injected, note it (ProcessIntegrityVerifier would use it in future)
+                # Pass compute provider to ProcessIntegrityVerifier for TEE attestations
+                compute_provider_for_integrity = None
                 if custom_compute_provider:
-                    rprint(f"[cyan]⚙️  Using custom compute provider: {custom_compute_provider.__class__.__name__}[/cyan]")
-                    # Future: Pass custom_compute_provider to ProcessIntegrityVerifier
+                    compute_provider_for_integrity = custom_compute_provider
+                    rprint(f"[cyan]⚙️  Using custom compute provider for TEE attestations: {custom_compute_provider.__class__.__name__}[/cyan]")
                 
                 self.process_integrity = ProcessIntegrityVerifier(
                     agent_name=self.agent_name,
-                    storage_manager=self.storage_manager
+                    storage_manager=self.storage_manager,
+                    compute_provider=compute_provider_for_integrity  # NEW: TEE attestation support
                 )
             except Exception as e:
                 rprint(f"[yellow]⚠️  Process integrity not available: {e}[/yellow]")
@@ -401,24 +403,30 @@ class ChaosChainAgentSDK:
         self, 
         function_name: str, 
         inputs: Dict[str, Any],
-        require_proof: bool = True
+        require_proof: bool = True,
+        use_tee: bool = True
     ) -> Tuple[Any, Optional[IntegrityProof]]:
         """
         Execute a registered function with integrity proof generation.
+        
+        Supports dual-layer verification:
+        - Local code hashing (always)
+        - TEE attestation from compute provider (if available and use_tee=True)
         
         Args:
             function_name: Name of the registered function
             inputs: Function input parameters
             require_proof: Whether to generate integrity proof
+            use_tee: Whether to use TEE attestation (requires compute_provider)
             
         Returns:
-            Tuple of (function_result, integrity_proof)
+            Tuple of (function_result, integrity_proof with optional TEE attestation)
         """
         if not self.process_integrity:
             raise IntegrityVerificationError("Process integrity not enabled")
         
         return await self.process_integrity.execute_with_proof(
-            function_name, inputs, require_proof
+            function_name, inputs, require_proof, use_tee
         )
     
     # === GOOGLE AP2 INTEGRATION ===

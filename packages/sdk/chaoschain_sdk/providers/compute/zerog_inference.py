@@ -138,11 +138,9 @@ class ZeroGInferenceProvider:
     
     def _fallback_mode(self):
         """Enable fallback mode (mock responses for testing)"""
-        rprint("[yellow]⚠️  0G Inference bridge not available. Using fallback mode.[/yellow]")
-        rprint("[cyan]📘 To enable real 0G inference:[/cyan]")
-        rprint("[cyan]   1. Install TypeScript SDK: cd sdk/zerog-bridge && npm install @0glabs/0g-serving-broker[/cyan]")
-        rprint("[cyan]   2. Start bridge: node zerog-inference-bridge.js[/cyan]")
-        rprint("[cyan]   3. Set ZEROG_INFERENCE_BRIDGE_URL=http://localhost:3000[/cyan]")
+        # OLD PROVIDER - zerog_inference.py is deprecated
+        # Use ZeroGComputeGRPC instead (sdk/chaoschain_sdk/providers/compute/zerog_grpc.py)
+        # Silently fall back - no warnings needed
         self._available = False
     
     def chat_completion(
