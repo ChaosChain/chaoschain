@@ -87,7 +87,7 @@ Examples of dimensions (K≈4–8): quality, initiative, collaboration, reasonin
 For each dimension $d$:
 
 1. Compute median $m_d$ of $\{s_{i,d}\}$
-2. Compute MAD: $\text{MAD}_d = \text{median}_i |s_{i,d} - m_d|$
+2. Compute MAD: $\text{MAD}_d = \text{median}\_i |s\_{i,d} - m\_d|$
 3. Define inliers: $I_d = \{ i : |s_{i,d} - m_d| \le \alpha \cdot \max(\text{MAD}_d, \varepsilon)\}$ (e.g., $\alpha = 3$, $\varepsilon = 10^{-6}$)
 4. Consensus: $c_d = \frac{\sum_{i \in I_d} w_i s_{i,d}}{\sum_{i \in I_d} w_i}$
 
@@ -121,7 +121,7 @@ Prevent last-mover bias & copycatting:
 Sample a committee of VAs per-task using stake-weighted VRF or a block-entropy beacon (on Base). Reduces collusion surface and cost.
 
 Each task samples a VA committee (eg. stake-weighted) and randomness-seeded:
-- Selection probablitiy (per task) often works well as: $p_{i} = \min \left(1, c \cdot \frac{w_{i}}{W}\right)$
+- Selection probability (per task) often works well as: $p_{i} = \min \left(1, c \cdot \frac{w_{i}}{W}\right)$
 - Sample using VRF or an epoch randomness beacon (`prevrandao`), salt with `(DataHash || epoch || studio address)` to prevent grinding.
 
 
