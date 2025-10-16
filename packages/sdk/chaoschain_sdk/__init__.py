@@ -73,25 +73,16 @@ from .types import (
     TransactionHash,
     PaymentMethod,
     PaymentProof,
-    IntegrityProof,
-    ValidationResult,
-    AgentIdentity,
-    EvidencePackage,
-    ContractAddresses,
 )
 
 # Exceptions
 from .exceptions import (
     ChaosChainSDKError,
-    AgentRegistrationError,
     PaymentError,
     ValidationError,
     StorageError,
     NetworkError,
     ContractError,
-    IntegrityVerificationError,
-    ConfigurationError,
-    AuthenticationError,
 )
 
 # ══════════════════════════════════════════════════════════════
@@ -225,23 +216,14 @@ __all__ = [
     "TransactionHash",
     "PaymentMethod",
     "PaymentProof",
-    "IntegrityProof",
-    "ValidationResult",
-    "AgentIdentity",
-    "EvidencePackage",
-    "ContractAddresses",
     
     # Exceptions
     "ChaosChainSDKError",
-    "AgentRegistrationError",
     "PaymentError",
     "ValidationError",
     "StorageError",
     "NetworkError",
     "ContractError",
-    "IntegrityVerificationError",
-    "ConfigurationError",
-    "AuthenticationError",
     
     # Provider protocols
     "StorageBackend",

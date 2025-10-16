@@ -49,6 +49,11 @@ class IntegrityProof:
     agent_name: str
     verification_status: str
     ipfs_cid: Optional[str] = None
+    # TEE (Trusted Execution Environment) attestation fields
+    tee_attestation: Optional[Dict[str, Any]] = None  # Full TEE attestation data
+    tee_provider: Optional[str] = None  # e.g., "0g-compute", "phala"
+    tee_job_id: Optional[str] = None  # TEE provider's job/task ID
+    tee_execution_hash: Optional[str] = None  # TEE-specific execution hash
 
 
 @dataclass

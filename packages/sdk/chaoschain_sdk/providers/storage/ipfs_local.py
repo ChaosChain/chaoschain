@@ -46,18 +46,23 @@ class LocalIPFSStorage:
         """
         self.api_url = api_url or os.getenv("IPFS_API_URL", "http://127.0.0.1:5001")
         self.gateway_url = gateway_url or os.getenv("IPFS_GATEWAY_URL", "http://127.0.0.1:8080")
-        self._available = self._test_connection()
+        self._available = None  # Lazy check on first use
+        self._check_attempted = False
     
     def _test_connection(self) -> bool:
-        """Test connection to local IPFS node."""
+        """Test connection to local IPFS node (fast, non-blocking)."""
         try:
-            response = requests.get(f"{self.api_url}/api/v0/version", timeout=5)
+            response = requests.get(f"{self.api_url}/api/v0/version", timeout=0.5)
             if response.status_code == 200:
                 version_info = response.json()
                 rprint(f"[green]✅ Connected to IPFS node v{version_info.get('Version', 'unknown')}[/green]")
                 return True
             return False
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            # IPFS daemon not running - fail silently
+            return False
         except Exception:
+            # Other errors - also fail silently
             return False
     
     def put(
