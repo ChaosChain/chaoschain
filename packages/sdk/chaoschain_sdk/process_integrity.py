@@ -23,7 +23,7 @@ from rich import print as rprint
 
 from .types import IntegrityProof
 from .exceptions import IntegrityVerificationError
-from .storage import UnifiedStorageManager
+from .providers.storage import StorageProvider
 
 if TYPE_CHECKING:
     from .providers.compute import ZeroGComputeGRPC
@@ -54,7 +54,7 @@ class ProcessIntegrityVerifier:
     def __init__(
         self, 
         agent_name: str, 
-        storage_manager: UnifiedStorageManager = None,
+        storage_manager: Optional[StorageProvider] = None,
         compute_provider: Optional['ZeroGComputeGRPC'] = None
     ):
         """
