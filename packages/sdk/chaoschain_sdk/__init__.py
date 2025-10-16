@@ -36,23 +36,23 @@ Example (With 0G):
     
     ```python
     from chaoschain_sdk import ChaosChainAgentSDK
-    from chaoschain_sdk.providers.storage import ZeroGStorageGRPC
-    from chaoschain_sdk.providers.compute import ZeroGComputeGRPC
+    from chaoschain_sdk.compute_providers import ZeroGInference
     
-    # Inject 0G providers
-    storage = ZeroGStorageGRPC(grpc_url="localhost:50051")
-    compute = ZeroGComputeGRPC(grpc_url="localhost:50052")
+    # Inject 0G Compute Inference provider
+    zerog = ZeroGInference(
+        private_key=os.getenv("ZEROG_TESTNET_PRIVATE_KEY"),
+        evm_rpc=os.getenv("ZEROG_TESTNET_RPC_URL")
+    )
     
     agent = ChaosChainAgentSDK(
         agent_name="MyAgent",
         network="0g-testnet",
-        storage_provider=storage,
-        compute_provider=compute
+        compute_provider=zerog
     )
     ```
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __author__ = "ChaosChain"
 __email__ = "sumeet.chougule@nethermind.io"
 
@@ -83,11 +83,15 @@ from .types import (
 # Exceptions
 from .exceptions import (
     ChaosChainSDKError,
+    AgentRegistrationError,
     PaymentError,
     ValidationError,
     StorageError,
     NetworkError,
     ContractError,
+    IntegrityVerificationError,
+    ConfigurationError,
+    AuthenticationError,
 )
 
 # ══════════════════════════════════════════════════════════════
@@ -143,9 +147,8 @@ def _lazy_import_storage(provider_name):
             _storage_providers["irys"] = IrysStorage
             return IrysStorage
         elif provider_name == "0g":
-            from .providers.storage.zerog_grpc import ZeroGStorageGRPC
-            _storage_providers["0g"] = ZeroGStorageGRPC
-            return ZeroGStorageGRPC
+            # 0G Storage gRPC provider removed - use storage_provider parameter instead
+            return None
         elif provider_name == "ipfs":
             from .providers.storage.ipfs_local import LocalIPFSStorage
             _storage_providers["ipfs"] = LocalIPFSStorage
@@ -158,13 +161,8 @@ def _lazy_import_compute(provider_name):
     if provider_name in _compute_providers:
         return _compute_providers[provider_name]
     
-    try:
-        if provider_name == "0g":
-            from .providers.compute.zerog_grpc import ZeroGComputeGRPC
-            _compute_providers["0g"] = ZeroGComputeGRPC
-            return ZeroGComputeGRPC
-    except ImportError:
-        return None
+    # 0G Compute gRPC provider removed - use compute_providers.ZeroGInference instead
+    return None
 
 # Public API for provider access
 def get_storage_provider(name: str):
@@ -235,11 +233,15 @@ __all__ = [
     
     # Exceptions
     "ChaosChainSDKError",
+    "AgentRegistrationError",
     "PaymentError",
     "ValidationError",
     "StorageError",
     "NetworkError",
     "ContractError",
+    "IntegrityVerificationError",
+    "ConfigurationError",
+    "AuthenticationError",
     
     # Provider protocols
     "StorageBackend",

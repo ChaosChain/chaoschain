@@ -140,13 +140,13 @@ class ZeroGComputeBackend(ComputeBackend):
         # Check if 0G Compute TypeScript SDK is available
         try:
             import subprocess
-            result = subprocess.run(['node', '--version'], capture_output=True, timeout=2)
+            result = subprocess.run(['node', '--version'], capture_output=True, timeout=5)
             if result.returncode == 0:
                 # Check if @0glabs/0g-serving-broker is available
                 check_pkg = subprocess.run(
                     ['node', '-e', 'require("@0glabs/0g-serving-broker")'],
                     capture_output=True,
-                    timeout=2
+                    timeout=10  # Increased timeout for first require()
                 )
                 if check_pkg.returncode == 0:
                     self.use_subprocess = True
@@ -356,8 +356,17 @@ inference().catch(err => {{
             if result.returncode != 0:
                 raise Exception(f"0G Compute inference failed: {result.stderr}")
             
-            # Parse result
-            inference_result = json.loads(result.stdout.strip())
+            # Parse result - get only the last line (JSON output)
+            stdout_lines = result.stdout.strip().split('\n')
+            json_line = stdout_lines[-1] if stdout_lines else '{}'
+            
+            try:
+                inference_result = json.loads(json_line)
+            except json.JSONDecodeError as e:
+                rprint(f"[red]Failed to parse 0G response:[/red]")
+                rprint(f"[yellow]stdout: {result.stdout[:500]}[/yellow]")
+                rprint(f"[yellow]stderr: {result.stderr[:500]}[/yellow]")
+                raise Exception(f"Invalid JSON from 0G: {e}")
             
             if not inference_result.get('success'):
                 raise Exception(inference_result.get('error', 'Unknown error'))
@@ -606,3 +615,62 @@ class ComputeManager:
         
         return integrity_proof
 
+
+# Convenience wrapper for 0G Inference
+class ZeroGInference:
+    """
+    Simple wrapper for 0G Compute inference.
+    
+    Usage:
+        zerog = ZeroGInference(
+            private_key=os.getenv("ZEROG_TESTNET_PRIVATE_KEY"),
+            evm_rpc=os.getenv("ZEROG_TESTNET_RPC_URL")
+        )
+        result = zerog.execute_llm_inference(prompt="...", model="gpt-oss-120b")
+    """
+    
+    def __init__(self, private_key: str, evm_rpc: str = "https://evmrpc-testnet.0g.ai"):
+        """Initialize 0G Inference with credentials."""
+        config = ComputeConfig(
+            provider=ComputeProvider.ZEROG,
+            verification_method=VerificationMethod.TEE_ML,
+            api_key=private_key,
+            node_url=evm_rpc
+        )
+        self._backend = ZeroGComputeBackend(config)
+    
+    @property
+    def available(self) -> bool:
+        """Check if 0G Compute is available."""
+        return self._backend.available
+    
+    @property
+    def is_real_0g(self) -> bool:
+        """Check if using real 0G (alias for available)."""
+        return self._backend.available
+    
+    def execute_llm_inference(self, prompt: str, model: str = "gpt-oss-120b") -> ComputeResult:
+        """Execute LLM inference on 0G Compute Network."""
+        return self._backend.execute_llm_inference(prompt, model)
+    
+    def chat_completion(self, messages: list, temperature: float = 0.7, max_tokens: int = None, stream: bool = False):
+        """
+        Chat completion interface (compatibility method).
+        Converts messages to prompt and calls execute_llm_inference.
+        
+        Returns: (response_text, tee_proof) tuple
+        """
+        # Convert messages to a single prompt
+        prompt = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
+        
+        result = self.execute_llm_inference(prompt)
+        
+        # Return tuple format expected by agents
+        tee_proof = {
+            "is_valid": result.metadata.get("verified", False) if result.success else False,
+            "verification_method": "TEE_ML" if result.success else "NONE",
+            "chat_id": result.metadata.get("chat_id", "") if result.success else "",
+            "execution_hash": result.execution_hash if result.success else ""
+        }
+        
+        return (result.output if result.success else None, tee_proof)

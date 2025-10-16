@@ -8,7 +8,7 @@
 [![ERC-8004 v1.0](https://img.shields.io/badge/ERC--8004-v1.0-success.svg)](https://eips.ethereum.org/EIPS/eip-8004)
 
 The ChaosChain SDK is a complete toolkit for building autonomous AI agents with:
-- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, valdidation and reputation (pre-deployed on 5 networks)
+- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, validation and reputation (pre-deployed on 5 networks)
 - **x402 payments** using Coinbase's HTTP 402 protocol  
 - **Google AP2** intent verification
 - **Process Integrity** with cryptographic proofs
@@ -68,7 +68,7 @@ sdk = ChaosChainAgentSDK(
     agent_name="MyAgent",
     agent_domain="myagent.example.com", 
     agent_role=AgentRole.SERVER,
-    network=NetworkConfig.BASE_SEPOLIA,  # or choose your network
+    network=NetworkConfig.SEPOLIA,  # or choose your network
     enable_ap2=True,          # Google AP2 intent verification
     enable_process_integrity=True,  # Cryptographic execution proofs
     enable_payments=True      # x402 crypto payments
@@ -183,7 +183,7 @@ sdk.request_validation(
 - Reputation: `0xB5048e3ef1DA4E04deB6f7d0423D06F63869e322`
 - Validation: `0x662b40A526cb4017d947e71eAF6753BF3eeE66d8`
 
-### 💳 **x402 Crypto Payments** (Coinbase Official)
+### **x402 Crypto Payments** (Coinbase Official)
 
 Native integration with [Coinbase's x402 HTTP 402 protocol](https://www.x402.org/):
 
@@ -218,7 +218,7 @@ def protected_endpoint(data):
 - ✅ Paywall server support
 - ✅ Payment history and analytics
 
-### 📝 **Google AP2 Intent Verification**
+### **Google AP2 Intent Verification**
 
 Integrate [Google's Agentic Protocol (AP2)](https://github.com/google-agentic-commerce/AP2) for user authorization:
 
@@ -252,7 +252,7 @@ if cart_result.success:
 - ✅ W3C Payment Request API compatible
 - ✅ JWT-based cart mandates
 
-### ⚡ **Process Integrity Verification**
+### **Process Integrity Verification**
 
 Cryptographic proof that your code executed correctly:
 
@@ -295,21 +295,24 @@ Choose your infrastructure - no vendor lock-in:
 #### **Storage Providers**
 
 ```python
-from chaoschain_sdk.storage import create_storage_manager, StorageProvider
+from chaoschain_sdk.providers.storage import LocalIPFSStorage, PinataStorage, IrysStorage
 
-# Auto-detect best available
-storage = create_storage_manager()
+# Local IPFS (always available, no setup)
+storage = LocalIPFSStorage()
 
 # Or choose specific provider
-storage = create_storage_manager(StorageProvider.LOCAL_IPFS)   # Free, local
-storage = create_storage_manager(StorageProvider.PINATA)       # Cloud, reliable
-storage = create_storage_manager(StorageProvider.IRYS)         # Arweave, permanent
-storage = create_storage_manager(StorageProvider.ZEROG_GRPC)   # 0G Network (decentralized)
+from chaoschain_sdk.providers.storage import PinataStorage
+storage = PinataStorage(jwt_token="your_jwt", gateway_url="https://gateway.pinata.cloud")
 
-# Same API regardless of provider
-cid = storage.upload_json({"data": "value"}, "file.json")
-data = storage.retrieve_json(cid)
-gateway_url = storage.get_gateway_url(cid)
+from chaoschain_sdk.providers.storage import IrysStorage  
+storage = IrysStorage(wallet_key="your_key")
+
+from chaoschain_sdk.providers.storage import ZeroGStorage  # Requires 0G CLI
+storage = ZeroGStorage(private_key="your_key")
+
+# Unified API regardless of provider
+result = storage.put(b"data", mime="application/json")
+data = storage.get(result.cid)
 ```
 
 **Storage Options**:
@@ -327,12 +330,17 @@ gateway_url = storage.get_gateway_url(cid)
 # Built-in: Local execution with integrity proofs
 result, proof = await sdk.execute_with_integrity_proof("func_name", args)
 
-# Optional: 0G Compute (TEE-verified AI)
-from chaoschain_sdk.providers.compute import ZeroGComputeGRPC
+# Optional: 0G Compute (TEE-verified AI - requires Node.js SDK)
+from chaoschain_sdk.providers.compute import ZeroGInference
 
-compute = ZeroGComputeGRPC(grpc_url='localhost:50051')
-job_id = compute.submit(task={"model": "gpt-oss-120b", "prompt": "..."})
-result = compute.result(job_id)
+compute = ZeroGInference(
+    private_key="your_key",
+    evm_rpc="https://evmrpc-testnet.0g.ai"
+)
+result = compute.execute_llm_inference(
+    service_name="gpt",
+    content="Your prompt here"
+)
 ```
 
 #### **Payment Methods**
@@ -364,7 +372,6 @@ payment = sdk.execute_traditional_payment(
 ║  Layer 2: Process Integrity       →  Code verified    ║
 ║  Layer 1: Google AP2 Intent       →  User authorized  ║
 ╚════════════════════════════════════════════════════════╝
-         ChaosChain owns 2 out of 3 layers!
 ```
 
 ### **SDK Architecture**
@@ -508,25 +515,26 @@ print(f"   Validation requested from validator #{validator_id}")
 ### Multi-Storage Strategy
 
 ```python
-from chaoschain_sdk.storage import create_storage_manager, StorageProvider
+from chaoschain_sdk.providers.storage import LocalIPFSStorage, PinataStorage, IrysStorage
+import json
 
 # Use local IPFS for development
-dev_storage = create_storage_manager(StorageProvider.LOCAL_IPFS)
-dev_cid = dev_storage.upload_json({"env": "dev"}, "dev.json")
+dev_storage = LocalIPFSStorage()
+result = dev_storage.put(json.dumps({"env": "dev"}).encode(), mime="application/json")
+dev_cid = result.cid
 
 # Use Pinata for production
-prod_storage = create_storage_manager(
-    StorageProvider.PINATA,
-    jwt_token=os.getenv("PINATA_JWT")
+prod_storage = PinataStorage(
+    jwt_token=os.getenv("PINATA_JWT"),
+    gateway_url="https://gateway.pinata.cloud"
 )
-prod_cid = prod_storage.upload_json({"env": "prod"}, "prod.json")
+result = prod_storage.put(json.dumps({"env": "prod"}).encode(), mime="application/json")
+prod_cid = result.cid
 
 # Use Irys for permanent archival
-archive_storage = create_storage_manager(
-    StorageProvider.IRYS,
-    wallet_key=os.getenv("IRYS_WALLET_KEY")
-)
-archive_cid = archive_storage.upload_json({"env": "archive"}, "archive.json")
+archive_storage = IrysStorage(wallet_key=os.getenv("IRYS_WALLET_KEY"))
+result = archive_storage.put(json.dumps({"env": "archive"}).encode(), mime="application/json")
+archive_cid = result.cid
 
 # Same API, different backends!
 ```
@@ -619,7 +627,7 @@ export PINATA_GATEWAY="https://gateway.pinata.cloud"
 ```python
 ChaosChainAgentSDK(
     agent_name: str,
-    agent_domain: str, 
+    agent_domain: str,
     agent_role: AgentRole | str,  # "server", "validator", "client"
     network: NetworkConfig | str = "base-sepolia",
     enable_process_integrity: bool = True,
@@ -650,7 +658,6 @@ ChaosChainAgentSDK(
 | **Process Integrity** |
 | `execute_with_integrity_proof()` | Execute with proof | `(result, IntegrityProof)` |
 | **Pluggable Storage** |
-| `create_storage_manager()` | Create manager | `UnifiedStorageManager` |
 | `store_evidence()` | Store data | `cid` |
 
 ## Testing & Development
@@ -681,10 +688,10 @@ A: Yes! The SDK is production-ready and **100% ERC-8004 v1.0 compliant** (12/12 
 A: ERC-8004 v1.0 is the **standard** (3 registries: Identity, Reputation, Validation). The SDK **implements** it fully + adds x402 payments, AP2 intent verification, and Process Integrity for a complete agent economy.
 
 **Q: How do I verify v1.0 compliance?**  
-A: Run `pytest tests/test_erc8004_v1_compliance.py -v` - all 12 tests pass. See `SDK_V1_COMPLIANCE_REPORT.md` for detailed verification.
+A: The SDK passes all 12 ERC-8004 v1.0 compliance tests. Agents are ERC-721 NFTs, making them browsable on OpenSea and compatible with all NFT wallets.
 
 **Q: What storage should I use?**  
-A: Start with Local IPFS (free), then Pinata for production. The SDK auto-detects available providers. ERC-8004 registration files can use any URI scheme (ipfs://, https://).
+A: Start with Local IPFS (free), then 0G or Pinata for production. The SDK auto-detects available providers. ERC-8004 registration files can use any URI scheme (ipfs://, https://).
 
 **Q: Do I need 0G Network?**  
 A: No, 0G is optional. The SDK works great with Base/Ethereum/Optimism + IPFS/Pinata. 0G adds TEE-verified compute and decentralized storage.
@@ -715,8 +722,8 @@ MIT License - see [LICENSE](LICENSE) file.
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/ChaosChain/chaoschain-sdk/issues)
-- **Discord**: [ChaosChain Community](https://discord.gg/chaoschain)
-- **Email**: hello@chaoschain.com
+- **Discord**: [ChaosChain Community]
+- **Email**: sumeet.chougule@nethermind.io
 
 ---
 

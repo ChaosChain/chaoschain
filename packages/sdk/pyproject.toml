@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.2.0"
+version = "0.2.1"
 description = "Minimal SDK for building verifiable agents on ChaosChain protocol - ERC-8004, x402, local storage"
 readme = "README.md"
 license = "MIT"
@@ -86,9 +86,10 @@ ipfs = [
 ]
 
 0g-storage = [
-    "grpcio>=1.60.0,<2.0.0",
-    "grpcio-tools>=1.60.0,<2.0.0",
-    "protobuf>=4.25.0,<5.0.0",
+    # No Python dependencies - uses official Go CLI
+    # Install: git clone https://github.com/0gfoundation/0g-storage-client.git && cd 0g-storage-client && go build
+    # See: https://docs.0g.ai/developer-hub/building-on-0g/storage/storage-cli
+    # Only needs ZEROG_TESTNET_PRIVATE_KEY (indexer finds nodes automatically)
 ]
 
 # ─────────────────────────────────────────────────────────────
@@ -96,9 +97,19 @@ ipfs = [
 # ─────────────────────────────────────────────────────────────
 
 0g-compute = [
-    "grpcio>=1.60.0,<2.0.0",
-    "grpcio-tools>=1.60.0,<2.0.0",
-    "protobuf>=4.25.0,<5.0.0",
+    # No Python dependencies - uses Node.js SDK via subprocess
+    # Requires: npm install @0glabs/0g-serving-broker @types/crypto-js crypto-js
+    # See: https://docs.0g.ai/developer-hub/building-on-0g/compute-network/sdk
+]
+
+# ─────────────────────────────────────────────────────────────
+# TEE (Trusted Execution Environment) Providers
+# ─────────────────────────────────────────────────────────────
+
+phala-tee = [
+    "dstack-sdk>=0.1.0",  # Phala Cloud dstack for CVM/TEE attestation
+    # Enables hardware-verified agent identity and signing
+    # See: https://github.com/HashWarlock/erc-8004-ex-phala
 ]
 
 morpheus = [
@@ -144,7 +155,7 @@ compute-all = [
 
 # Everything (All Providers)
 all = [
-    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,payments-fiat]",
+    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,phala-tee,payments-fiat]",
 ]
 
 # ─────────────────────────────────────────────────────────────

@@ -40,25 +40,15 @@ class PaymentMethod(str, Enum):
 
 @dataclass
 class IntegrityProof:
-    """
-    Cryptographic proof of process integrity.
-    
-    Combines local code hashing with optional TEE attestations for complete verification.
-    """
+    """Cryptographic proof of process integrity."""
     proof_id: str
     function_name: str
-    code_hash: str  # Local code hash (SHA-256)
-    execution_hash: str  # Execution data hash
+    code_hash: str
+    execution_hash: str
     timestamp: datetime
     agent_name: str
     verification_status: str
     ipfs_cid: Optional[str] = None
-    
-    # Optional TEE attestation (from 0G Compute or similar)
-    tee_attestation: Optional[Dict[str, Any]] = None  # TEE execution proof
-    tee_provider: Optional[str] = None  # "0g-compute", "aws-nitro", etc.
-    tee_job_id: Optional[str] = None  # Job ID from TEE provider
-    tee_execution_hash: Optional[str] = None  # TEE-specific execution identifier
 
 
 @dataclass

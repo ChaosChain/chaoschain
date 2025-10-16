@@ -823,7 +823,7 @@ class ChaosAgent:
                     
         except Exception as e:
             rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
-            
+        
         return None
     
     def request_validation(
@@ -1294,16 +1294,16 @@ class ChaosAgent:
         
         # Upload to storage (IPFS or 0G)
         try:
-            # Import storage manager if not already available
-            from .storage_backends import UnifiedStorageManager
+            # Import storage provider if not already available
+            from .providers.storage import LocalIPFSStorage
             
-            # Create storage manager if needed
+            # Create storage provider if needed
             if not hasattr(self, '_feedback_storage'):
-                self._feedback_storage = UnifiedStorageManager(network=self.network)
+                self._feedback_storage = LocalIPFSStorage()
             
-            storage_result = self._feedback_storage.store(
+            storage_result = self._feedback_storage.put(
                 feedback_json.encode('utf-8'),
-                f"feedback-{agent_id}-{int(datetime.now(timezone.utc).timestamp())}.json"
+                mime="application/json"
             )
             
             if not storage_result.success:

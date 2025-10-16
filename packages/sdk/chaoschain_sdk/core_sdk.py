@@ -31,7 +31,7 @@ from .exceptions import (
     IntegrityVerificationError
 )
 from .wallet_manager import WalletManager
-from .storage import UnifiedStorageManager, create_storage_manager, StorageProvider
+from .providers.storage import StorageProvider, LocalIPFSStorage
 from .payment_manager import PaymentManager
 from .x402_payment_manager import X402PaymentManager
 from .x402_server import X402PaywallServer
@@ -226,16 +226,13 @@ class ChaosChainAgentSDK:
                 
                 # 2. Try Pinata if credentials provided
                 if jwt and gateway:
-                    self.storage_manager = UnifiedStorageManager(
-                        primary_provider=StorageProvider.PINATA,
-                        config={'pinata': {'jwt_token': jwt, 'gateway_url': gateway}}
-                    )
+                    from .providers.storage import PinataStorage
+                    self.storage_manager = PinataStorage(jwt_token=jwt, gateway_url=gateway)
                     rprint(f"[green]✅ Storage initialized: Pinata[/green]")
                 else:
-                    # 3. Auto-detect best available provider
-                    self.storage_manager = create_storage_manager()
-                    provider_name = getattr(self.storage_manager, 'provider_name', 'Storage')
-                    rprint(f"[green]✅ Storage initialized: {provider_name}[/green]")
+                    # 3. Fall back to Local IPFS
+                    self.storage_manager = LocalIPFSStorage()
+                    rprint(f"[green]✅ Storage initialized: Local IPFS[/green]")
                     
             except Exception as e:
                 rprint(f"[yellow]⚠️  Storage not available: {e}[/yellow]")
@@ -283,16 +280,14 @@ class ChaosChainAgentSDK:
         """Initialize process integrity verification with optional custom compute provider."""
         if enabled:
             try:
-                # Pass compute provider to ProcessIntegrityVerifier for TEE attestations
-                compute_provider_for_integrity = None
+                # If custom compute provider injected, note it (ProcessIntegrityVerifier would use it in future)
                 if custom_compute_provider:
-                    compute_provider_for_integrity = custom_compute_provider
-                    rprint(f"[cyan]⚙️  Using custom compute provider for TEE attestations: {custom_compute_provider.__class__.__name__}[/cyan]")
+                    rprint(f"[cyan]⚙️  Using custom compute provider: {custom_compute_provider.__class__.__name__}[/cyan]")
+                    # Future: Pass custom_compute_provider to ProcessIntegrityVerifier
                 
                 self.process_integrity = ProcessIntegrityVerifier(
                     agent_name=self.agent_name,
-                    storage_manager=self.storage_manager,
-                    compute_provider=compute_provider_for_integrity  # NEW: TEE attestation support
+                    storage_manager=self.storage_manager
                 )
             except Exception as e:
                 rprint(f"[yellow]⚠️  Process integrity not available: {e}[/yellow]")
@@ -403,30 +398,24 @@ class ChaosChainAgentSDK:
         self, 
         function_name: str, 
         inputs: Dict[str, Any],
-        require_proof: bool = True,
-        use_tee: bool = True
+        require_proof: bool = True
     ) -> Tuple[Any, Optional[IntegrityProof]]:
         """
         Execute a registered function with integrity proof generation.
-        
-        Supports dual-layer verification:
-        - Local code hashing (always)
-        - TEE attestation from compute provider (if available and use_tee=True)
         
         Args:
             function_name: Name of the registered function
             inputs: Function input parameters
             require_proof: Whether to generate integrity proof
-            use_tee: Whether to use TEE attestation (requires compute_provider)
             
         Returns:
-            Tuple of (function_result, integrity_proof with optional TEE attestation)
+            Tuple of (function_result, integrity_proof)
         """
         if not self.process_integrity:
             raise IntegrityVerificationError("Process integrity not enabled")
         
         return await self.process_integrity.execute_with_proof(
-            function_name, inputs, require_proof, use_tee
+            function_name, inputs, require_proof
         )
     
     # === GOOGLE AP2 INTEGRATION ===
