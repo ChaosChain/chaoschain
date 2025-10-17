@@ -671,14 +671,20 @@ class ChaosAgent:
         json_str = json.dumps(registration_data)
         return f"data:application/json;base64,{json_str}"
     
-    def register_agent(self, token_uri: Optional[str] = None) -> Tuple[AgentID, TransactionHash]:
+    def register_agent(
+        self, 
+        token_uri: Optional[str] = None,
+        metadata: Optional[Dict[str, bytes]] = None
+    ) -> Tuple[AgentID, TransactionHash]:
         """
         Register this agent on the ERC-8004 v1.0 IdentityRegistry.
         
-        v1.0 uses ERC-721 based registration with tokenURI.
+        v1.0 uses ERC-721 based registration with tokenURI and optional metadata.
         
         Args:
             token_uri: Optional custom tokenURI. If not provided, generates default.
+            metadata: Optional dict of on-chain metadata {key: value_bytes}.
+                     Example: {"agentName": b"MyAgent", "agentWallet": address_bytes}
         
         Returns:
             Tuple of (agent_id, transaction_hash)
@@ -713,8 +719,18 @@ class ChaosAgent:
                 token_uri = self._generate_token_uri()
                 rprint(f"[blue]📝 Generated tokenURI for registration[/blue]")
             
-            # v1.0: Use register(tokenURI) function
-            contract_call = self.identity_registry.functions['register(string)'](token_uri)
+            # v1.0: Choose register function based on metadata
+            if metadata:
+                # Convert metadata dict to MetadataEntry[] array
+                metadata_entries = [(key, value) for key, value in metadata.items()]
+                rprint(f"[blue]📋 Registering with {len(metadata_entries)} metadata entries[/blue]")
+                contract_call = self.identity_registry.functions['register(string,(string,bytes)[])'](
+                    token_uri,
+                    metadata_entries
+                )
+            else:
+                # Use simple register(tokenURI) function
+                contract_call = self.identity_registry.functions['register(string)'](token_uri)
             
             # Estimate gas
             gas_estimate = contract_call.estimate_gas({'from': self.address})
@@ -825,6 +841,110 @@ class ChaosAgent:
             rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
         
         return None
+    
+    def set_agent_metadata(self, key: str, value: bytes) -> TransactionHash:
+        """
+        Set on-chain metadata for this agent (ERC-8004 v1.0).
+        
+        Per ERC-8004 spec: "The registry extends ERC-721 by adding getMetadata() 
+        and setMetadata() functions for optional extra on-chain agent metadata."
+        
+        Examples of keys: "agentWallet", "agentName", custom application keys.
+        
+        Args:
+            key: Metadata key (string)
+            value: Metadata value as bytes
+        
+        Returns:
+            Transaction hash
+            
+        Raises:
+            AgentRegistrationError: If agent is not registered
+            ContractError: If transaction fails
+        """
+        if not self.agent_id:
+            raise AgentRegistrationError("Agent must be registered before setting metadata")
+        
+        try:
+            rprint(f"[yellow]📝 Setting metadata '{key}' for agent #{self.agent_id}[/yellow]")
+            
+            # v1.0: setMetadata(uint256 agentId, string key, bytes value)
+            contract_call = self.identity_registry.functions.setMetadata(
+                self.agent_id,
+                key,
+                value
+            )
+            
+            # Build and send transaction
+            gas_estimate = contract_call.estimate_gas({'from': self.address})
+            gas_limit = int(gas_estimate * 1.2)
+            
+            transaction = contract_call.build_transaction({
+                'from': self.address,
+                'gas': gas_limit,
+                'gasPrice': self.w3.eth.gas_price,
+                'nonce': self.w3.eth.get_transaction_count(self.address)
+            })
+            
+            # Sign and send
+            account = self.wallet_manager.wallets[self.agent_name]
+            signed_txn = self.w3.eth.account.sign_transaction(transaction, account.key)
+            
+            raw_transaction = getattr(signed_txn, 'raw_transaction', getattr(signed_txn, 'rawTransaction', None))
+            if raw_transaction is None:
+                raise Exception("Could not get raw transaction from signed transaction")
+            
+            tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt.status == 1:
+                rprint(f"[green]✅ Metadata '{key}' set successfully[/green]")
+                return tx_hash.hex()
+            else:
+                raise ContractError("Metadata update transaction failed")
+                
+        except Exception as e:
+            error_msg = str(e)
+            rprint(f"[red]❌ Failed to set metadata: {error_msg}[/red]")
+            raise ContractError(f"Failed to set metadata '{key}': {error_msg}")
+    
+    def get_agent_metadata(self, key: str, agent_id: Optional[int] = None) -> bytes:
+        """
+        Get on-chain metadata for an agent (ERC-8004 v1.0).
+        
+        Per ERC-8004 spec: "The registry extends ERC-721 by adding getMetadata() 
+        and setMetadata() functions for optional extra on-chain agent metadata."
+        
+        Args:
+            key: Metadata key to retrieve
+            agent_id: Agent ID to query. If None, uses this agent's ID.
+        
+        Returns:
+            Metadata value as bytes
+            
+        Raises:
+            AgentRegistrationError: If querying own agent and not registered
+            ContractError: If metadata retrieval fails
+        """
+        target_agent_id = agent_id if agent_id is not None else self.agent_id
+        
+        if target_agent_id is None:
+            raise AgentRegistrationError("Agent ID required (either register or provide agent_id parameter)")
+        
+        try:
+            # v1.0: getMetadata(uint256 agentId, string key) returns (bytes value)
+            metadata_value = self.identity_registry.functions.getMetadata(
+                target_agent_id,
+                key
+            ).call()
+            
+            rprint(f"[green]✅ Retrieved metadata '{key}' for agent #{target_agent_id}[/green]")
+            return metadata_value
+            
+        except Exception as e:
+            error_msg = str(e)
+            rprint(f"[yellow]⚠️  Could not retrieve metadata '{key}': {error_msg}[/yellow]")
+            raise ContractError(f"Failed to get metadata '{key}' for agent #{target_agent_id}: {error_msg}")
     
     def request_validation(
         self, 

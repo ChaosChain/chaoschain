@@ -335,17 +335,58 @@ class ChaosChainAgentSDK:
     
     # === IDENTITY MANAGEMENT ===
     
-    def register_identity(self) -> Tuple[AgentID, TransactionHash]:
+    def register_identity(
+        self,
+        token_uri: Optional[str] = None,
+        metadata: Optional[Dict[str, bytes]] = None
+    ) -> Tuple[AgentID, TransactionHash]:
         """
-        Register agent identity on ERC-8004 IdentityRegistry.
+        Register agent identity on ERC-8004 v1.0 IdentityRegistry.
+        
+        Args:
+            token_uri: Optional custom tokenURI. If not provided, generates default.
+            metadata: Optional dict of on-chain metadata {key: value_bytes}.
+                     Example: {"agentName": b"MyAgent", "agentWallet": address_bytes}
         
         Returns:
             Tuple of (agent_id, transaction_hash)
         """
         try:
-            return self.chaos_agent.register_agent()
+            return self.chaos_agent.register_agent(token_uri=token_uri, metadata=metadata)
         except Exception as e:
             raise AgentRegistrationError(f"Identity registration failed: {str(e)}")
+    
+    def set_agent_metadata(self, key: str, value: bytes) -> TransactionHash:
+        """
+        Set on-chain metadata for this agent (ERC-8004 v1.0).
+        
+        Args:
+            key: Metadata key (e.g., "agentWallet", "agentName")
+            value: Metadata value as bytes
+        
+        Returns:
+            Transaction hash
+        """
+        try:
+            return self.chaos_agent.set_agent_metadata(key, value)
+        except Exception as e:
+            raise ContractError(f"Failed to set metadata: {str(e)}")
+    
+    def get_agent_metadata(self, key: str, agent_id: Optional[int] = None) -> bytes:
+        """
+        Get on-chain metadata for an agent (ERC-8004 v1.0).
+        
+        Args:
+            key: Metadata key to retrieve
+            agent_id: Agent ID to query. If None, uses this agent's ID.
+        
+        Returns:
+            Metadata value as bytes
+        """
+        try:
+            return self.chaos_agent.get_agent_metadata(key, agent_id)
+        except Exception as e:
+            raise ContractError(f"Failed to get metadata: {str(e)}")
     
     def get_agent_id(self) -> Optional[AgentID]:
         """
