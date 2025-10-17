@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.2.1"
+version = "0.2.2"
 description = "Minimal SDK for building verifiable agents on ChaosChain protocol - ERC-8004, x402, local storage"
 readme = "README.md"
 license = "MIT"
@@ -184,7 +184,8 @@ Repository = "https://github.com/ChaosChain/chaoschain"
 Issues = "https://github.com/ChaosChain/chaoschain/issues"
 
 [tool.setuptools]
-packages = ["chaoschain_sdk"]
+# Automatically discover all subpackages (providers/, proto/, storage/, etc.)
+packages = { find = { where = ["."], include = ["chaoschain_sdk*"] } }
 
 [tool.setuptools.package-data]
-chaoschain_sdk = ["py.typed", "*.pyi"]
+chaoschain_sdk = ["py.typed", "*.pyi", "proto/*.py"]
