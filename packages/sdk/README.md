@@ -178,10 +178,19 @@ sdk.request_validation(
 - ✅ `ReputationRegistry.sol` - Feedback and reputation scores (signature-based)
 - ✅ `ValidationRegistry.sol` - Peer validation and consensus (URI-based)
 
-**Deterministic addresses** (same on all 5 networks):
-- Identity: `0x7177a6867296406881E20d6647232314736Dd09A`
-- Reputation: `0xB5048e3ef1DA4E04deB6f7d0423D06F63869e322`
-- Validation: `0x662b40A526cb4017d947e71eAF6753BF3eeE66d8`
+**Deployed addresses** (per network):
+- **Ethereum Sepolia**: 
+  - Identity: `0x8004a6090Cd10A7288092483047B097295Fb8847`
+  - Reputation: `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E`
+  - Validation: `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5`
+- **Base Sepolia**: 
+  - Identity: `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb`
+  - Reputation: `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF`
+  - Validation: `0x8004C269D0A5647E51E121FeB226200ECE932d55`
+- **Linea Sepolia**: 
+  - Identity: `0x8004aa7C931bCE1233973a0C6A667f73F66282e7`
+  - Reputation: `0x8004bd8483b99310df121c46ED8858616b2Bba02`
+  - Validation: `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB`
 
 ### **x402 Crypto Payments** (Coinbase Official)
 
@@ -403,17 +412,17 @@ payment = sdk.execute_traditional_payment(
 
 ## Supported Networks
 
-All ERC-8004 v1.0 contracts are **pre-deployed with deterministic addresses** (no setup needed):
+ERC-8004 v1.0 contracts are **pre-deployed on 3 testnets** (no setup needed):
 
 | Network | Chain ID | Status | Contracts | Features |
 |---------|----------|--------|-----------|----------|
-| **Base Sepolia** | 84532 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
 | **Ethereum Sepolia** | 11155111 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
-| **Optimism Sepolia** | 11155420 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
-| **Mode Testnet** | 919 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 |
-| **0G Galileo** | 16602 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + A0GI + Compute + Storage |
+| **Base Sepolia** | 84532 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
+| **Linea Sepolia** | 59141 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
+| **Mode Testnet** | 919 | ⏳ Coming Soon | - | ERC-8004 v1.0 deployment pending |
+| **0G Galileo** | 16602 | ⏳ Coming Soon | - | ERC-8004 v1.0 + A0GI + Compute + Storage |
 
-**All networks use the same deterministic contract addresses** (see above). Simply change the `network` parameter - no other config needed!
+**Contract addresses vary by network** (see SDK documentation for specific addresses). Simply change the `network` parameter - no other config needed!
 
 ## Advanced Examples
 
@@ -627,7 +636,7 @@ export PINATA_GATEWAY="https://gateway.pinata.cloud"
 ```python
 ChaosChainAgentSDK(
     agent_name: str,
-    agent_domain: str,
+    agent_domain: str, 
     agent_role: AgentRole | str,  # "server", "validator", "client"
     network: NetworkConfig | str = "base-sepolia",
     enable_process_integrity: bool = True,

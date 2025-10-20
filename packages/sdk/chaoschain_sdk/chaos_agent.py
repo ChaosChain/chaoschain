@@ -70,51 +70,46 @@ class ChaosAgent:
         """
         Load deployed ERC-8004 v1.0 contract addresses.
         
-        All networks use deterministic deployment addresses for the v1.0 contracts.
-        This ensures consistent addresses across all supported chains.
+        These are the official ERC-8004 v1.0 contracts deployed on testnets.
+        Source: /Users/sumeet/Desktop/erc-8004-contracts/contracts
         """
-        # ERC-8004 v1.0 Deterministic Addresses (same on all networks)
-        ERC8004_V1_IDENTITY = '0x7177a6867296406881E20d6647232314736Dd09A'
-        ERC8004_V1_REPUTATION = '0xB5048e3ef1DA4E04deB6f7d0423D06F63869e322'
-        ERC8004_V1_VALIDATION = '0x662b40A526cb4017d947e71eAF6753BF3eeE66d8'
-        
-        # Network-specific configuration
+        # Network-specific configuration with actual deployed addresses
         contract_addresses = {
             NetworkConfig.BASE_SEPOLIA: {
-                'identity_registry': ERC8004_V1_IDENTITY,
-                'reputation_registry': ERC8004_V1_REPUTATION,
-                'validation_registry': ERC8004_V1_VALIDATION,
+                'identity_registry': '0x8004AA63c570c570eBF15376c0dB199918BFe9Fb',
+                'reputation_registry': '0x8004bd8daB57f14Ed299135749a5CB5c42d341BF',
+                'validation_registry': '0x8004C269D0A5647E51E121FeB226200ECE932d55',
                 'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                'identity_registry': ERC8004_V1_IDENTITY,
-                'reputation_registry': ERC8004_V1_REPUTATION,
-                'validation_registry': ERC8004_V1_VALIDATION,
+                'identity_registry': '0x8004a6090Cd10A7288092483047B097295Fb8847',
+                'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
+                'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
-                'identity_registry': ERC8004_V1_IDENTITY,
-                'reputation_registry': ERC8004_V1_REPUTATION,
-                'validation_registry': ERC8004_V1_VALIDATION,
+                'identity_registry': '0x8004aa7C931bCE1233973a0C6A667f73F66282e7',  # Linea Sepolia
+                'reputation_registry': '0x8004bd8483b99310df121c46ED8858616b2Bba02',  # Linea Sepolia
+                'validation_registry': '0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB',  # Linea Sepolia
                 'usdc_token': '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
-            NetworkConfig.MODE_TESTNET: {
-                'identity_registry': ERC8004_V1_IDENTITY,
-                'reputation_registry': ERC8004_V1_REPUTATION,
-                'validation_registry': ERC8004_V1_VALIDATION,
-                'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',  # To be confirmed
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            },
-            NetworkConfig.ZEROG_TESTNET: {
-                'identity_registry': ERC8004_V1_IDENTITY,
-                'reputation_registry': ERC8004_V1_REPUTATION,
-                'validation_registry': ERC8004_V1_VALIDATION,
-                'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',  # To be confirmed
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            }
+            # NetworkConfig.MODE_TESTNET: {
+            #     'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
+            #     'reputation_registry': '0x0000000000000000000000000000000000000000',
+            #     'validation_registry': '0x0000000000000000000000000000000000000000',
+            #     'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+            #     'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            # },
+            # NetworkConfig.ZEROG_TESTNET: {
+            #     'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
+            #     'reputation_registry': '0x0000000000000000000000000000000000000000',
+            #     'validation_registry': '0x0000000000000000000000000000000000000000',
+            #     'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+            #     'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            # }
         }
         
         network_contracts = contract_addresses.get(self.network)
@@ -292,19 +287,15 @@ class ChaosAgent:
                 "stateMutability": "view",
                 "type": "function"
             },
-            # View Functions
+            # Additional Functions
             {
-                "inputs": [],
-                "name": "totalAgents",
-                "outputs": [{"name": "count", "type": "uint256"}],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [{"name": "agentId", "type": "uint256"}],
-                "name": "agentExists",
-                "outputs": [{"name": "exists", "type": "bool"}],
-                "stateMutability": "view",
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "newUri", "type": "string"}
+                ],
+                "name": "setAgentUri",
+                "outputs": [],
+                "stateMutability": "nonpayable",
                 "type": "function"
             },
             # Events
@@ -359,6 +350,16 @@ class ChaosAgent:
                 ],
                 "name": "ApprovalForAll",
                 "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": False, "name": "newUri", "type": "string"},
+                    {"indexed": True, "name": "updatedBy", "type": "address"}
+                ],
+                "name": "UriUpdated",
+                "type": "event"
             }
         ]
     
@@ -381,8 +382,8 @@ class ChaosAgent:
                     {"name": "score", "type": "uint8"},
                     {"name": "tag1", "type": "bytes32"},
                     {"name": "tag2", "type": "bytes32"},
-                    {"name": "fileuri", "type": "string"},
-                    {"name": "filehash", "type": "bytes32"},
+                    {"name": "feedbackUri", "type": "string"},
+                    {"name": "feedbackHash", "type": "bytes32"},
                     {"name": "feedbackAuth", "type": "bytes"}
                 ],
                 "name": "giveFeedback",
@@ -497,10 +498,23 @@ class ChaosAgent:
                     {"indexed": False, "name": "score", "type": "uint8"},
                     {"indexed": True, "name": "tag1", "type": "bytes32"},
                     {"indexed": False, "name": "tag2", "type": "bytes32"},
-                    {"indexed": False, "name": "fileuri", "type": "string"},
-                    {"indexed": False, "name": "filehash", "type": "bytes32"}
+                    {"indexed": False, "name": "feedbackUri", "type": "string"},
+                    {"indexed": False, "name": "feedbackHash", "type": "bytes32"}
                 ],
                 "name": "NewFeedback",
+                "type": "event"
+            },
+            {
+                "anonymous": False,
+                "inputs": [
+                    {"indexed": True, "name": "agentId", "type": "uint256"},
+                    {"indexed": True, "name": "clientAddress", "type": "address"},
+                    {"indexed": False, "name": "feedbackIndex", "type": "uint64"},
+                    {"indexed": True, "name": "responder", "type": "address"},
+                    {"indexed": False, "name": "responseUri", "type": "string"},
+                    {"indexed": False, "name": "responseHash", "type": "bytes32"}
+                ],
+                "name": "ResponseAppended",
                 "type": "event"
             }
         ]
@@ -551,6 +565,7 @@ class ChaosAgent:
                     {"name": "validatorAddress", "type": "address"},
                     {"name": "agentId", "type": "uint256"},
                     {"name": "response", "type": "uint8"},
+                    {"name": "responseHash", "type": "bytes32"},
                     {"name": "tag", "type": "bytes32"},
                     {"name": "lastUpdate", "type": "uint256"}
                 ],
@@ -582,25 +597,6 @@ class ChaosAgent:
                 "inputs": [{"name": "validatorAddress", "type": "address"}],
                 "name": "getValidatorRequests",
                 "outputs": [{"name": "requestHashes", "type": "bytes32[]"}],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [{"name": "requestHash", "type": "bytes32"}],
-                "name": "requestExists",
-                "outputs": [{"name": "exists", "type": "bool"}],
-                "stateMutability": "view",
-                "type": "function"
-            },
-            {
-                "inputs": [{"name": "requestHash", "type": "bytes32"}],
-                "name": "getRequest",
-                "outputs": [
-                    {"name": "validatorAddress", "type": "address"},
-                    {"name": "agentId", "type": "uint256"},
-                    {"name": "requestUri", "type": "string"},
-                    {"name": "timestamp", "type": "uint256"}
-                ],
                 "stateMutability": "view",
                 "type": "function"
             },
