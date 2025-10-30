@@ -111,6 +111,13 @@ try:
 except ImportError:
     _has_x402_server = False
 
+# x402 Facilitator Server (optional - for facilitator-mode)
+try:
+    from .x402_facilitator_server import X402FacilitatorServer
+    _has_x402_facilitator = True
+except ImportError:
+    _has_x402_facilitator = False
+
 # ══════════════════════════════════════════════════════════════
 # PLUGGABLE PROVIDERS (Import Only If Installed)
 # ══════════════════════════════════════════════════════════════
@@ -247,3 +254,6 @@ if _has_ap2:
 
 if _has_x402_server:
     __all__.append("X402PaywallServer")
+
+if _has_x402_facilitator:
+    __all__.append("X402FacilitatorServer")

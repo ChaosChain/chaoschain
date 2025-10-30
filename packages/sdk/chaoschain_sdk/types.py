@@ -23,6 +23,8 @@ class NetworkConfig(str, Enum):
     ETHEREUM_SEPOLIA = "ethereum-sepolia"
     BASE_SEPOLIA = "base-sepolia"
     OPTIMISM_SEPOLIA = "optimism-sepolia"
+    LINEA_SEPOLIA = "linea-sepolia"
+    HEDERA_TESTNET = "hedera-testnet"
     MODE_TESTNET = "mode-testnet"
     ZEROG_TESTNET = "0g-testnet"
     LOCAL = "local"

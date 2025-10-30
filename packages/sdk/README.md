@@ -412,15 +412,16 @@ payment = sdk.execute_traditional_payment(
 
 ## Supported Networks
 
-ERC-8004 v1.0 contracts are **pre-deployed on 3 testnets** (no setup needed):
+ERC-8004 v1.0 contracts are **pre-deployed on 6 testnets** (no setup needed):
 
 | Network | Chain ID | Status | Contracts | Features |
 |---------|----------|--------|-----------|----------|
 | **Ethereum Sepolia** | 11155111 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
 | **Base Sepolia** | 84532 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
-| **Linea Sepolia** | 59141 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
-| **Mode Testnet** | 919 | ⏳ Coming Soon | - | ERC-8004 v1.0 deployment pending |
-| **0G Galileo** | 16602 | ⏳ Coming Soon | - | ERC-8004 v1.0 + A0GI + Compute + Storage |
+| **Linea Sepolia** | 59141 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 |
+| **Hedera Testnet** | 296 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 |
+| **0G Testnet** | 16602 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + A0GI + Compute + Storage |
+| **Optimism Sepolia** | 11155420 | ⏳ Coming Soon | - | ERC-8004 v1.0 deployment pending |
 
 **Contract addresses vary by network** (see SDK documentation for specific addresses). Simply change the `network` parameter - no other config needed!
 

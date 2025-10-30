@@ -15,7 +15,7 @@ from flask import Flask, request, jsonify, Response
 # Official Coinbase x402 imports
 from x402.types import PaymentRequirements
 from x402.exact import decode_payment
-from x402.encoding import safe_base64_decode
+from x402.encoding import safe_base64_decode, safe_base64_encode
 
 from .types import NetworkConfig
 from .exceptions import PaymentError, ConfigurationError
@@ -174,7 +174,7 @@ class X402PaywallServer:
         if not service_info:
             return jsonify({"error": "Service not found"}), 404
         
-        # Check for X-PAYMENT header
+        # Check for X-PAYMENT header (official x402 spec)
         x_payment_header = request.headers.get('X-PAYMENT')
         
         if not x_payment_header:
@@ -227,7 +227,7 @@ class X402PaywallServer:
                 service_description=service_info["description"]
             )
             
-            # Create response body
+            # Create response body (x402 spec uses "accepts" plural)
             response_body = {
                 "x402Version": 1,
                 "accepts": [payment_requirements.model_dump()]
@@ -277,14 +277,14 @@ class X402PaywallServer:
             # Use facilitator if configured
             if self.payment_manager.use_facilitator:
                 verification_result = self.payment_manager.verify_payment_with_facilitator(
-                    {"x_payment_header": x_payment_header},
+                    {"paymentHeader": x_payment_header},
                     payment_requirements
                 )
                 
                 if verification_result.get("isValid"):
                     # Settle payment via facilitator
                     settlement_result = self.payment_manager.settle_payment_with_facilitator(
-                        {"x_payment_header": x_payment_header},
+                        {"paymentHeader": x_payment_header},
                         payment_requirements
                     )
                     
@@ -363,6 +363,7 @@ class X402PaywallServer:
                 "amount": service_info["amount"]
             }
             
+            # Add X-PAYMENT-RESPONSE header (official x402 spec)
             response.headers['X-PAYMENT-RESPONSE'] = safe_base64_encode(
                 json.dumps(settlement_response).encode()
             )

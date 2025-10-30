@@ -90,26 +90,33 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
-                'identity_registry': '0x8004aa7C931bCE1233973a0C6A667f73F66282e7',  # Linea Sepolia
-                'reputation_registry': '0x8004bd8483b99310df121c46ED8858616b2Bba02',  # Linea Sepolia
-                'validation_registry': '0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB',  # Linea Sepolia
+                'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
+                'reputation_registry': '0x0000000000000000000000000000000000000000',
+                'validation_registry': '0x0000000000000000000000000000000000000000',
                 'usdc_token': '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
-            # NetworkConfig.MODE_TESTNET: {
-            #     'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
-            #     'reputation_registry': '0x0000000000000000000000000000000000000000',
-            #     'validation_registry': '0x0000000000000000000000000000000000000000',
-            #     'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-            #     'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            # },
-            # NetworkConfig.ZEROG_TESTNET: {
-            #     'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
-            #     'reputation_registry': '0x0000000000000000000000000000000000000000',
-            #     'validation_registry': '0x0000000000000000000000000000000000000000',
-            #     'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-            #     'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            # }
+            NetworkConfig.LINEA_SEPOLIA: {
+                'identity_registry': '0x8004aa7C931bCE1233973a0C6A667f73F66282e7',
+                'reputation_registry': '0x8004bd8483b99310df121c46ED8858616b2Bba02',
+                'validation_registry': '0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB',
+                'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add Linea USDC
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            },
+            NetworkConfig.HEDERA_TESTNET: {
+                'identity_registry': '0x4c74ebd72921d537159ed2053f46c12a7d8e5923',
+                'reputation_registry': '0xc565edcba77e3abeade40bfd6cf6bf583b3293e0',
+                'validation_registry': '0x18df085d85c586e9241e0cd121ca422f571c2da6',
+                'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add Hedera USDC
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            },
+            NetworkConfig.ZEROG_TESTNET: {
+                'identity_registry': '0x80043ed9cf33a3472768dcd53175bb44e03a1e4a',
+                'reputation_registry': '0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202',
+                'validation_registry': '0x80041728e0aadf1d1427f9be18d52b7f3afefafb',
+                'usdc_token': '0x0000000000000000000000000000000000000000',  # 0G uses native A0GI token
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            }
         }
         
         network_contracts = contract_addresses.get(self.network)
