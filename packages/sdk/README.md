@@ -549,11 +549,34 @@ archive_cid = result.cid
 # Same API, different backends!
 ```
 
-### x402 Paywall Server
+### x402 Paywall Server (Complete Example)
+
+**Architecture:**
+```
+Client Agent → Paywall Server (Port 8402) → Facilitator (Port 8403/Hosted)
+                     ↓                              ↓
+              Returns 402 or 200              Executes blockchain TX
+```
+
+#### **Server Side (Agent A - Service Provider)**
 
 ```python
-# Create server that requires payment
-server = sdk.create_x402_paywall_server(port=8402)
+import os
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Initialize agent
+server_sdk = ChaosChainAgentSDK(
+    agent_name="AgentA",
+    agent_domain="agenta.com",
+    network="base-sepolia"
+)
+
+# Configure facilitator (hosted service that executes blockchain transactions)
+os.environ["X402_FACILITATOR_URL"] = "https://facilitator.chaoscha.in"
+os.environ["X402_USE_FACILITATOR"] = "true"
+
+# Create paywall server (Port 8402 - serves protected resources)
+server = server_sdk.create_x402_paywall_server(port=8402)
 
 @server.require_payment(amount=5.0, description="Premium Analysis")
 def premium_analysis(data):
@@ -567,9 +590,78 @@ def premium_analysis(data):
 def basic_query(question):
     return {"answer": f"Response to: {question}"}
 
-# Start server
-# server.run()
+# Start paywall server
+server.run()  # Listens on port 8402
 ```
+
+#### **Client Side (Agent B - Service Consumer)**
+
+```python
+import requests
+from chaoschain_sdk import ChaosChainAgentSDK
+
+# Initialize client agent
+client_sdk = ChaosChainAgentSDK(
+    agent_name="AgentB",
+    agent_domain="agentb.com",
+    network="base-sepolia"
+)
+
+# Step 1: Try to access service (no payment)
+response = requests.get("http://agenta.com:8402/chaoschain/service/premium_analysis")
+
+if response.status_code == 402:
+    print("💳 Payment Required!")
+    # Response body:
+    # {
+    #   "x402Version": 1,
+    #   "accepts": [{
+    #     "scheme": "exact",
+    #     "network": "base-sepolia",
+    #     "maxAmountRequired": "5000000",  # 5 USDC in wei
+    #     "payTo": "0xAgentA...",
+    #     "asset": "0xUSDC..."
+    #   }]
+    # }
+    
+    # Step 2: Create payment authorization (signed by Agent B)
+    payment_requirements = response.json()["accepts"][0]
+    x_payment_header = client_sdk.create_x402_payment_header(payment_requirements)
+    
+    # Step 3: Retry with payment
+    response = requests.get(
+        "http://agenta.com:8402/chaoschain/service/premium_analysis",
+        headers={"X-PAYMENT": x_payment_header}
+    )
+    
+    if response.status_code == 200:
+        print("✅ Service delivered!")
+        # Response headers include:
+        # X-PAYMENT-RESPONSE: <base64 settlement receipt with tx hash>
+        
+        result = response.json()
+        print(result)  # {"analysis": "...", "confidence": 0.95}
+```
+
+#### **What Happens Behind the Scenes:**
+
+1. **Client requests** → Paywall Server returns `402 Payment Required`
+2. **Client creates** signed payment authorization (no blockchain TX yet)
+3. **Client retries** with `X-PAYMENT` header
+4. **Paywall Server** → calls Facilitator `/verify` (checks signature)
+5. **Facilitator** → verifies Agent B's signature is valid
+6. **Paywall Server** → calls Facilitator `/settle` (execute payment)
+7. **Facilitator** → executes USDC transfer on blockchain:
+   - 0.125 USDC → ChaosChain Treasury (2.5% fee)
+   - 4.875 USDC → Agent A (net payment)
+8. **Facilitator** → returns transaction hash
+9. **Paywall Server** → delivers service + `X-PAYMENT-RESPONSE` header
+
+**Key Points:**
+- ✅ **Paywall Server (Port 8402)**: Each agent runs their own for their services
+- ✅ **Facilitator (Port 8403/Hosted)**: Shared service that executes blockchain TXs
+- ✅ **True x402 Protocol**: HTTP 402, X-PAYMENT headers, cryptographic proofs
+- ✅ **Real USDC transfers**: On-chain payments via facilitator
 
 ## Configuration
 
