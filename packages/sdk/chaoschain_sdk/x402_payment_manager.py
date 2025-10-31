@@ -283,6 +283,15 @@ class X402PaymentManager:
                 payment_requirements=payment_requirements
             )
             
+            # WORKAROUND: Fix x402 library bug (https://github.com/coinbase/x402/pull/478)
+            # prepare_payment_header() generates nonce as bytes, but sign_payment_header() expects hex string
+            # This can be removed once PR #478 is merged upstream
+            if 'payload' in payment_header and 'authorization' in payment_header['payload']:
+                auth = payment_header['payload']['authorization']
+                if 'nonce' in auth and isinstance(auth['nonce'], bytes):
+                    auth['nonce'] = auth['nonce'].hex()
+                    rprint(f"[yellow]⚠️  Applied x402 nonce workaround (bytes→hex)[/yellow]")
+            
             # Sign the payment header
             signed_header = sign_payment_header(
                 account=from_wallet,
