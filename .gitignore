@@ -127,5 +127,6 @@ packages/sdk/chaoschain_wallets.json
 !README.md
 !docs/protocol_spec_v0.1.md
 !docs/X402_INTEGRATION_GUIDE.md
+!docs/MERCHANT_GUIDE.md
 
 packages/contracts-v1/IMPLEMENTATION_ROADMAP.md

@@ -8,6 +8,7 @@ Based on: https://github.com/coinbase/x402 (Coinbase official implementation)
 Protocol: https://www.x402.org/
 """
 
+import base64
 import json
 import os
 import time
@@ -15,6 +16,9 @@ from typing import Dict, Any, Optional, Tuple, List
 from datetime import datetime, timezone
 from decimal import Decimal
 from rich import print as rprint
+
+# EIP-3009 and EIP-712 imports
+from eth_account.messages import encode_typed_data
 
 # Official Coinbase x402 imports
 from x402.clients import x402Client
@@ -72,16 +76,16 @@ class X402PaymentManager:
         self.chaoschain_treasury = self._get_treasury_address()
         self.protocol_fee_percentage = float(os.getenv("CHAOSCHAIN_FEE_PERCENTAGE", "2.5"))
         
-        # x402 facilitator configuration
-        self.facilitator_url = os.getenv("X402_FACILITATOR_URL")
-        self.use_facilitator = os.getenv("X402_USE_FACILITATOR", "false").lower() == "true"
+        # x402 facilitator configuration (defaults to ChaosChain hosted facilitator)
+        self.facilitator_url = os.getenv("X402_FACILITATOR_URL", "https://facilitator.chaoscha.in")
+        self.use_facilitator = os.getenv("X402_USE_FACILITATOR", "true").lower() == "true"
         
         rprint(f"[green]💳 Native x402 Payment Manager initialized for {network.value}[/green]")
         rprint(f"[blue]🔗 Using official Coinbase x402 protocol v0.2.1+[/blue]")
         if self.use_facilitator and self.facilitator_url:
             rprint(f"[blue]🏛️  x402 Facilitator: {self.facilitator_url}[/blue]")
         else:
-            rprint(f"[blue]🏠 x402 Mode: Direct settlement (no facilitator)[/blue]")
+            rprint(f"[yellow]⚠️  x402 Mode: Simulated payments (no facilitator)[/yellow]")
     
     def _setup_x402_config(self):
         """Setup x402 network configuration."""
@@ -235,8 +239,8 @@ class X402PaymentManager:
             max_timeout_seconds=300,  # 5 minutes
             asset=self.usdc_address,
             extra={
-                "name": "USD Coin",
-                "version": "1",
+                "name": "USDC",  # ✅ CORRECT: Base Sepolia USDC uses "USDC" not "USD Coin"
+                "version": "2",  # ✅ CORRECT: Version 2 for EIP-3009
                 "chaoschain_metadata": {
                     "to_agent": to_agent,
                     "evidence_cid": evidence_cid,
@@ -257,7 +261,13 @@ class X402PaymentManager:
         amount_usdc: float
     ) -> Dict[str, Any]:
         """
-        Create an x402 payment using official Coinbase client.
+        Create an x402 payment with EIP-3009 authorization.
+        
+        NOTE: We use custom EIP-3009 signing instead of the Python x402 library because:
+        1. Python x402 library has a nonce bug (bytes vs hex string)
+        2. Python x402 sign_payment_header() doesn't produce EIP-3009 compliant signatures
+        3. Facilitators (PayAI, ChaosChain) expect EIP-3009 with v/r/s components
+        4. TypeScript x402 library has full EIP-3009 support, Python doesn't
         
         Args:
             from_agent: Name of the paying agent
@@ -265,7 +275,7 @@ class X402PaymentManager:
             amount_usdc: Amount to pay in USDC
             
         Returns:
-            x402 payment data with headers
+            x402 payment data with EIP-3009 signed headers
         """
         try:
             # Get paying agent's wallet
@@ -273,34 +283,100 @@ class X402PaymentManager:
             if not from_wallet:
                 raise PaymentError(f"Wallet not found for agent: {from_agent}")
             
-            # Convert amount to wei
+            # Convert amount to wei (USDC has 6 decimals)
             amount_wei = int(Decimal(str(amount_usdc)) * Decimal("1000000"))
             
-            # Create payment header using official Coinbase x402
+            # Create payment header structure using Coinbase x402 library
             payment_header = prepare_payment_header(
                 sender_address=from_wallet.address,
                 x402_version=1,
                 payment_requirements=payment_requirements
             )
             
-            # WORKAROUND: Fix x402 library bug (https://github.com/coinbase/x402/pull/478)
-            # prepare_payment_header() generates nonce as bytes, but sign_payment_header() expects hex string
-            # This can be removed once PR #478 is merged upstream
+            # Fix nonce type (x402 library bug)
             if 'payload' in payment_header and 'authorization' in payment_header['payload']:
                 auth = payment_header['payload']['authorization']
                 if 'nonce' in auth and isinstance(auth['nonce'], bytes):
                     auth['nonce'] = auth['nonce'].hex()
-                    rprint(f"[yellow]⚠️  Applied x402 nonce workaround (bytes→hex)[/yellow]")
             
-            # Sign the payment header
-            signed_header = sign_payment_header(
-                account=from_wallet,
-                payment_requirements=payment_requirements,
-                header=payment_header
+            # Extract authorization parameters for EIP-3009 signing
+            auth = payment_header['payload']['authorization']
+            
+            # Convert nonce to bytes32 format
+            if isinstance(auth['nonce'], str):
+                nonce_bytes32 = '0x' + auth['nonce'] if not auth['nonce'].startswith('0x') else auth['nonce']
+            else:
+                nonce_bytes32 = '0x' + auth['nonce'].hex()
+            
+            # EIP-712 domain data (dynamic chainId based on network)
+            # CRITICAL: Must use "USDC" not "USD Coin" for Base Sepolia
+            domain_data = {
+                "name": "USDC",  # ✅ CORRECT: Base Sepolia USDC uses "USDC" not "USD Coin"
+                "version": "2",
+                "chainId": self.chain_id,  # Dynamic: 84532 (Base Sepolia), 11155111 (Ethereum Sepolia), etc.
+                "verifyingContract": self.usdc_address
+            }
+            
+            # EIP-3009 TransferWithAuthorization message types
+            message_types = {
+                "TransferWithAuthorization": [
+                    {"name": "from", "type": "address"},
+                    {"name": "to", "type": "address"},
+                    {"name": "value", "type": "uint256"},
+                    {"name": "validAfter", "type": "uint256"},
+                    {"name": "validBefore", "type": "uint256"},
+                    {"name": "nonce", "type": "bytes32"}
+                ]
+            }
+            
+            # EIP-3009 message data
+            message_data = {
+                "from": auth['from'],
+                "to": auth['to'],
+                "value": int(auth['value']),
+                "validAfter": int(auth['validAfter']),
+                "validBefore": int(auth['validBefore']),
+                "nonce": nonce_bytes32
+            }
+            
+            # Sign using EIP-712 typed data
+            signable_message = encode_typed_data(
+                domain_data=domain_data,
+                message_types=message_types,
+                message_data=message_data
             )
+            signed_data = from_wallet.sign_message(signable_message)
             
-            # Encode payment for X-PAYMENT header
-            x_payment_header = encode_payment(signed_header)
+            # Extract v, r, s components
+            v = signed_data.v
+            r = '0x' + hex(signed_data.r)[2:].zfill(64)
+            s = '0x' + hex(signed_data.s)[2:].zfill(64)
+            
+            # Create combined signature (r + s + v) for compatibility
+            eip3009_signature = r + s[2:] + hex(v)[2:].zfill(2)
+            
+            # Create signed header with EIP-3009 signature
+            signed_header = {
+                'x402Version': payment_header.get('x402Version', 1),
+                'scheme': payment_header.get('scheme', 'exact'),
+                'network': payment_header.get('network', self.x402_network),
+                'payload': payment_header['payload'],
+                'signature': eip3009_signature,
+                'v': v,
+                'r': r,
+                's': s
+            }
+            
+            # CRITICAL FIX: Remove signature from payload if it exists
+            # The x402 library sometimes puts signature inside payload, but facilitator expects it at top level only
+            if 'signature' in signed_header['payload']:
+                del signed_header['payload']['signature']
+            
+            # Encode to base64 for X-PAYMENT header
+            signed_header_json = json.dumps(signed_header)
+            x_payment_header = base64.b64encode(signed_header_json.encode()).decode()
+            
+            rprint(f"[green]✅ Created EIP-3009 payment authorization[/green]")
             
             return {
                 "x_payment_header": x_payment_header,
@@ -365,12 +441,15 @@ class X402PaymentManager:
         """
         Settle x402 payment using facilitator service.
         
+        The facilitator executes the actual USDC transfer on-chain using the
+        EIP-3009 signed authorization from the payment header.
+        
         Args:
-            x402_payment: x402 payment data
+            x402_payment: x402 payment data with EIP-3009 signature
             payment_requirements: Payment requirements
             
         Returns:
-            Settlement result from facilitator
+            Settlement result from facilitator with transaction hash
         """
         if not self.use_facilitator or not self.facilitator_url:
             raise PaymentError("Facilitator not configured for settlement")
@@ -378,10 +457,28 @@ class X402PaymentManager:
         try:
             import requests
             
+            # Convert PaymentRequirements to camelCase (facilitator expects this format)
+            payment_reqs_dict = {
+                "scheme": payment_requirements.scheme,
+                "network": payment_requirements.network,
+                "maxAmountRequired": payment_requirements.max_amount_required,
+                "payTo": payment_requirements.pay_to,
+                "asset": payment_requirements.asset,
+                "resource": payment_requirements.resource,
+            }
+            
+            # Add optional fields if present
+            if hasattr(payment_requirements, 'description') and payment_requirements.description:
+                payment_reqs_dict["description"] = payment_requirements.description
+            if hasattr(payment_requirements, 'mime_type') and payment_requirements.mime_type:
+                payment_reqs_dict["mimeType"] = payment_requirements.mime_type
+            if hasattr(payment_requirements, 'max_timeout_seconds') and payment_requirements.max_timeout_seconds:
+                payment_reqs_dict["maxTimeoutSeconds"] = payment_requirements.max_timeout_seconds
+            
             settlement_data = {
                 "x402Version": 1,
                 "paymentHeader": x402_payment["x_payment_header"],
-                "paymentRequirements": payment_requirements.model_dump()
+                "paymentRequirements": payment_reqs_dict
             }
             
             response = requests.post(
@@ -398,7 +495,9 @@ class X402PaymentManager:
                     rprint(f"[red]❌ Facilitator settlement failed: {result.get('error')}[/red]")
                 return result
             else:
-                raise PaymentError(f"Facilitator settlement failed: {response.status_code}")
+                error_text = response.text
+                rprint(f"[red]❌ Facilitator returned {response.status_code}: {error_text}[/red]")
+                raise PaymentError(f"Facilitator settlement failed: {response.status_code} - {error_text}")
                 
         except Exception as e:
             raise PaymentError(f"Facilitator settlement error: {str(e)}")
@@ -473,7 +572,8 @@ class X402PaymentManager:
                 from_agent=from_agent,
                 to_agent=to_agent,
                 amount_usdc=amount_usdc,
-                x402_payment=x402_payment
+                x402_payment=x402_payment,
+                payment_requirements=payment_requirements
             )
             
             # Step 4: Create payment receipt
@@ -523,18 +623,24 @@ class X402PaymentManager:
         from_agent: str,
         to_agent: str,
         amount_usdc: float,
-        x402_payment: Dict[str, Any]
+        x402_payment: Dict[str, Any],
+        payment_requirements: Any = None
     ) -> Dict[str, Any]:
         """
         Execute USDC transfer with ChaosChain protocol fee collection.
         
-        This implements the ChaosChain revenue model:
-        1. Collect protocol fee (2.5%) to treasury
-        2. Transfer net amount to service provider
-        3. Generate receipts with fee breakdown
+        When using a facilitator, this delegates to the facilitator to execute
+        the actual blockchain transaction. Otherwise, returns a simulated result.
+        
+        Args:
+            from_agent: Payer agent name
+            to_agent: Payee agent name
+            amount_usdc: Total payment amount in USDC
+            x402_payment: x402 payment data
+            payment_requirements: Payment requirements (needed for facilitator)
         """
         try:
-            # Calculate fees
+            # Calculate fees for display
             protocol_fee_usdc = amount_usdc * (self.protocol_fee_percentage / 100)
             net_amount_usdc = amount_usdc - protocol_fee_usdc
             
@@ -544,44 +650,67 @@ class X402PaymentManager:
             rprint(f"   Net to {to_agent}: ${net_amount_usdc:.6f} {self.token_symbol}")
             rprint(f"   Treasury: {self.chaoschain_treasury}")
             
-            # Step 1: Collect protocol fee to treasury
-            fee_tx_hash = None
-            if protocol_fee_usdc > 0.000001:  # Only collect meaningful fees
-                rprint(f"[yellow]💸 Collecting protocol fee to treasury...[/yellow]")
+            # If using facilitator, delegate to facilitator for actual blockchain transaction
+            if self.use_facilitator and self.facilitator_url and payment_requirements:
+                rprint(f"[yellow]🔄 Settling payment via facilitator...[/yellow]")
                 
                 try:
-                    fee_tx_hash = self.wallet_manager.transfer_usdc(
-                        from_agent, 
-                        self.chaoschain_treasury, 
-                        protocol_fee_usdc
+                    settlement_result = self.settle_payment_with_facilitator(
+                        x402_payment=x402_payment,
+                        payment_requirements=payment_requirements
                     )
                     
-                    if fee_tx_hash and fee_tx_hash.startswith("0x") and len(fee_tx_hash) == 66:
-                        rprint(f"[green]✅ Protocol fee collected: {fee_tx_hash}[/green]")
+                    if settlement_result.get("success"):
+                        main_tx_hash = settlement_result.get("txHash")
+                        rprint(f"[green]✅ Facilitator executed payment: {main_tx_hash}[/green]")
+                        
+                        return {
+                            "success": True,
+                            "main_tx_hash": main_tx_hash,
+                            "fee_tx_hash": None,  # Facilitator handles fee collection
+                            "is_simulation": False,
+                            "facilitator_settlement": settlement_result,
+                            "fee_breakdown": {
+                                "total_amount_usdc": amount_usdc,
+                                "protocol_fee_usdc": protocol_fee_usdc,
+                                "net_amount_usdc": net_amount_usdc,
+                                "fee_percentage": self.protocol_fee_percentage,
+                                "treasury_address": self.chaoschain_treasury
+                            }
+                        }
                     else:
-                        rprint(f"[yellow]⚠️  Fee collection simulated (demo mode)[/yellow]")
-                        fee_tx_hash = f"0xfee{int(time.time())}{from_agent[:2]}CC"
+                        error_msg = settlement_result.get("error", "Unknown facilitator error")
+                        rprint(f"[red]❌ Facilitator settlement failed: {error_msg}[/red]")
+                        return {
+                            "success": False,
+                            "error": f"Facilitator settlement failed: {error_msg}",
+                            "main_tx_hash": None,
+                            "fee_tx_hash": None,
+                            "is_simulation": False
+                        }
                         
                 except Exception as e:
-                    rprint(f"[yellow]⚠️  Fee collection failed, continuing with main payment: {e}[/yellow]")
-                    fee_tx_hash = f"0xfee{int(time.time())}{from_agent[:2]}CC"
+                    rprint(f"[red]❌ Facilitator error: {e}[/red]")
+                    return {
+                        "success": False,
+                        "error": f"Facilitator error: {str(e)}",
+                        "main_tx_hash": None,
+                        "fee_tx_hash": None,
+                        "is_simulation": False
+                    }
             
-            # Step 2: Transfer net amount to service provider
-            to_address = self.wallet_manager.get_wallet_address(to_agent)
-            main_tx_hash = self.wallet_manager.transfer_usdc(from_agent, to_address, net_amount_usdc)
+            # No facilitator configured - return simulated result for demo/testing
+            rprint(f"[yellow]⚠️  No facilitator configured - simulating payment[/yellow]")
+            rprint(f"[yellow]   Set X402_USE_FACILITATOR=true and X402_FACILITATOR_URL to execute real transactions[/yellow]")
             
-            # Determine if this was a real or simulated transaction
-            is_real_tx = main_tx_hash and main_tx_hash.startswith("0x") and len(main_tx_hash) == 66
-            
-            if not is_real_tx:
-                # Generate simulated transaction hash for demo
-                main_tx_hash = f"0x402{int(time.time())}{from_agent[:2]}{to_agent[:2]}"
+            main_tx_hash = f"0x402{int(time.time())}{from_agent[:2]}{to_agent[:2]}"
+            fee_tx_hash = f"0xfee{int(time.time())}{from_agent[:2]}CC" if protocol_fee_usdc > 0.000001 else None
             
             return {
                 "success": True,
                 "main_tx_hash": main_tx_hash,
                 "fee_tx_hash": fee_tx_hash,
-                "is_simulation": not is_real_tx,
+                "is_simulation": True,
                 "fee_breakdown": {
                     "total_amount_usdc": amount_usdc,
                     "protocol_fee_usdc": protocol_fee_usdc,
@@ -592,11 +721,13 @@ class X402PaymentManager:
             }
             
         except Exception as e:
+            rprint(f"[red]❌ Payment execution failed: {e}[/red]")
             return {
                 "success": False,
                 "error": str(e),
                 "main_tx_hash": None,
-                "fee_tx_hash": None
+                "fee_tx_hash": None,
+                "is_simulation": True
             }
     
     def _create_payment_receipt(

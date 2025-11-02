@@ -110,6 +110,13 @@ class ChaosAgent:
                 'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add Hedera USDC
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
+            NetworkConfig.BSC_TESTNET: {
+                'identity_registry': '0xabbd26d86435b35d9c45177725084ee6a2812e40',
+                'reputation_registry': '0xeced1af52a0446275e9e6e4f6f26c99977400a6a',
+                'validation_registry': '0x7866bd057f09a4940fe2ce43320518c8749a921e',
+                'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add BSC USDC
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+            },
             NetworkConfig.ZEROG_TESTNET: {
                 'identity_registry': '0x80043ed9cf33a3472768dcd53175bb44e03a1e4a',
                 'reputation_registry': '0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202',
@@ -122,13 +129,13 @@ class ChaosAgent:
         network_contracts = contract_addresses.get(self.network)
         if not network_contracts:
             raise ConfigurationError(f"No deployed contracts configured for network: {self.network}")
-        
-        self.contract_addresses = ContractAddresses(
+            
+            self.contract_addresses = ContractAddresses(
             identity_registry=network_contracts['identity_registry'],
             reputation_registry=network_contracts['reputation_registry'], 
             validation_registry=network_contracts['validation_registry'],
-            network=self.network
-        )
+                network=self.network
+            )
     
     def _load_contracts(self):
         """Load contract instances with embedded ABIs."""
@@ -169,10 +176,10 @@ class ChaosAgent:
         - ownerOf() to get agent owner
         - tokenURI() to get registration file
         """
-        return [
+            return [
             # ERC-8004 v1.0 Registration Functions
-            {
-                "inputs": [
+                {
+                    "inputs": [
                     {"name": "tokenURI_", "type": "string"},
                     {
                         "name": "metadata",
@@ -182,13 +189,13 @@ class ChaosAgent:
                             {"name": "value", "type": "bytes"}
                         ]
                     }
-                ],
+                    ],
                 "name": "register",
-                "outputs": [{"name": "agentId", "type": "uint256"}],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
+                    "outputs": [{"name": "agentId", "type": "uint256"}],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
                 "inputs": [{"name": "tokenURI_", "type": "string"}],
                 "name": "register",
                 "outputs": [{"name": "agentId", "type": "uint256"}],
@@ -259,8 +266,8 @@ class ChaosAgent:
                 "inputs": [{"name": "tokenId", "type": "uint256"}],
                 "name": "getApproved",
                 "outputs": [{"name": "operator", "type": "address"}],
-                "stateMutability": "view",
-                "type": "function"
+                    "stateMutability": "view",
+                    "type": "function"
             },
             {
                 "inputs": [
@@ -381,10 +388,10 @@ class ChaosAgent:
         - revokeFeedback() support
         - appendResponse() for audit trails
         """
-        return [
+            return [
             # Core Functions
-            {
-                "inputs": [
+                {
+                    "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "score", "type": "uint8"},
                     {"name": "tag1", "type": "bytes32"},
@@ -392,11 +399,11 @@ class ChaosAgent:
                     {"name": "feedbackUri", "type": "string"},
                     {"name": "feedbackHash", "type": "bytes32"},
                     {"name": "feedbackAuth", "type": "bytes"}
-                ],
+                    ],
                 "name": "giveFeedback",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
             },
             {
                 "inputs": [
@@ -537,32 +544,32 @@ class ChaosAgent:
         - validationResponse() uses requestHash with response (0-100)
         - Support for multiple responses per request (progressive validation)
         """
-        return [
+            return [
             # Core Functions
-            {
-                "inputs": [
+                {
+                    "inputs": [
                     {"name": "validatorAddress", "type": "address"},
                     {"name": "agentId", "type": "uint256"},
                     {"name": "requestUri", "type": "string"},
                     {"name": "requestHash", "type": "bytes32"}
-                ],
-                "name": "validationRequest",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
-            },
-            {
-                "inputs": [
+                    ],
+                    "name": "validationRequest",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "inputs": [
                     {"name": "requestHash", "type": "bytes32"},
-                    {"name": "response", "type": "uint8"},
+                        {"name": "response", "type": "uint8"},
                     {"name": "responseUri", "type": "string"},
                     {"name": "responseHash", "type": "bytes32"},
                     {"name": "tag", "type": "bytes32"}
-                ],
+                    ],
                 "name": "validationResponse",
-                "outputs": [],
-                "stateMutability": "nonpayable",
-                "type": "function"
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
             },
             # Read Functions
             {
@@ -707,8 +714,8 @@ class ChaosAgent:
                     owner = self.identity_registry.functions.ownerOf(potential_id).call()
                     if owner.lower() == self.address.lower():
                         self.agent_id = potential_id
-                        rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
-                        return self.agent_id, "already_registered"
+                rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                return self.agent_id, "already_registered"
                 except:
                     continue
                     
@@ -771,9 +778,9 @@ class ChaosAgent:
                     logs = registered_event.process_receipt(receipt)
                     if logs:
                         self.agent_id = logs[0]['args']['agentId']
-                        rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
+                rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
                         rprint(f"[blue]📋 View on explorer: Transaction {tx_hash.hex()[:10]}...[/blue]")
-                        return self.agent_id, tx_hash.hex()
+                return self.agent_id, tx_hash.hex()
                 except Exception as log_error:
                     rprint(f"[yellow]⚠️  Could not parse event logs: {log_error}[/yellow]")
                     # Fallback: Check ownership to find agent ID
@@ -826,8 +833,8 @@ class ChaosAgent:
                     owner = self.identity_registry.functions.ownerOf(potential_id).call()
                     if owner.lower() == self.address.lower():
                         self.agent_id = potential_id
-                        return self.agent_id
-                except:
+                return self.agent_id
+        except:
                     continue
             
             # If not found in recent agents, check older ones
@@ -857,7 +864,7 @@ class ChaosAgent:
         Args:
             key: Metadata key (string)
             value: Metadata value as bytes
-        
+            
         Returns:
             Transaction hash
             
@@ -903,7 +910,7 @@ class ChaosAgent:
             if receipt.status == 1:
                 rprint(f"[green]✅ Metadata '{key}' set successfully[/green]")
                 return tx_hash.hex()
-            else:
+                else:
                 raise ContractError("Metadata update transaction failed")
                 
         except Exception as e:
@@ -984,7 +991,7 @@ class ChaosAgent:
             if isinstance(request_hash, str):
                 if request_hash.startswith('0x'):
                     request_hash_bytes = bytes.fromhex(request_hash[2:])
-                else:
+            else:
                     request_hash_bytes = bytes.fromhex(request_hash)
             else:
                 request_hash_bytes = request_hash
@@ -1120,7 +1127,7 @@ class ChaosAgent:
             
             if receipt.status == 1:
                 rprint(f"[green]✅ Validation response submitted: {tx_hash.hex()[:10]}...[/green]")
-                return tx_hash.hex()
+            return tx_hash.hex()
             else:
                 raise ContractError("Validation response transaction failed")
             

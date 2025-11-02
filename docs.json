@@ -57,37 +57,37 @@
     "docs/mintlify/introduction",
     "docs/mintlify/quickstart",
     "docs/mintlify/concepts",
-    {
-      "group": "Protocol Specification",
-      "pages": [
+      {
+        "group": "Protocol Specification",
+        "pages": [
         "docs/mintlify/protocol/overview",
         "docs/mintlify/protocol/dkg-model",
         "docs/mintlify/protocol/erc-8004"
-      ]
-    },
-    {
-      "group": "SDK Documentation", 
-      "pages": [
+        ]
+      },
+      {
+        "group": "SDK Documentation", 
+        "pages": [
         "docs/mintlify/sdk/installation",
         "docs/mintlify/sdk/quickstart",
         "docs/mintlify/sdk/configuration",
         "docs/mintlify/sdk/identity-management",
         "docs/mintlify/sdk/payment-methods",
         "docs/mintlify/sdk/examples"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": [
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
         "docs/mintlify/api/chaoschain-sdk"
-      ]
-    },
-    {
-      "group": "Guides",
-      "pages": [
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
         "docs/mintlify/guides/building-agents"
-      ]
-    }
+        ]
+      }
   ],
   "footerSocials": {
     "x": "https://x.com/chaoschain",

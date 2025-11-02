@@ -412,18 +412,24 @@ payment = sdk.execute_traditional_payment(
 
 ## Supported Networks
 
-ERC-8004 v1.0 contracts are **pre-deployed on 6 testnets** (no setup needed):
+ERC-8004 v1.0 contracts are **pre-deployed on 7 testnets** (no setup needed):
 
-| Network | Chain ID | Status | Contracts | Features |
-|---------|----------|--------|-----------|----------|
-| **Ethereum Sepolia** | 11155111 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
-| **Base Sepolia** | 84532 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + x402 USDC |
-| **Linea Sepolia** | 59141 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 |
-| **Hedera Testnet** | 296 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 |
-| **0G Testnet** | 16602 | ✅ Active | Identity, Reputation, Validation | ERC-8004 v1.0 + A0GI + Compute + Storage |
-| **Optimism Sepolia** | 11155420 | ⏳ Coming Soon | - | ERC-8004 v1.0 deployment pending |
+| Network | Chain ID | Status | Identity Registry | Reputation Registry | Validation Registry |
+|---------|----------|--------|-------------------|---------------------|---------------------|
+| **Base Sepolia** | 84532 | ✅ Active | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
+| **Ethereum Sepolia** | 11155111 | ✅ Active | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+| **Linea Sepolia** | 59141 | ✅ Active | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
+| **Hedera Testnet** | 296 | ✅ Active | `0x4c74ebd72921d537159ed2053f46c12a7d8e5923` | `0xc565edcba77e3abeade40bfd6cf6bf583b3293e0` | `0x18df085d85c586e9241e0cd121ca422f571c2da6` |
+| **BSC Testnet** | 97 | ✅ Active | `0xabbd26d86435b35d9c45177725084ee6a2812e40` | `0xeced1af52a0446275e9e6e4f6f26c99977400a6a` | `0x7866bd057f09a4940fe2ce43320518c8749a921e` |
+| **0G Testnet** | 16602 | ✅ Active | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
+| **Optimism Sepolia** | 11155420 | ⏳ Coming Soon | - | - | - |
 
-**Contract addresses vary by network** (see SDK documentation for specific addresses). Simply change the `network` parameter - no other config needed!
+**Features:**
+- ✅ **Base Sepolia & Ethereum Sepolia**: Full x402 USDC payments support
+- ✅ **0G Testnet**: Native A0GI token + Compute + Storage providers
+- ✅ **All Networks**: ERC-8004 v1.0 compliant (Identity, Reputation, Validation)
+
+Simply change the `network` parameter - no other config needed!
 
 ## Advanced Examples
 
@@ -571,9 +577,9 @@ server_sdk = ChaosChainAgentSDK(
     network="base-sepolia"
 )
 
-# Configure facilitator (hosted service that executes blockchain transactions)
-os.environ["X402_FACILITATOR_URL"] = "https://facilitator.chaoscha.in"
-os.environ["X402_USE_FACILITATOR"] = "true"
+# Facilitator is automatically configured (defaults to ChaosChain hosted service)
+# To use a different facilitator, set: os.environ["X402_FACILITATOR_URL"] = "your-url"
+# To disable facilitator, set: os.environ["X402_USE_FACILITATOR"] = "false"
 
 # Create paywall server (Port 8402 - serves protected resources)
 server = server_sdk.create_x402_paywall_server(port=8402)
@@ -676,7 +682,8 @@ OPTIMISM_SEPOLIA_RPC_URL=https://opt-sepolia.g.alchemy.com/v2/YOUR_KEY
 
 # x402 Configuration (Coinbase Protocol)
 CHAOSCHAIN_FEE_PERCENTAGE=2.5  # Protocol fee (default: 2.5%)
-X402_USE_FACILITATOR=false
+X402_USE_FACILITATOR=true  # Default: true (uses ChaosChain hosted facilitator)
+X402_FACILITATOR_URL=https://facilitator.chaoscha.in  # Default: ChaosChain facilitator
 
 # Storage Providers (auto-detected if not specified)
 # Local IPFS (free): Just run `ipfs daemon`

@@ -25,6 +25,7 @@ class NetworkConfig(str, Enum):
     OPTIMISM_SEPOLIA = "optimism-sepolia"
     LINEA_SEPOLIA = "linea-sepolia"
     HEDERA_TESTNET = "hedera-testnet"
+    BSC_TESTNET = "bsc-testnet"
     MODE_TESTNET = "mode-testnet"
     ZEROG_TESTNET = "0g-testnet"
     LOCAL = "local"
