@@ -48,8 +48,9 @@ ERC-8004 ValidationRegistry (External)
 
 | Interface | Purpose |
 |-----------|---------|
-| `IERC8004Identity.sol` | ERC-8004 IdentityRegistry interface |
-| `IERC8004Validation.sol` | ERC-8004 ValidationRegistry interface |
+| `IERC8004IdentityV1.sol` | ERC-8004 v1.0 IdentityRegistry interface |
+| `IERC8004Reputation.sol` | ERC-8004 v1.0 ReputationRegistry interface |
+| `IERC8004Validation.sol` | ERC-8004 v1.0 ValidationRegistry interface |
 | `IChaosChainRegistry.sol` | Registry interface |
 | `IChaosCore.sol` | Factory interface |
 | `IStudioProxy.sol` | Proxy interface |
@@ -87,7 +88,7 @@ forge test --gas-report
 forge test --match-contract ChaosChainCoreTest -vvv
 ```
 
-**Test Results**: ✅ 11/11 tests passing
+**Test Results**: ✅ 24/24 tests passing
 
 ## 📡 Deployment
 
@@ -176,7 +177,7 @@ StudioProxy and LogicModule use matching storage layouts for safe DELEGATECALL:
 ### Audit Status
 
 - ✅ Self-audited with comprehensive test suite
-- ✅ 100% test pass rate (11/11)
+- ✅ 100% test pass rate (24/24)
 - ⚠️ External audit recommended before mainnet
 
 ## 📚 Documentation
