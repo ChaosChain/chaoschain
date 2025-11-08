@@ -512,5 +512,123 @@ contract ChaosChainCoreTest is Test {
         vm.expectRevert("Already committed");
         StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
     }
+    
+    // ============ Epoch Closure Tests ============
+    
+    function test_EpochClosureFlow() public {
+        // Create studio and deposit funds
+        vm.prank(studioOwner);
+        (address proxy, uint256 studioId) = chaosCore.createStudio(
+            "Epoch Test Studio",
+            address(predictionLogic)
+        );
+        
+        vm.prank(studioOwner);
+        StudioProxy(payable(proxy)).deposit{value: 10 ether}();
+        
+        // Submit work
+        bytes32 dataHash = keccak256("epoch_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://epoch_evidence");
+        
+        // Register work for epoch
+        uint64 epoch = 1;
+        rewardsDistributor.registerWork(proxy, epoch, dataHash);
+        
+        // Submit score vectors from multiple validators
+        address validator1 = makeAddr("validator1");
+        address validator2 = makeAddr("validator2");
+        address validator3 = makeAddr("validator3");
+        
+        bytes memory scoreVector1 = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
+        bytes memory scoreVector2 = abi.encode(uint8(82), uint8(87), uint8(82), uint8(76), uint8(85));
+        bytes memory scoreVector3 = abi.encode(uint8(88), uint8(92), uint8(78), uint8(77), uint8(90));
+        
+        vm.prank(validator1);
+        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector1);
+        rewardsDistributor.registerValidator(dataHash, validator1);
+        
+        vm.prank(validator2);
+        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector2);
+        rewardsDistributor.registerValidator(dataHash, validator2);
+        
+        vm.prank(validator3);
+        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector3);
+        rewardsDistributor.registerValidator(dataHash, validator3);
+        
+        // Close epoch
+        rewardsDistributor.closeEpoch(proxy, epoch);
+        
+        // Verify consensus result was stored
+        IRewardsDistributor.ConsensusResult memory result = rewardsDistributor.getConsensusResult(dataHash);
+        assertTrue(result.finalized);
+        assertEq(result.validatorCount, 3);
+        assertGt(result.consensusScores.length, 0);
+        
+        // Verify worker has withdrawable balance
+        assertGt(StudioProxy(payable(proxy)).getWithdrawableBalance(workerAgent), 0);
+    }
+    
+    function test_EpochManagementFunctions() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        uint64 epoch = 1;
+        bytes32 dataHash1 = keccak256("work1");
+        bytes32 dataHash2 = keccak256("work2");
+        
+        // Register work
+        rewardsDistributor.registerWork(proxy, epoch, dataHash1);
+        rewardsDistributor.registerWork(proxy, epoch, dataHash2);
+        
+        // Get epoch work
+        bytes32[] memory work = rewardsDistributor.getEpochWork(proxy, epoch);
+        assertEq(work.length, 2);
+        assertEq(work[0], dataHash1);
+        assertEq(work[1], dataHash2);
+        
+        // Register validators
+        address validator1 = makeAddr("validator1");
+        address validator2 = makeAddr("validator2");
+        
+        rewardsDistributor.registerValidator(dataHash1, validator1);
+        rewardsDistributor.registerValidator(dataHash1, validator2);
+        
+        // Get validators
+        address[] memory validators = rewardsDistributor.getWorkValidators(dataHash1);
+        assertEq(validators.length, 2);
+        assertEq(validators[0], validator1);
+        assertEq(validators[1], validator2);
+    }
+    
+    function test_RevertWhen_CloseEpochNoWork() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        vm.expectRevert("No work in epoch");
+        rewardsDistributor.closeEpoch(proxy, 1);
+    }
+    
+    // ============ ERC-8004 Integration Tests ============
+    
+    function test_ValidationRegistryIntegration() public {
+        // This test verifies the integration with ValidationRegistry
+        // In production, this would interact with the real ERC-8004 contracts
+        
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("validation_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        // Submit score
+        bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector);
+        
+        // Verify score was stored
+        assertGt(StudioProxy(payable(proxy)).getScoreVector(dataHash, validatorAgent).length, 0);
+    }
 }
 

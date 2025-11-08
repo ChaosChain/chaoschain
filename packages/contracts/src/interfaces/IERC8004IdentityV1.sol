@@ -70,6 +70,62 @@ interface IERC8004IdentityV1 {
      */
     function totalAgents() external view returns (uint256 count);
     
+    // ============ ERC-8004 v1 Registration Functions ============
+    
+    /**
+     * @notice Register a new agent without tokenURI
+     * @return agentId The newly minted agent ID
+     */
+    function register() external returns (uint256 agentId);
+    
+    /**
+     * @notice Register a new agent with tokenURI
+     * @param tokenUri The URI pointing to agent metadata
+     * @return agentId The newly minted agent ID
+     */
+    function register(string memory tokenUri) external returns (uint256 agentId);
+    
+    /**
+     * @notice Register a new agent with tokenURI and metadata
+     * @param tokenUri The URI pointing to agent metadata
+     * @param metadata Array of key-value metadata entries
+     * @return agentId The newly minted agent ID
+     */
+    function register(string memory tokenUri, MetadataEntry[] memory metadata) external returns (uint256 agentId);
+    
+    // ============ ERC-8004 v1 Metadata Functions ============
+    
+    /**
+     * @notice Metadata entry structure
+     */
+    struct MetadataEntry {
+        string key;
+        bytes value;
+    }
+    
+    /**
+     * @notice Get metadata for an agent
+     * @param agentId The agent ID
+     * @param key The metadata key
+     * @return value The metadata value
+     */
+    function getMetadata(uint256 agentId, string memory key) external view returns (bytes memory value);
+    
+    /**
+     * @notice Set metadata for an agent
+     * @param agentId The agent ID
+     * @param key The metadata key
+     * @param value The metadata value
+     */
+    function setMetadata(uint256 agentId, string memory key, bytes memory value) external;
+    
+    /**
+     * @notice Update agent URI
+     * @param agentId The agent ID
+     * @param newUri The new URI
+     */
+    function setAgentUri(uint256 agentId, string calldata newUri) external;
+    
     // ============ Events (ERC-721 Standard) ============
     
     /**
@@ -87,5 +143,22 @@ interface IERC8004IdentityV1 {
      * @dev Emitted when operator approval is set
      */
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
+    
+    // ============ ERC-8004 v1 Specific Events ============
+    
+    /**
+     * @dev Emitted when an agent is registered
+     */
+    event Registered(uint256 indexed agentId, string tokenURI, address indexed owner);
+    
+    /**
+     * @dev Emitted when metadata is set
+     */
+    event MetadataSet(uint256 indexed agentId, string indexed indexedKey, string key, bytes value);
+    
+    /**
+     * @dev Emitted when URI is updated
+     */
+    event UriUpdated(uint256 indexed agentId, string newUri, address indexed updatedBy);
 }
 
