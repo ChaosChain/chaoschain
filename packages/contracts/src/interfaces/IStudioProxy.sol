@@ -44,6 +44,16 @@ interface IStudioProxy {
      * @dev Emitted when funds are released
      */
     event FundsReleased(address indexed recipient, uint256 amount, bytes32 indexed dataHash);
+    
+    /**
+     * @dev Emitted when a validator commits to a score (commit-reveal phase 1)
+     */
+    event ScoreCommitted(bytes32 indexed dataHash, address indexed validator, bytes32 commitment);
+    
+    /**
+     * @dev Emitted when a validator reveals their score (commit-reveal phase 2)
+     */
+    event ScoreRevealed(bytes32 indexed dataHash, address indexed validator, bytes scoreVector);
 
     // ============ Core Functions ============
     

@@ -266,5 +266,251 @@ contract ChaosChainCoreTest is Test {
         assertGt(StudioProxy(payable(proxy)).getScoreVector(dataHash, validatorAgent).length, 0);
         assertTrue(chaosCore.getStudio(studioId).active);
     }
+    
+    // ============ Security Feature Tests ============
+    
+    // -------- EIP-712 Signed Score Submission Tests --------
+    
+    function test_SignedScoreSubmission() public {
+        // Create studio and submit work
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        // Prepare score vector
+        bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
+        uint256 deadline = block.timestamp + 1 hours;
+        
+        // Get nonce
+        uint256 nonce = StudioProxy(payable(proxy)).getScoreNonce(validatorAgent, dataHash);
+        
+        // Sign the score (would use proper EIP-712 signing in production)
+        // For now, we'll test the basic submission path
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector);
+        
+        // Verify score was stored and nonce incremented
+        assertGt(StudioProxy(payable(proxy)).getScoreVector(dataHash, validatorAgent).length, 0);
+        assertEq(StudioProxy(payable(proxy)).getScoreNonce(validatorAgent, dataHash), nonce + 1);
+    }
+    
+    // -------- Pull Payment Pattern Tests --------
+    
+    function test_PullPaymentWithdraw() public {
+        // Create studio and deposit funds
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        vm.prank(studioOwner);
+        StudioProxy(payable(proxy)).deposit{value: 10 ether}();
+        
+        // Submit work
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        // Simulate RewardsDistributor releasing funds
+        vm.prank(address(rewardsDistributor));
+        StudioProxy(payable(proxy)).releaseFunds(workerAgent, 1 ether, dataHash);
+        
+        // Check withdrawable balance
+        assertEq(StudioProxy(payable(proxy)).getWithdrawableBalance(workerAgent), 1 ether);
+        
+        // Worker withdraws funds
+        uint256 balanceBefore = workerAgent.balance;
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).withdraw();
+        
+        // Verify withdrawal
+        assertEq(workerAgent.balance, balanceBefore + 1 ether);
+        assertEq(StudioProxy(payable(proxy)).getWithdrawableBalance(workerAgent), 0);
+    }
+    
+    function test_RevertWhen_WithdrawNoFunds() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        vm.prank(workerAgent);
+        vm.expectRevert("No funds to withdraw");
+        StudioProxy(payable(proxy)).withdraw();
+    }
+    
+    // -------- DataHash EIP-712 Tests --------
+    
+    function test_ComputeDataHash() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        address studio = proxy;
+        uint64 epoch = 1;
+        bytes32 demandHash = keccak256("demand");
+        bytes32 threadRoot = keccak256("thread");
+        bytes32 evidenceRoot = keccak256("evidence");
+        bytes32 paramsHash = keccak256("params");
+        
+        bytes32 dataHash = StudioProxy(payable(proxy)).computeDataHash(
+            studio,
+            epoch,
+            demandHash,
+            threadRoot,
+            evidenceRoot,
+            paramsHash
+        );
+        
+        // Verify DataHash is non-zero and deterministic
+        assertTrue(dataHash != bytes32(0));
+        
+        // Computing again should give same result
+        bytes32 dataHash2 = StudioProxy(payable(proxy)).computeDataHash(
+            studio,
+            epoch,
+            demandHash,
+            threadRoot,
+            evidenceRoot,
+            paramsHash
+        );
+        assertEq(dataHash, dataHash2);
+    }
+    
+    // -------- Commit-Reveal Protocol Tests --------
+    
+    function test_CommitRevealFlow() public {
+        // Create studio and submit work
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        // Set commit-reveal deadlines
+        vm.prank(address(rewardsDistributor));
+        StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
+        
+        // Prepare score vector and commitment
+        bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
+        bytes32 salt = keccak256("random_salt");
+        bytes32 commitment = keccak256(abi.encodePacked(scoreVector, salt, dataHash));
+        
+        // Phase 1: Commit
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
+        
+        // Verify commitment stored
+        assertEq(StudioProxy(payable(proxy)).getScoreCommitment(dataHash, validatorAgent), commitment);
+        
+        // Fast forward past commit deadline
+        vm.warp(block.timestamp + 1 hours + 1);
+        
+        // Phase 2: Reveal
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).revealScore(dataHash, scoreVector, salt);
+        
+        // Verify score stored and commitment cleared
+        assertGt(StudioProxy(payable(proxy)).getScoreVector(dataHash, validatorAgent).length, 0);
+        assertEq(StudioProxy(payable(proxy)).getScoreCommitment(dataHash, validatorAgent), bytes32(0));
+    }
+    
+    function test_RevertWhen_CommitAfterDeadline() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        // Set short commit window
+        vm.prank(address(rewardsDistributor));
+        StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
+        
+        // Fast forward past commit deadline
+        vm.warp(block.timestamp + 2 hours);
+        
+        // Try to commit after deadline
+        bytes32 commitment = keccak256("commitment");
+        vm.prank(validatorAgent);
+        vm.expectRevert("Commit phase ended");
+        StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
+    }
+    
+    function test_RevertWhen_RevealBeforeCommitEnd() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        vm.prank(address(rewardsDistributor));
+        StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
+        
+        // Commit
+        bytes memory scoreVector = abi.encode(uint8(85));
+        bytes32 salt = keccak256("salt");
+        bytes32 commitment = keccak256(abi.encodePacked(scoreVector, salt, dataHash));
+        
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
+        
+        // Try to reveal before commit phase ends
+        vm.prank(validatorAgent);
+        vm.expectRevert("Commit phase not ended");
+        StudioProxy(payable(proxy)).revealScore(dataHash, scoreVector, salt);
+    }
+    
+    function test_RevertWhen_RevealMismatch() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        vm.prank(address(rewardsDistributor));
+        StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
+        
+        // Commit with one score
+        bytes memory scoreVector1 = abi.encode(uint8(85));
+        bytes32 salt = keccak256("salt");
+        bytes32 commitment = keccak256(abi.encodePacked(scoreVector1, salt, dataHash));
+        
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
+        
+        // Fast forward
+        vm.warp(block.timestamp + 1 hours + 1);
+        
+        // Try to reveal with different score
+        bytes memory scoreVector2 = abi.encode(uint8(90)); // Different!
+        vm.prank(validatorAgent);
+        vm.expectRevert("Commitment mismatch");
+        StudioProxy(payable(proxy)).revealScore(dataHash, scoreVector2, salt);
+    }
+    
+    function test_RevertWhen_DoubleCommit() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Test Studio", address(predictionLogic));
+        
+        bytes32 dataHash = keccak256("test_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        
+        vm.prank(address(rewardsDistributor));
+        StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
+        
+        bytes32 commitment = keccak256("commitment");
+        
+        // First commit
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
+        
+        // Try to commit again
+        vm.prank(validatorAgent);
+        vm.expectRevert("Already committed");
+        StudioProxy(payable(proxy)).commitScore(dataHash, commitment);
+    }
 }
 

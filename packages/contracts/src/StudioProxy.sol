@@ -35,6 +35,11 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         "ScoreSubmission(bytes32 workId,bytes scoreVector,uint256 nonce,uint256 deadline)"
     );
     
+    /// @dev EIP-712 typehash for DataHash (§1.4, §5.1 protocol_spec_v0.1.md)
+    bytes32 private constant DATAHASH_TYPEHASH = keccak256(
+        "DataHash(address studio,uint64 epoch,bytes32 demandHash,bytes32 threadRoot,bytes32 evidenceRoot,bytes32 paramsHash)"
+    );
+    
     // ============ Storage Layout ============
     // CRITICAL: Storage layout must never change to maintain upgrade safety
     
@@ -64,6 +69,15 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     
     /// @dev Withdrawable balances for pull payment pattern (address => amount)
     mapping(address => uint256) private _withdrawable;
+    
+    /// @dev Commit-reveal: Score commitments (dataHash => validator => commitment)
+    mapping(bytes32 => mapping(address => bytes32)) private _scoreCommitments;
+    
+    /// @dev Commit-reveal: Commit deadline per work (dataHash => deadline)
+    mapping(bytes32 => uint256) private _commitDeadlines;
+    
+    /// @dev Commit-reveal: Reveal deadline per work (dataHash => deadline)
+    mapping(bytes32 => uint256) private _revealDeadlines;
     
     // ============ Modifiers ============
     
@@ -296,6 +310,179 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     function setRewardsDistributor(address newDistributor) external onlyChaosCore {
         require(newDistributor != address(0), "Invalid distributor");
         _rewardsDistributor = newDistributor;
+    }
+    
+    // ============ DataHash EIP-712 Functions (§1.4, §5.1) ============
+    
+    /**
+     * @notice Verify DataHash EIP-712 signature (protocol compliance)
+     * @dev Implements the DataHash pattern from protocol_spec_v0.1.md §1.4
+     * @param studio The studio address
+     * @param epoch The studio epoch
+     * @param demandHash Hash of task demand/intent
+     * @param threadRoot VLC/Merkle root of XMTP thread
+     * @param evidenceRoot Merkle root of Irys payloads
+     * @param paramsHash Hash of policy params/config
+     * @param signature EIP-712 signature
+     * @return signer The recovered signer address
+     */
+    function verifyDataHash(
+        address studio,
+        uint64 epoch,
+        bytes32 demandHash,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
+        bytes32 paramsHash,
+        bytes calldata signature
+    ) external view returns (address signer) {
+        // Reconstruct EIP-712 hash
+        bytes32 structHash = keccak256(abi.encode(
+            DATAHASH_TYPEHASH,
+            studio,
+            epoch,
+            demandHash,
+            threadRoot,
+            evidenceRoot,
+            paramsHash
+        ));
+        
+        bytes32 digest = _hashTypedDataV4(structHash);
+        
+        // Recover and return signer
+        return ECDSA.recover(digest, signature);
+    }
+    
+    /**
+     * @notice Compute DataHash for verification (helper function)
+     * @param studio The studio address
+     * @param epoch The studio epoch
+     * @param demandHash Hash of task demand
+     * @param threadRoot VLC/Merkle root of XMTP thread
+     * @param evidenceRoot Merkle root of Irys payloads
+     * @param paramsHash Hash of policy params
+     * @return dataHash The computed DataHash
+     */
+    function computeDataHash(
+        address studio,
+        uint64 epoch,
+        bytes32 demandHash,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
+        bytes32 paramsHash
+    ) external view returns (bytes32 dataHash) {
+        bytes32 structHash = keccak256(abi.encode(
+            DATAHASH_TYPEHASH,
+            studio,
+            epoch,
+            demandHash,
+            threadRoot,
+            evidenceRoot,
+            paramsHash
+        ));
+        
+        return _hashTypedDataV4(structHash);
+    }
+    
+    // ============ Commit-Reveal Protocol (§2.4) ============
+    
+    /**
+     * @notice Set commit and reveal deadlines for a work submission
+     * @dev Called by RewardsDistributor when work is submitted
+     * @param dataHash The work hash
+     * @param commitWindow Duration of commit phase (seconds)
+     * @param revealWindow Duration of reveal phase (seconds)
+     */
+    function setCommitRevealDeadlines(
+        bytes32 dataHash,
+        uint256 commitWindow,
+        uint256 revealWindow
+    ) external onlyRewardsDistributor {
+        require(_workSubmissions[dataHash] != address(0), "Work not found");
+        require(commitWindow > 0 && revealWindow > 0, "Invalid windows");
+        
+        _commitDeadlines[dataHash] = block.timestamp + commitWindow;
+        _revealDeadlines[dataHash] = _commitDeadlines[dataHash] + revealWindow;
+    }
+    
+    /**
+     * @notice Commit to a score vector (phase 1 of commit-reveal)
+     * @dev Prevents last-mover advantage and copycatting (§2.4)
+     * @param dataHash The work hash
+     * @param commitment keccak256(scoreVector || salt || dataHash)
+     */
+    function commitScore(bytes32 dataHash, bytes32 commitment) external {
+        require(dataHash != bytes32(0), "Invalid dataHash");
+        require(_workSubmissions[dataHash] != address(0), "Work not found");
+        require(block.timestamp <= _commitDeadlines[dataHash], "Commit phase ended");
+        require(_scoreCommitments[dataHash][msg.sender] == bytes32(0), "Already committed");
+        require(commitment != bytes32(0), "Invalid commitment");
+        
+        _scoreCommitments[dataHash][msg.sender] = commitment;
+        
+        emit ScoreCommitted(dataHash, msg.sender, commitment);
+    }
+    
+    /**
+     * @notice Reveal score vector (phase 2 of commit-reveal)
+     * @dev Must match previous commitment
+     * @param dataHash The work hash
+     * @param scoreVector The actual score vector
+     * @param salt The random salt used in commitment
+     */
+    function revealScore(
+        bytes32 dataHash,
+        bytes calldata scoreVector,
+        bytes32 salt
+    ) external {
+        require(dataHash != bytes32(0), "Invalid dataHash");
+        require(_workSubmissions[dataHash] != address(0), "Work not found");
+        require(block.timestamp > _commitDeadlines[dataHash], "Commit phase not ended");
+        require(block.timestamp <= _revealDeadlines[dataHash], "Reveal phase ended");
+        require(scoreVector.length > 0, "Empty score vector");
+        
+        // Verify commitment matches
+        bytes32 expectedCommitment = keccak256(abi.encodePacked(scoreVector, salt, dataHash));
+        bytes32 actualCommitment = _scoreCommitments[dataHash][msg.sender];
+        require(actualCommitment != bytes32(0), "No commitment found");
+        require(expectedCommitment == actualCommitment, "Commitment mismatch");
+        
+        // Store score vector
+        _scoreVectors[dataHash][msg.sender] = scoreVector;
+        _scoreNonces[msg.sender][dataHash]++;
+        
+        // Clear commitment
+        delete _scoreCommitments[dataHash][msg.sender];
+        
+        emit ScoreRevealed(dataHash, msg.sender, scoreVector);
+        emit ScoreVectorSubmitted(0, dataHash, scoreVector, block.timestamp);
+    }
+    
+    /**
+     * @notice Get commit deadline for a work
+     * @param dataHash The work hash
+     * @return deadline The commit deadline timestamp
+     */
+    function getCommitDeadline(bytes32 dataHash) external view returns (uint256 deadline) {
+        return _commitDeadlines[dataHash];
+    }
+    
+    /**
+     * @notice Get reveal deadline for a work
+     * @param dataHash The work hash
+     * @return deadline The reveal deadline timestamp
+     */
+    function getRevealDeadline(bytes32 dataHash) external view returns (uint256 deadline) {
+        return _revealDeadlines[dataHash];
+    }
+    
+    /**
+     * @notice Get score commitment for a validator
+     * @param dataHash The work hash
+     * @param validator The validator address
+     * @return commitment The commitment hash
+     */
+    function getScoreCommitment(bytes32 dataHash, address validator) external view returns (bytes32 commitment) {
+        return _scoreCommitments[dataHash][validator];
     }
     
     // ============ Fallback & Receive ============
