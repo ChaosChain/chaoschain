@@ -158,6 +158,7 @@ class ChaosChainAgentSDK:
         self._initialize_payment_manager(enable_payments)  # Keep for backward compatibility
         self._initialize_process_integrity(enable_process_integrity, compute_provider)
         self._initialize_ap2_integration(enable_ap2)
+        self._initialize_xmtp_manager()  # NEW: XMTP for agent communication
         self._initialize_chaos_agent()
         
         rprint(f"[green]🚀 ChaosChain Agent SDK initialized for {agent_name} ({agent_role.value})[/green]")
@@ -320,6 +321,25 @@ class ChaosChainAgentSDK:
         else:
             self.google_ap2 = None
             self.a2a_x402 = None
+    
+    def _initialize_xmtp_manager(self):
+        """
+        Initialize XMTP manager for agent-to-agent communication.
+        
+        XMTP enables:
+        - Real-time agent communication
+        - Causal DAG construction (§1.1)
+        - Multi-dimensional scoring (§3.1)
+        - Proof of Agency computation
+        """
+        try:
+            from .xmtp_client import XMTPManager
+            self.xmtp_manager = XMTPManager(self.wallet_manager)
+            rprint("[green]💬 XMTP communication enabled (causal DAG)[/green]")
+        except Exception as e:
+            rprint(f"[yellow]⚠️  XMTP not available: {e}[/yellow]")
+            rprint(f"[yellow]   Install with: pip install xmtp[/yellow]")
+            self.xmtp_manager = None
     
     def _initialize_chaos_agent(self):
         """Initialize core ChaosChain agent."""
@@ -1027,11 +1047,161 @@ class ChaosChainAgentSDK:
         """
         return self.chaos_agent.submit_validation_response(data_hash, score)
     
+    # === XMTP AGENT COMMUNICATION ===
+    
+    def send_message(
+        self,
+        to_agent: str,
+        message_type: str,
+        content: Dict[str, Any],
+        parent_id: Optional[str] = None
+    ) -> str:
+        """
+        Send message to another agent via XMTP.
+        
+        Creates a node in the causal DAG (§1.1) for later audit.
+        
+        Args:
+            to_agent: Recipient agent address
+            message_type: Message type (task_request, bid, collaboration_request, etc.)
+            content: Message content (JSON serializable)
+            parent_id: Parent message ID (for causal DAG)
+        
+        Returns:
+            Message ID
+            
+        Raises:
+            ChaosChainSDKError: If XMTP not available
+        
+        Example:
+            ```python
+            # Send task request
+            msg_id = sdk.send_message(
+                to_agent="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+                message_type="task_request",
+                content={
+                    "task_id": "task_123",
+                    "description": "Analyze data",
+                    "budget": 10.0
+                }
+            )
+            
+            # Send reply
+            reply_id = sdk.send_message(
+                to_agent="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+                message_type="bid",
+                content={"proposed_price": 8.0},
+                parent_id=msg_id
+            )
+            ```
+        """
+        if not self.xmtp_manager:
+            raise ChaosChainSDKError(
+                "XMTP not available. Install with: pip install xmtp"
+            )
+        
+        message_data = {
+            "type": message_type,
+            "from": self.wallet_address,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **content
+        }
+        
+        return self.xmtp_manager.send_message(to_agent, message_data, parent_id)
+    
+    def get_messages(self, from_agent: str, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get all messages from a specific agent.
+        
+        Fetches the entire XMTP thread for causal audit (§1.5).
+        
+        Args:
+            from_agent: Agent address to fetch messages from
+            force_refresh: Force refresh from XMTP network
+        
+        Returns:
+            List of messages with causal DAG metadata
+            
+        Raises:
+            ChaosChainSDKError: If XMTP not available
+        
+        Example:
+            ```python
+            messages = sdk.get_messages("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
+            for msg in messages:
+                print(f"{msg.author}: {msg.content}")
+            ```
+        """
+        if not self.xmtp_manager:
+            raise ChaosChainSDKError(
+                "XMTP not available. Install with: pip install xmtp"
+            )
+        
+        messages = self.xmtp_manager.get_thread(from_agent, force_refresh)
+        return [msg.to_dict() for msg in messages]
+    
+    def get_all_conversations(self) -> List[str]:
+        """
+        Get all conversation addresses.
+        
+        Returns:
+            List of agent addresses this agent has communicated with
+        """
+        if not self.xmtp_manager:
+            return []
+        
+        return self.xmtp_manager.get_conversation_addresses()
+    
+    def compute_thread_root(self, messages: List[Dict[str, Any]]) -> str:
+        """
+        Compute Merkle root of XMTP DAG.
+        
+        Used for DataHash commitment (§1.4).
+        
+        Args:
+            messages: List of messages (from get_messages)
+        
+        Returns:
+            Thread root (Merkle root) as hex string
+        """
+        if not self.xmtp_manager:
+            raise ChaosChainSDKError(
+                "XMTP not available. Install with: pip install xmtp"
+            )
+        
+        from .xmtp_client import XMTPMessage
+        xmtp_messages = [XMTPMessage.from_dict(msg) for msg in messages]
+        return self.xmtp_manager.compute_thread_root(xmtp_messages)
+    
+    def verify_thread_causality(self, messages: List[Dict[str, Any]]) -> bool:
+        """
+        Verify causality of an XMTP thread.
+        
+        Checks that parents exist and timestamps are monotonic (§1.5).
+        
+        Args:
+            messages: List of messages (from get_messages)
+        
+        Returns:
+            True if causality is valid
+        """
+        if not self.xmtp_manager:
+            return False
+        
+        from .xmtp_client import XMTPMessage
+        xmtp_messages = [XMTPMessage.from_dict(msg) for msg in messages]
+        return self.xmtp_manager.verify_causality(xmtp_messages)
+    
     # === EVIDENCE PACKAGES ===
     
     def create_evidence_package(
         self,
+        task_id: str,
+        studio_id: str,
         work_proof: Dict[str, Any],
+        xmtp_thread_id: str = None,
+        participants: List[Dict[str, Any]] = None,
+        artifacts: List[Dict[str, Any]] = None,
         integrity_proof: IntegrityProof = None,
         payment_proofs: List[PaymentProof] = None,
         validation_results: List[ValidationResult] = None
@@ -1039,21 +1209,52 @@ class ChaosChainAgentSDK:
         """
         Create a comprehensive evidence package for Proof of Agency.
         
+        Includes XMTP thread for causal audit (§1.5) and multi-dimensional scoring (§3.1).
+        
         Args:
+            task_id: Task identifier
+            studio_id: Studio identifier
             work_proof: Evidence of work performed
+            xmtp_thread_id: XMTP conversation ID (for causal audit)
+            participants: All agents involved (with roles and contributions)
+            artifacts: List of all IPFS/Irys artifacts
             integrity_proof: Process integrity proof
             payment_proofs: List of payment proofs
             validation_results: List of validation results
             
         Returns:
-            Complete evidence package
+            Complete evidence package with causal DAG
         """
         import uuid
         
+        # Compute thread_root if XMTP thread provided
+        thread_root = "0x" + "0" * 64
+        if xmtp_thread_id and self.xmtp_manager:
+            try:
+                messages = self.xmtp_manager.get_thread(xmtp_thread_id)
+                thread_root = self.xmtp_manager.compute_thread_root(messages)
+            except Exception as e:
+                rprint(f"[yellow]⚠️  Failed to compute thread root: {e}[/yellow]")
+        
+        # Compute evidence_root from artifacts
+        evidence_root = "0x" + "0" * 64
+        if artifacts:
+            from eth_utils import keccak
+            artifact_hashes = [keccak(text=str(art)) for art in artifacts]
+            if artifact_hashes:
+                evidence_root = self.xmtp_manager._compute_merkle_root(artifact_hashes) if self.xmtp_manager else "0x" + "0" * 64
+        
         package = EvidencePackage(
             package_id=f"evidence_{uuid.uuid4().hex[:8]}",
+            task_id=task_id,
+            studio_id=studio_id,
+            xmtp_thread_id=xmtp_thread_id or "",
+            thread_root=thread_root,
+            evidence_root=evidence_root,
+            participants=participants or [],
             agent_identity=self.get_agent_identity(),
             work_proof=work_proof,
+            artifacts=artifacts or [],
             integrity_proof=integrity_proof,
             payment_proofs=payment_proofs or [],
             validation_results=validation_results or []
@@ -1063,6 +1264,12 @@ class ChaosChainAgentSDK:
         if self.storage_manager:
             package_data = {
                 "package_id": package.package_id,
+                "task_id": package.task_id,
+                "studio_id": package.studio_id,
+                "xmtp_thread_id": package.xmtp_thread_id,
+                "thread_root": package.thread_root,
+                "evidence_root": package.evidence_root,
+                "participants": package.participants,
                 "agent_identity": {
                     "agent_id": package.agent_identity.agent_id,
                     "agent_name": package.agent_identity.agent_name,
@@ -1071,6 +1278,7 @@ class ChaosChainAgentSDK:
                     "network": package.agent_identity.network.value
                 },
                 "work_proof": package.work_proof,
+                "artifacts": package.artifacts,
                 "integrity_proof": package.integrity_proof.__dict__ if package.integrity_proof else None,
                 "payment_proofs": [proof.__dict__ for proof in package.payment_proofs],
                 "validation_results": [result.__dict__ for result in package.validation_results],

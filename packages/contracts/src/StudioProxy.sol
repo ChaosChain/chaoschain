@@ -2,6 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {IStudioProxy} from "./interfaces/IStudioProxy.sol";
+import {IERC8004IdentityV1} from "./interfaces/IERC8004IdentityV1.sol";
+import {IERC8004Reputation} from "./interfaces/IERC8004Reputation.sol";
+import {IChaosChainRegistry} from "./interfaces/IChaosChainRegistry.sol";
 import {EIP712} from "@openzeppelin/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/utils/cryptography/ECDSA.sol";
 import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
@@ -24,7 +27,7 @@ import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
  * - Only RewardsDistributor can release funds
  * - All state remains in proxy storage during upgrades
  * 
- * @author ChaosChain Labs
+ * @author ChaosChain
  */
 contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     
@@ -46,10 +49,13 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     /// @dev Slot 0: ChaosCore factory address (immutable after deployment)
     address private immutable _chaosCore;
     
-    /// @dev Slot 1: Current logic module address
+    /// @dev Slot 1: ChaosChainRegistry address (immutable after deployment)
+    address private immutable _registry;
+    
+    /// @dev Slot 2: Current logic module address
     address private _logicModule;
     
-    /// @dev Slot 2: RewardsDistributor address (can be updated by ChaosCore)
+    /// @dev Slot 3: RewardsDistributor address (can be updated by ChaosCore)
     address private _rewardsDistributor;
     
     /// @dev Slot 3+: Escrow balances (account => balance)
@@ -79,6 +85,88 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     /// @dev Commit-reveal: Reveal deadline per work (dataHash => deadline)
     mapping(bytes32 => uint256) private _revealDeadlines;
     
+    /// @dev Agent registration: address => agentId (0 if not registered)
+    mapping(address => uint256) private _agentIds;
+    
+    /// @dev Agent stakes: agentId => stake amount
+    mapping(uint256 => uint256) private _agentStakes;
+    
+    /// @dev Agent role enum (aligned with SDK: SERVER=WORKER, VALIDATOR=VERIFIER, CLIENT=CLIENT)
+    enum AgentRole {
+        NONE,               // 0 - Not registered
+        WORKER,             // 1 - Performs tasks (SDK: SERVER)
+        VERIFIER,           // 2 - Validates work (SDK: VALIDATOR)
+        CLIENT,             // 3 - Requests & pays for work (SDK: CLIENT)
+        WORKER_VERIFIER,    // 4 - Can do worker + verifier
+        WORKER_CLIENT,      // 5 - Can do worker + client
+        VERIFIER_CLIENT,    // 6 - Can do verifier + client
+        ALL                 // 7 - Can do all three roles
+    }
+    
+    /// @dev Agent roles: agentId => role
+    mapping(uint256 => AgentRole) private _agentRoles;
+    
+    /// @dev Task struct for client reputation tracking
+    struct Task {
+        uint256 clientAgentId;      // Client who created task
+        uint256 workerAgentId;      // Worker assigned to task
+        bytes32 dataHash;           // Work submission hash
+        uint256 reward;             // Payment amount
+        uint256 createdAt;          // Task creation timestamp
+        uint256 completedAt;        // Task completion timestamp
+        bool completed;             // Task status
+        string paymentProofUri;     // IPFS/Irys URI with x402 PaymentProof
+        bytes32 paymentProofHash;   // Hash of payment proof
+    }
+    
+    /// @dev Task ID => Task
+    mapping(bytes32 => Task) private _tasks;
+    
+    /// @dev Client agent ID => Task IDs
+    mapping(uint256 => bytes32[]) private _clientTasks;
+    
+    // ============ Events ============
+    
+    /**
+     * @dev Emitted when an agent registers with the Studio
+     */
+    event AgentRegistered(uint256 indexed agentId, address indexed agentAddress, uint8 role, uint256 stake);
+    
+    /**
+     * @dev Emitted when an agent's stake is updated
+     */
+    event StakeUpdated(uint256 indexed agentId, uint256 oldStake, uint256 newStake);
+    
+    /**
+     * @dev Emitted when a client creates a task
+     */
+    event TaskCreated(
+        bytes32 indexed taskId,
+        uint256 indexed clientAgentId,
+        uint256 reward,
+        string description
+    );
+    
+    /**
+     * @dev Emitted when a task is completed
+     */
+    event TaskCompleted(
+        bytes32 indexed taskId,
+        uint256 indexed workerAgentId,
+        bytes32 dataHash,
+        uint256 completedAt
+    );
+    
+    /**
+     * @dev Emitted when client reputation is published
+     */
+    event ClientReputationPublished(
+        uint256 indexed clientAgentId,
+        bytes32 indexed taskId,
+        uint8 score,
+        string feedbackUri
+    );
+    
     // ============ Modifiers ============
     
     /**
@@ -102,19 +190,23 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     /**
      * @dev Initialize the proxy
      * @param chaosCore_ The ChaosCore factory address
+     * @param registry_ The ChaosChainRegistry address
      * @param logicModule_ The initial logic module address
      * @param rewardsDistributor_ The RewardsDistributor address
      */
     constructor(
         address chaosCore_,
+        address registry_,
         address logicModule_,
         address rewardsDistributor_
     ) EIP712("ChaosChain StudioProxy", "1") {
         require(chaosCore_ != address(0), "Invalid ChaosCore");
+        require(registry_ != address(0), "Invalid registry");
         require(logicModule_ != address(0), "Invalid logic module");
         require(rewardsDistributor_ != address(0), "Invalid RewardsDistributor");
         
         _chaosCore = chaosCore_;
+        _registry = registry_;
         _logicModule = logicModule_;
         _rewardsDistributor = rewardsDistributor_;
     }
@@ -142,9 +234,14 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         require(dataHash != bytes32(0), "Invalid dataHash");
         require(_workSubmissions[dataHash] == address(0), "Work already submitted");
         
+        // Verify agent is registered with worker role
+        uint256 agentId = _agentIds[msg.sender];
+        require(agentId != 0, "Agent not registered with Studio");
+        require(hasWorkerRole(_agentRoles[agentId]), "Not a worker agent");
+        
         _workSubmissions[dataHash] = msg.sender;
         
-        emit WorkSubmitted(0, dataHash, evidenceUri, block.timestamp); // agentId would come from logic
+        emit WorkSubmitted(agentId, dataHash, evidenceUri, block.timestamp);
     }
     
     /// @inheritdoc IStudioProxy
@@ -153,10 +250,15 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         require(_workSubmissions[dataHash] != address(0), "Work not found");
         require(scoreVector.length > 0, "Empty score vector");
         
+        // Verify agent is registered with verifier role
+        uint256 agentId = _agentIds[msg.sender];
+        require(agentId != 0, "Agent not registered with Studio");
+        require(hasVerifierRole(_agentRoles[agentId]), "Not a verifier agent");
+        
         _scoreVectors[dataHash][msg.sender] = scoreVector;
         _scoreNonces[msg.sender][dataHash]++;
         
-        emit ScoreVectorSubmitted(0, dataHash, scoreVector, block.timestamp); // validatorAgentId from logic
+        emit ScoreVectorSubmitted(agentId, dataHash, scoreVector, block.timestamp);
     }
     
     /**
@@ -483,6 +585,308 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
      */
     function getScoreCommitment(bytes32 dataHash, address validator) external view returns (bytes32 commitment) {
         return _scoreCommitments[dataHash][validator];
+    }
+    
+    // ============ Role Helper Functions ============
+    
+    /**
+     * @notice Check if agent has worker role
+     */
+    function hasWorkerRole(AgentRole role) internal pure returns (bool) {
+        return role == AgentRole.WORKER || 
+               role == AgentRole.WORKER_VERIFIER || 
+               role == AgentRole.WORKER_CLIENT || 
+               role == AgentRole.ALL;
+    }
+    
+    /**
+     * @notice Check if agent has verifier role
+     */
+    function hasVerifierRole(AgentRole role) internal pure returns (bool) {
+        return role == AgentRole.VERIFIER || 
+               role == AgentRole.WORKER_VERIFIER || 
+               role == AgentRole.VERIFIER_CLIENT || 
+               role == AgentRole.ALL;
+    }
+    
+    /**
+     * @notice Check if agent has client role
+     */
+    function hasClientRole(AgentRole role) internal pure returns (bool) {
+        return role == AgentRole.CLIENT || 
+               role == AgentRole.WORKER_CLIENT || 
+               role == AgentRole.VERIFIER_CLIENT || 
+               role == AgentRole.ALL;
+    }
+    
+    // ============ Agent Registration Functions ============
+    
+    /**
+     * @notice Register an agent with the Studio
+     * @dev Agent must be registered in ERC-8004 Identity Registry first
+     * @param agentId The agent ID from ERC-8004 Identity Registry
+     * @param role The agent role (see AgentRole enum)
+     */
+    function registerAgent(uint256 agentId, AgentRole role) external payable {
+        require(agentId != 0, "Invalid agent ID");
+        require(role != AgentRole.NONE, "Invalid role");
+        require(_agentIds[msg.sender] == 0, "Already registered");
+        require(msg.value > 0, "Stake required");
+        
+        // Verify agent is registered in ERC-8004 Identity Registry and owned by msg.sender
+        address identityRegistry = IChaosChainRegistry(_registry).getIdentityRegistry();
+        require(identityRegistry != address(0), "Identity Registry not set");
+        
+        // Verify ownership of the agent NFT
+        address owner = IERC8004IdentityV1(identityRegistry).ownerOf(agentId);
+        require(owner == msg.sender, "Not agent owner");
+        
+        // Register agent with Studio
+        _agentIds[msg.sender] = agentId;
+        _agentRoles[agentId] = role;
+        _agentStakes[agentId] = msg.value;
+        _escrowBalances[msg.sender] += msg.value;
+        _totalEscrow += msg.value;
+        
+        emit AgentRegistered(agentId, msg.sender, uint8(role), msg.value);
+    }
+    
+    /**
+     * @notice Update agent stake
+     * @dev Add more stake to existing registration
+     */
+    function addStake() external payable {
+        uint256 agentId = _agentIds[msg.sender];
+        require(agentId != 0, "Not registered");
+        require(msg.value > 0, "No stake provided");
+        
+        uint256 oldStake = _agentStakes[agentId];
+        uint256 newStake = oldStake + msg.value;
+        
+        _agentStakes[agentId] = newStake;
+        _escrowBalances[msg.sender] += msg.value;
+        _totalEscrow += msg.value;
+        
+        emit StakeUpdated(agentId, oldStake, newStake);
+    }
+    
+    /**
+     * @notice Get agent ID for an address
+     * @param agent The agent address
+     * @return agentId The agent ID (0 if not registered)
+     */
+    function getAgentId(address agent) external view returns (uint256 agentId) {
+        return _agentIds[agent];
+    }
+    
+    /**
+     * @notice Get agent role
+     * @param agentId The agent ID
+     * @return role The agent role (see AgentRole enum)
+     */
+    function getAgentRole(uint256 agentId) external view returns (AgentRole role) {
+        return _agentRoles[agentId];
+    }
+    
+    /**
+     * @notice Get agent stake
+     * @param agentId The agent ID
+     * @return stake The agent stake amount
+     */
+    function getAgentStake(uint256 agentId) external view returns (uint256 stake) {
+        return _agentStakes[agentId];
+    }
+    
+    // ============ Client Reputation & Task Management ============
+    
+    /**
+     * @notice Client creates a task and funds escrow
+     * @dev Client must be registered with CLIENT role
+     * @param taskDescription Description of the task
+     * @param reward Reward amount for completion
+     * @param paymentProofUri IPFS/Irys URI with x402 PaymentProof
+     * @param paymentProofHash Hash of payment proof
+     * @return taskId The created task ID
+     */
+    function createTask(
+        string calldata taskDescription,
+        uint256 reward,
+        string calldata paymentProofUri,
+        bytes32 paymentProofHash
+    ) external payable returns (bytes32 taskId) {
+        // Verify client is registered
+        uint256 agentId = _agentIds[msg.sender];
+        require(agentId != 0, "Agent not registered");
+        require(hasClientRole(_agentRoles[agentId]), "Not a client agent");
+        require(msg.value >= reward, "Insufficient payment");
+        
+        // Create task ID
+        taskId = keccak256(abi.encodePacked(
+            msg.sender,
+            block.timestamp,
+            taskDescription
+        ));
+        
+        // Store task
+        _tasks[taskId] = Task({
+            clientAgentId: agentId,
+            workerAgentId: 0,
+            dataHash: bytes32(0),
+            reward: reward,
+            createdAt: block.timestamp,
+            completedAt: 0,
+            completed: false,
+            paymentProofUri: paymentProofUri,
+            paymentProofHash: paymentProofHash
+        });
+        
+        // Track client's tasks
+        _clientTasks[agentId].push(taskId);
+        
+        // Escrow funds
+        _escrowBalances[msg.sender] += msg.value;
+        _totalEscrow += msg.value;
+        
+        emit TaskCreated(taskId, agentId, reward, taskDescription);
+        
+        return taskId;
+    }
+    
+    /**
+     * @notice Mark task as completed after work validation
+     * @dev Called by RewardsDistributor after consensus
+     * @param taskId The task ID
+     * @param workerAgentId The worker who completed the task
+     * @param dataHash The work submission hash
+     */
+    function completeTask(
+        bytes32 taskId,
+        uint256 workerAgentId,
+        bytes32 dataHash
+    ) external onlyRewardsDistributor {
+        Task storage task = _tasks[taskId];
+        require(!task.completed, "Task already completed");
+        require(task.clientAgentId != 0, "Task not found");
+        
+        // Update task
+        task.workerAgentId = workerAgentId;
+        task.dataHash = dataHash;
+        task.completedAt = block.timestamp;
+        task.completed = true;
+        
+        emit TaskCompleted(taskId, workerAgentId, dataHash, block.timestamp);
+        
+        // Publish client reputation
+        _publishClientReputation(task);
+    }
+    
+    /**
+     * @notice Publish client reputation after task completion
+     * @dev Called internally after task completion
+     * 
+     * Triple-Verified Stack Integration:
+     * - feedbackUri contains PaymentProof (Layer 3: x402 payments)
+     * - SDK creates this automatically via create_feedback_with_payment()
+     * 
+     * @param task The completed task
+     */
+    function _publishClientReputation(Task storage task) internal {
+        // Import IERC8004Reputation interface
+        IERC8004Reputation reputationRegistry = IERC8004Reputation(
+            IChaosChainRegistry(_registry).getReputationRegistry()
+        );
+        
+        // Check if registry exists
+        if (address(reputationRegistry) == address(0)) return;
+        
+        // Check if it's a real contract
+        uint256 size;
+        assembly {
+            size := extcodesize(reputationRegistry)
+        }
+        if (size == 0) return;
+        
+        // Calculate client score (0-100)
+        uint8 score = 0;
+        
+        // On-time payment (within 24 hours of task creation)
+        bool onTimePayment = (task.completedAt - task.createdAt) <= 24 hours;
+        if (onTimePayment) score += 50;
+        
+        // Clear requirements (task completed successfully)
+        if (task.completed) score += 50;
+        
+        // Prepare feedback data
+        bytes32 tag1 = bytes32("CLIENT_RELIABILITY");
+        bytes32 tag2 = task.dataHash; // Link to specific work
+        
+        // Try to publish feedback with x402 PaymentProof
+        // feedbackUri contains: PaymentProof (x402 transaction details)
+        // Note: In production, this would use proper feedbackAuth signature
+        try reputationRegistry.giveFeedback(
+            task.clientAgentId,
+            score,
+            tag1,
+            tag2,
+            task.paymentProofUri,     // ✅ Contains x402 PaymentProof
+            task.paymentProofHash,    // ✅ Hash of payment proof
+            new bytes(0)              // feedbackAuth (would need proper signature)
+        ) {
+            emit ClientReputationPublished(
+                task.clientAgentId,
+                keccak256(abi.encodePacked(task.clientAgentId, task.dataHash)),
+                score,
+                task.paymentProofUri
+            );
+        } catch {
+            // Failed - likely needs proper authorization or mock registry
+        }
+    }
+    
+    /**
+     * @notice Get task details
+     * @param taskId The task ID
+     * @return task The task struct
+     */
+    function getTask(bytes32 taskId) external view returns (Task memory task) {
+        return _tasks[taskId];
+    }
+    
+    /**
+     * @notice Get all tasks for a client
+     * @param clientAgentId The client agent ID
+     * @return taskIds Array of task IDs
+     */
+    function getClientTasks(uint256 clientAgentId) external view returns (bytes32[] memory taskIds) {
+        return _clientTasks[clientAgentId];
+    }
+    
+    /**
+     * @notice Get client task count
+     * @param clientAgentId The client agent ID
+     * @return count Number of tasks
+     */
+    function getClientTaskCount(uint256 clientAgentId) external view returns (uint256 count) {
+        return _clientTasks[clientAgentId].length;
+    }
+    
+    /**
+     * @notice Get client completion rate
+     * @param clientAgentId The client agent ID
+     * @return rate Completion rate (0-100)
+     */
+    function getClientCompletionRate(uint256 clientAgentId) external view returns (uint256 rate) {
+        bytes32[] memory tasks = _clientTasks[clientAgentId];
+        if (tasks.length == 0) return 0;
+        
+        uint256 completed = 0;
+        for (uint256 i = 0; i < tasks.length; i++) {
+            if (_tasks[tasks[i]].completed) {
+                completed++;
+            }
+        }
+        
+        return (completed * 100) / tasks.length;
     }
     
     // ============ Fallback & Receive ============

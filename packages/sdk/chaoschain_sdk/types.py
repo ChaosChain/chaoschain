@@ -100,19 +100,32 @@ class AgentIdentity:
 
 @dataclass
 class EvidencePackage:
-    """Comprehensive evidence package for proof of agency."""
+    """
+    Comprehensive evidence package for proof of agency.
+    
+    Includes XMTP thread for causal audit (§1.5) and multi-dimensional scoring (§3.1).
+    """
     package_id: str
+    task_id: str                           # Task identifier
+    studio_id: str                         # Studio identifier
+    xmtp_thread_id: str                    # XMTP conversation ID for causal audit
+    thread_root: str                       # Merkle root of XMTP DAG (§1.2)
+    evidence_root: str                     # Merkle root of IPFS/Irys artifacts
+    participants: List[Dict[str, Any]]     # All agents involved (with roles and contributions)
     agent_identity: AgentIdentity
     work_proof: Dict[str, Any]
     integrity_proof: Optional[IntegrityProof]
     payment_proofs: List[PaymentProof]
     validation_results: List[ValidationResult]
+    artifacts: List[Dict[str, Any]] = None  # List of all IPFS/Irys artifacts
     ipfs_cid: Optional[str] = None
     created_at: datetime = None
     
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
+        if self.artifacts is None:
+            self.artifacts = []
 
 
 @dataclass

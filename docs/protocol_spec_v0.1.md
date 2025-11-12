@@ -248,7 +248,8 @@ interface IStudioProxy {
 
 1. `closeEpoch(studio)` → pulls submissions, reads VA commits/reveals, runs robust aggregation, computes WA/VA payouts
 2. `studio.validationResponse(DataHash, ConsensusScore)`
-3. `studio.release(WA, amount)`; update ReputationRegistry for VAs
+3. `studio.release(WA, amount)`; update ReputationRegistry for WAs (quality-based)
+4. Update ReputationRegistry for VAs (accuracy-based)
 
 ---
 
