@@ -12,10 +12,23 @@ from datetime import datetime
 
 
 class AgentRole(str, Enum):
-    """Supported agent roles in the ChaosChain protocol."""
-    SERVER = "server"
-    VALIDATOR = "validator" 
+    """
+    Supported agent roles in the ChaosChain protocol.
+    
+    Roles:
+    - WORKER: Performs tasks, submits work (formerly SERVER)
+    - VERIFIER: Validates work, submits scores (formerly VALIDATOR)
+    - CLIENT: Requests tasks, pays for work
+    - ORCHESTRATOR: Manages Studio, coordinates tasks
+    """
+    WORKER = "worker"
+    VERIFIER = "verifier"
     CLIENT = "client"
+    ORCHESTRATOR = "orchestrator"
+    
+    # Legacy aliases for backward compatibility
+    SERVER = "worker"  # Deprecated: use WORKER
+    VALIDATOR = "verifier"  # Deprecated: use VERIFIER
 
 
 class NetworkConfig(str, Enum):

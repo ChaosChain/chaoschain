@@ -136,16 +136,25 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             }
             uint256 qualityScalar = qualitySum / consensusScores.length; // 0-100
             
+            // Calculate rewards with Studio Orchestrator fee
+            uint256 totalBudget = 1 ether; // Simplified - would come from escrow
+            
+            // Studio Orchestrator fee (5% of total budget)
+            uint256 orchestratorFee = (totalBudget * 5) / 100;
+            
+            // Validator pool (10% of total budget)
+            uint256 validatorPool = (totalBudget * 10) / 100;
+            
+            // Worker reward pool (85% of total budget)
+            uint256 workerPool = totalBudget - orchestratorFee - validatorPool;
+            
             // Calculate worker reward (quality-based + PoA-based)
-            uint256 baseReward = 1 ether; // Simplified - would come from escrow
+            // Quality-based component (70% of worker pool)
+            uint256 qualityReward = (workerPool * qualityScalar * 70) / 10000;
             
-            // Quality-based component (70% of reward)
-            uint256 qualityReward = (baseReward * qualityScalar * 70) / 10000;
-            
-            // PoA-based component (30% of reward)
+            // PoA-based component (30% of worker pool)
             // In production, PoA scores would come from XMTP DAG analysis
-            // For now, use simplified calculation
-            uint256 poaReward = (baseReward * 30) / 100;
+            uint256 poaReward = (workerPool * 30) / 100;
             
             uint256 workerReward = qualityReward + poaReward;
             
@@ -155,15 +164,28 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 totalWorkerRewards += workerReward;
             }
             
+            // Pay Studio Orchestrator fee
+            // In production, orchestrator address would come from Studio config
+            // For MVP, orchestrator fee stays in Studio (can be withdrawn by owner)
+            // TODO: Add orchestrator address to Studio config
+            
             // Publish WA reputation to Reputation Registry (§4.1 protocol_spec_v0.1.md)
             // Get worker agent ID from StudioProxy
             uint256 workerAgentId = studioProxy.getAgentId(worker);
             if (workerAgentId != 0) {
                 // Note: In production, feedbackUri would be fetched from evidence package
                 // For MVP, we pass empty strings (SDK handles feedback creation)
+                
+                // For multi-dimensional scoring, we need the full consensus score vector
+                // For now, we'll create a simple score array with just the quality scalar
+                // TODO: In production, pass full consensusScores from calculateConsensus()
+                uint8[] memory scores = new uint8[](1);
+                scores[0] = uint8(qualityScalar);
+                
                 _publishWorkerReputation(
+                    studio,       // Studio proxy address
                     workerAgentId, 
-                    uint8(qualityScalar), 
+                    scores,       // Multi-dimensional scores
                     dataHash,
                     "",           // feedbackUri (would come from SDK/evidence package)
                     bytes32(0)    // feedbackHash
@@ -171,14 +193,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             }
             
             // Calculate validator rewards based on accuracy
-            uint256 validatorRewardPool = baseReward / 10; // 10% of base for validators
+            // validatorPool already calculated above (10% of totalBudget)
             totalValidatorRewards += _distributeValidatorRewards(
                 studioProxy,
                 dataHash,
                 scoreVectors,
                 consensusScores,
                 validators,
-                validatorRewardPool
+                validatorPool
             );
             
             // Store consensus result
@@ -418,24 +440,32 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /**
-     * @notice Publish WA quality scores to Reputation Registry
+     * @notice Publish WA multi-dimensional scores to Reputation Registry
      * @dev Called after consensus to build reputation for workers (§4.1 protocol_spec_v0.1.md)
+     * 
+     * Multi-Dimensional Scoring Architecture:
+     * - Publishes ONE feedback per dimension (e.g., Initiative, Accuracy, etc.)
+     * - tag1 = dimension name (e.g., "INITIATIVE", "ACCURACY")
+     * - tag2 = studio address (for studio-specific filtering)
+     * - Allows querying reputation by dimension and studio
      * 
      * Triple-Verified Stack Integration:
      * - feedbackUri contains IntegrityProof (Layer 2: Process Integrity)
      * - feedbackUri contains PaymentProof (Layer 3: x402 payments)
+     * - feedbackUri contains XMTP thread for causal audit
      * - SDK creates this automatically via create_feedback_with_payment()
      * 
+     * @param studioProxy The Studio proxy address
      * @param workerAgentId The worker's agent ID
-     * @param qualityScore The quality score (0-100, from consensus)
-     * @param dataHash The work hash for reference
-     * @param feedbackUri IPFS/Irys URI containing IntegrityProof + PaymentProof (from SDK)
+     * @param scores Array of scores (one per dimension, 0-100)
+     * @param feedbackUri IPFS/Irys URI containing IntegrityProof + PaymentProof + XMTP thread
      * @param feedbackHash Hash of feedback content
      */
     function _publishWorkerReputation(
+        address studioProxy,
         uint256 workerAgentId,
-        uint8 qualityScore,
-        bytes32 dataHash,
+        uint8[] memory scores,
+        bytes32 /* dataHash */,
         string memory feedbackUri,
         bytes32 feedbackHash
     ) internal {
@@ -450,27 +480,38 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         if (size == 0) return; // Skip if not a contract
         
-        // Prepare feedback data
-        bytes32 tag1 = bytes32("WORKER_QUALITY");
-        bytes32 tag2 = bytes32("CONSENSUS_SCORE");
+        // Get dimension names from Studio's LogicModule
+        (string[] memory dimensionNames, ) = _getStudioDimensions(studioProxy);
         
-        // Try to publish feedback with Triple-Verified Stack proofs
-        // feedbackUri contains: IntegrityProof (TEE attestation) + PaymentProof (x402)
-        // Note: In production, this would use proper feedbackAuth signature
-        // For MVP, we're documenting the integration point
-        try IERC8004Reputation(reputationRegistry).giveFeedback(
-            workerAgentId,
-            qualityScore,
-            tag1,
-            tag2,
-            feedbackUri,           // ✅ Contains IntegrityProof + PaymentProof
-            feedbackHash,          // ✅ Hash of feedback content
-            new bytes(0)           // feedbackAuth (would need proper signature)
-        ) {
-            // Success - reputation published with Triple-Verified Stack proofs
-        } catch {
-            // Failed - likely needs proper authorization or mock registry
-            // In production, RewardsDistributor would have authorization to post feedback
+        // Validate scores match dimensions
+        if (scores.length != dimensionNames.length) {
+            // Mismatch - skip reputation publishing
+            return;
+        }
+        
+        // Studio address as tag2 for filtering
+        bytes32 studioTag = bytes32(uint256(uint160(studioProxy)));
+        
+        // Publish one feedback per dimension
+        for (uint256 i = 0; i < dimensionNames.length; i++) {
+            // Convert dimension name to bytes32 for tag1
+            bytes32 dimensionTag = _stringToBytes32(dimensionNames[i]);
+            
+            // Try to publish feedback with Triple-Verified Stack proofs
+            // feedbackUri contains: IntegrityProof (TEE attestation) + PaymentProof (x402) + XMTP thread
+            try IERC8004Reputation(reputationRegistry).giveFeedback(
+                workerAgentId,
+                scores[i],           // Score for this dimension (0-100)
+                dimensionTag,        // tag1: Dimension name (e.g., "INITIATIVE", "ACCURACY")
+                studioTag,           // tag2: Studio address (for filtering)
+                feedbackUri,         // Contains full PoA analysis + proofs
+                feedbackHash,
+                new bytes(0)         // feedbackAuth (empty for MVP)
+            ) {
+                // Success - reputation published for this dimension
+            } catch {
+                // Failed - likely a mock registry or invalid dimension, continue
+            }
         }
     }
     
@@ -484,14 +525,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
      * 
      * @param validatorAgentId The validator's agent ID
      * @param performanceScore The performance score (0-100, based on accuracy to consensus)
-     * @param dataHash The work hash for reference
      * @param feedbackUri IPFS/Irys URI containing IntegrityProof (from SDK)
      * @param feedbackHash Hash of feedback content
      */
     function _publishValidatorReputation(
         uint256 validatorAgentId,
         uint8 performanceScore,
-        bytes32 dataHash,
+        bytes32 /* dataHash */,
         string memory feedbackUri,
         bytes32 feedbackHash
     ) internal {
@@ -622,6 +662,53 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         
         return totalDistributed;
+    }
+    
+    // ============ Helper Functions ============
+    
+    /**
+     * @notice Get scoring dimensions from Studio's LogicModule
+     * @param studioProxy The Studio proxy address
+     * @return names Array of dimension names
+     * @return weights Array of dimension weights
+     */
+    function _getStudioDimensions(address studioProxy) internal view returns (
+        string[] memory names,
+        uint16[] memory weights
+    ) {
+        // Get LogicModule address from StudioProxy
+        address logicModule = StudioProxy(payable(studioProxy)).getLogicModule();
+        
+        // Call getScoringCriteria() on LogicModule
+        // Use low-level call to handle potential failures gracefully
+        (bool success, bytes memory data) = logicModule.staticcall(
+            abi.encodeWithSignature("getScoringCriteria()")
+        );
+        
+        if (success) {
+            (names, weights) = abi.decode(data, (string[], uint16[]));
+        } else {
+            // Fallback to empty arrays if call fails
+            names = new string[](0);
+            weights = new uint16[](0);
+        }
+    }
+    
+    /**
+     * @notice Convert string to bytes32 (for ERC-8004 tags)
+     * @dev Truncates strings longer than 32 bytes
+     * @param source The string to convert
+     * @return result The bytes32 representation
+     */
+    function _stringToBytes32(string memory source) internal pure returns (bytes32 result) {
+        bytes memory tempBytes = bytes(source);
+        if (tempBytes.length == 0) {
+            return 0x0;
+        }
+        
+        assembly {
+            result := mload(add(source, 32))
+        }
     }
     
     // NOTE: All consensus logic moved to Scoring library (libraries/Scoring.sol)

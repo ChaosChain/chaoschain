@@ -66,9 +66,6 @@ class StudioManager:
     - Bid collection from workers
     - Worker selection (reputation-based)
     - Task assignment and tracking
-    
-    This implements the Studio orchestration layer described in
-    COMPLETE_WORKFLOW_WITH_STUDIOS.md (Phase 2).
     """
     
     def __init__(self, sdk):
@@ -296,7 +293,7 @@ class StudioManager:
         """
         Select best worker based on reputation, price, time, and capabilities.
         
-        Implements reputation-based selection algorithm (COMPLETE_WORKFLOW_WITH_STUDIOS.md Phase 2).
+        Implements reputation-based selection algorithm.
         
         Args:
             task_id: Task ID

@@ -237,35 +237,58 @@ class VerifierAgent:
     def compute_multi_dimensional_scores(
         self,
         xmtp_messages: List[Dict[str, Any]],
-        participants: List[Dict[str, Any]]
+        participants: List[Dict[str, Any]],
+        studio_address: Optional[str] = None
     ) -> Dict[str, List[float]]:
         """
         Compute multi-dimensional scores from XMTP DAG (§3.1).
         
-        Dimensions:
-        1. Initiative: Original contributions (non-reply messages)
-        2. Collaboration: Reply/extend edges (reply messages)
-        3. Reasoning Depth: Average path length from root
-        4. Compliance: Policy checks (all pass for now)
-        5. Efficiency: Time-based (faster responses = higher score)
+        Architecture:
+        - Fetches scoring dimensions from Studio's LogicModule
+        - Computes scores for ALL dimensions (universal PoA + studio-specific)
+        - Universal PoA dimensions (always present):
+          1. Initiative: Original contributions (non-reply messages)
+          2. Collaboration: Reply/extend edges (reply messages)
+          3. Reasoning Depth: Average path length from root
+          4. Compliance: Policy checks (all pass for now)
+          5. Efficiency: Time-based (faster responses = higher score)
+        - Studio-specific dimensions (defined in LogicModule):
+          e.g., Accuracy, Risk Assessment, Originality, etc.
         
         Args:
             xmtp_messages: List of XMTP messages
             participants: List of participant info (agent_id, address, role)
+            studio_address: Studio contract address (optional, for fetching dimensions)
         
         Returns:
-            {agent_id: [initiative, collaboration, reasoning_depth, compliance, efficiency]}
+            {agent_id: [score1, score2, ...]} matching studio dimensions
         
         Example:
             ```python
-            scores = verifier.compute_multi_dimensional_scores(messages, participants)
+            scores = verifier.compute_multi_dimensional_scores(
+                messages, 
+                participants,
+                studio_address="0x123..."
+            )
+            # For Finance Studio:
             # scores = {
-            #     "agent_123": [0.8, 0.6, 0.7, 1.0, 0.9],
-            #     "agent_456": [0.6, 0.8, 0.5, 1.0, 0.7]
+            #     "agent_123": [0.8, 0.6, 0.7, 1.0, 0.9, 0.85, 0.92, 0.88],
+            #     #              ^initiative  ^collab  ^reasoning  ^compliance  ^efficiency  ^accuracy  ^risk  ^docs
+            #     "agent_456": [0.6, 0.8, 0.5, 1.0, 0.7, 0.78, 0.85, 0.82]
             # }
             ```
         """
         scores = {}
+        
+        # Fetch studio dimensions
+        dimension_names = self._get_studio_dimensions(studio_address) if studio_address else []
+        
+        # Fallback to default PoA dimensions if studio dimensions not available
+        if not dimension_names:
+            dimension_names = ["Initiative", "Collaboration", "Reasoning Depth", "Compliance", "Efficiency"]
+            logger.warning("⚠️  Using default PoA dimensions (studio dimensions not available)")
+        
+        logger.info(f"📊 Computing scores for {len(dimension_names)} dimensions: {dimension_names}")
         
         # Create address to agent_id mapping
         address_to_agent_id = {
@@ -278,25 +301,26 @@ class VerifierAgent:
             agent_id = str(participant["agent_id"])
             
             try:
-                scores[agent_id] = [
-                    self._compute_initiative(xmtp_messages, agent_address),
-                    self._compute_collaboration(xmtp_messages, agent_address),
-                    self._compute_reasoning_depth(xmtp_messages, agent_address),
-                    self._compute_compliance(xmtp_messages, agent_address),
-                    self._compute_efficiency(xmtp_messages, agent_address)
-                ]
+                # Compute score for each dimension
+                agent_scores = []
+                for dimension in dimension_names:
+                    score = self._compute_dimension_score(
+                        xmtp_messages,
+                        agent_address,
+                        dimension
+                    )
+                    agent_scores.append(score)
                 
-                logger.debug(
-                    f"Agent {agent_id} scores: "
-                    f"initiative={scores[agent_id][0]:.2f}, "
-                    f"collaboration={scores[agent_id][1]:.2f}, "
-                    f"reasoning_depth={scores[agent_id][2]:.2f}, "
-                    f"compliance={scores[agent_id][3]:.2f}, "
-                    f"efficiency={scores[agent_id][4]:.2f}"
-                )
+                scores[agent_id] = agent_scores
+                
+                # Log scores
+                score_str = ", ".join([f"{dim}={score:.2f}" for dim, score in zip(dimension_names, agent_scores)])
+                logger.debug(f"Agent {agent_id} scores: {score_str}")
+                
             except Exception as e:
                 logger.warning(f"⚠️  Failed to compute scores for agent {agent_id}: {e}")
-                scores[agent_id] = [0.0, 0.0, 0.0, 0.0, 0.0]
+                # Return zeros for all dimensions
+                scores[agent_id] = [0.0] * len(dimension_names)
         
         return scores
     
@@ -542,4 +566,249 @@ class VerifierAgent:
         logger.info(f"✅ Score vector submitted: {tx_hash}")
         
         return tx_hash
+    
+    def _get_studio_dimensions(self, studio_address: str) -> List[str]:
+        """
+        Fetch scoring dimensions from Studio's LogicModule.
+        
+        Args:
+            studio_address: Studio proxy address
+        
+        Returns:
+            List of dimension names (e.g., ["Initiative", "Collaboration", ...])
+        """
+        try:
+            # Load StudioProxy ABI
+            studio_proxy_abi = self.sdk.chaos_agent._load_abi("StudioProxy")
+            studio_proxy = self.sdk.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get LogicModule address
+            logic_module_address = studio_proxy.functions.getLogicModule().call()
+            
+            # Load LogicModule ABI
+            logic_module_abi = self.sdk.chaos_agent._load_abi("LogicModule")
+            logic_module = self.sdk.chaos_agent.w3.eth.contract(
+                address=logic_module_address,
+                abi=logic_module_abi
+            )
+            
+            # Get scoring criteria
+            (dimension_names, weights) = logic_module.functions.getScoringCriteria().call()
+            
+            logger.info(f"✅ Fetched {len(dimension_names)} dimensions from Studio {studio_address}")
+            return dimension_names
+            
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to fetch studio dimensions: {e}")
+            return []
+    
+    def _compute_dimension_score(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str,
+        dimension: str
+    ) -> float:
+        """
+        Compute score for a specific dimension.
+        
+        Universal PoA Dimensions:
+        - Initiative
+        - Collaboration
+        - Reasoning Depth
+        - Compliance
+        - Efficiency
+        
+        Studio-Specific Dimensions:
+        - Accuracy (Finance)
+        - Risk Assessment (Finance)
+        - Documentation (Finance)
+        - Originality (Creative)
+        - Aesthetic Quality (Creative)
+        - Brand Alignment (Creative)
+        - etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+            dimension: Dimension name
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # Map dimension to computation method
+        dimension_methods = {
+            # Universal PoA dimensions
+            "Initiative": self._compute_initiative,
+            "Collaboration": self._compute_collaboration,
+            "Reasoning Depth": self._compute_reasoning_depth,
+            "Compliance": self._compute_compliance,
+            "Efficiency": self._compute_efficiency,
+            
+            # Finance Studio dimensions
+            "Accuracy": self._compute_accuracy,
+            "Risk Assessment": self._compute_risk_assessment,
+            "Documentation": self._compute_documentation,
+            
+            # Creative Studio dimensions
+            "Originality": self._compute_originality,
+            "Aesthetic Quality": self._compute_aesthetic_quality,
+            "Brand Alignment": self._compute_brand_alignment,
+        }
+        
+        method = dimension_methods.get(dimension)
+        if method:
+            return method(messages, agent_address)
+        else:
+            # Unknown dimension, return default
+            logger.warning(f"⚠️  Unknown dimension: {dimension}, using default score 0.5")
+            return 0.5
+    
+    # ============ Studio-Specific Dimension Computation Methods ============
+    
+    def _compute_accuracy(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str
+    ) -> float:
+        """
+        Compute Accuracy score (Finance Studio).
+        
+        Measures correctness of financial analysis/predictions.
+        
+        For MVP: Returns 0.85 (placeholder).
+        In production: Would analyze prediction accuracy, data correctness, etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement actual accuracy computation
+        # For now, return placeholder
+        return 0.85
+    
+    def _compute_risk_assessment(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str
+    ) -> float:
+        """
+        Compute Risk Assessment score (Finance Studio).
+        
+        Measures quality of risk evaluation and mitigation strategies.
+        
+        For MVP: Returns 0.80 (placeholder).
+        In production: Would analyze risk identification, mitigation quality, etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement actual risk assessment computation
+        # For now, return placeholder
+        return 0.80
+    
+    def _compute_documentation(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str
+    ) -> float:
+        """
+        Compute Documentation score (Finance Studio).
+        
+        Measures clarity and completeness of reports/documentation.
+        
+        For MVP: Returns 0.75 (placeholder).
+        In production: Would analyze documentation quality, completeness, clarity, etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement actual documentation computation
+        # For now, return placeholder
+        return 0.75
+    
+    def _compute_originality(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str
+    ) -> float:
+        """
+        Compute Originality score (Creative Studio).
+        
+        Measures creative uniqueness and innovation.
+        
+        For MVP: Returns 0.90 (placeholder).
+        In production: Would analyze creative uniqueness, novelty, innovation, etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement actual originality computation
+        # For now, return placeholder
+        return 0.90
+    
+    def _compute_aesthetic_quality(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str
+    ) -> float:
+        """
+        Compute Aesthetic Quality score (Creative Studio).
+        
+        Measures visual/artistic excellence.
+        
+        For MVP: Returns 0.88 (placeholder).
+        In production: Would analyze visual appeal, artistic quality, etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement actual aesthetic quality computation
+        # For now, return placeholder
+        return 0.88
+    
+    def _compute_brand_alignment(
+        self,
+        messages: List[Dict[str, Any]],
+        agent_address: str
+    ) -> float:
+        """
+        Compute Brand Alignment score (Creative Studio).
+        
+        Measures consistency with brand guidelines.
+        
+        For MVP: Returns 0.82 (placeholder).
+        In production: Would analyze brand guideline adherence, consistency, etc.
+        
+        Args:
+            messages: XMTP messages
+            agent_address: Agent's address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement actual brand alignment computation
+        # For now, return placeholder
+        return 0.82
 
