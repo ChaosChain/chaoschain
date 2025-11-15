@@ -356,7 +356,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🔗 Links
+## Links
 
 - **Website:** [chaoscha.in](https://chaoscha.in)
 - **Twitter:** [@ChaosChainLabs](https://twitter.com/ch40schain)
