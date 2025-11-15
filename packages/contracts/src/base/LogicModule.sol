@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {ProtocolConstants} from "../libraries/ProtocolConstants.sol";
+
 /**
  * @title LogicModule
  * @notice Base contract for Studio business logic modules
@@ -15,6 +17,11 @@ pragma solidity ^0.8.24;
  * 3. Storage layout must match StudioProxy layout
  * 
  * Implement custom Studio logic by extending this base contract.
+ * 
+ * SCORING ARCHITECTURE:
+ * - All Studios MUST score the 5 universal PoA dimensions (Initiative, Collaboration, etc.)
+ * - Studios CAN add additional domain-specific dimensions
+ * - Override getScoringCriteria() to define your Studio's complete dimension set
  * 
  * @author ChaosChain Labs
  */
@@ -88,21 +95,39 @@ abstract contract LogicModule {
     
     /**
      * @notice Get scoring criteria metadata for this Studio type
-     * @dev REQUIRED: Override in derived contracts to expose criteria for Explorer UI
-     * @return names Array of criterion names (e.g., ["Quality", "Initiative", "Collaboration"])
-     * @return weights Array of weights per criterion (e.g., [100, 80, 120] where 100 = 1.0x)
+     * @dev REQUIRED: Override in derived contracts to add studio-specific dimensions
      * 
-     * Example for a prediction market:
-     *   names: ["Accuracy", "Timeliness", "Reasoning"]
-     *   weights: [150, 100, 50] // 1.5x, 1.0x, 0.5x
+     * ALL Studios MUST include the 5 universal PoA dimensions:
+     * 1. Initiative (original contributions)
+     * 2. Collaboration (helping others)
+     * 3. Reasoning Depth (problem-solving)
+     * 4. Compliance (following rules)
+     * 5. Efficiency (time management)
+     * 
+     * Studios CAN add additional domain-specific dimensions after these 5.
+     * 
+     * @return names Array of dimension names (MUST start with 5 PoA dimensions)
+     * @return weights Array of weights per dimension (100 = 1.0x, 150 = 1.5x, etc.)
+     * 
+     * Example for Finance Studio:
+     *   names: ["Initiative", "Collaboration", "Reasoning Depth", "Compliance", "Efficiency", 
+     *           "Accuracy", "Risk Assessment", "Documentation"]
+     *   weights: [100, 100, 100, 150, 80, 200, 150, 120]
+     *           // Compliance 1.5x, Accuracy 2.0x (critical for finance!)
+     * 
+     * Example for Creative Studio:
+     *   names: ["Initiative", "Collaboration", "Reasoning Depth", "Compliance", "Efficiency",
+     *           "Originality", "Aesthetic Quality", "Brand Alignment"]
+     *   weights: [150, 100, 100, 80, 100, 200, 180, 120]
+     *           // Initiative 1.5x, Originality 2.0x (critical for creativity!)
      */
     function getScoringCriteria() external virtual view returns (
         string[] memory names,
         uint16[] memory weights
     ) {
-        // Default: empty (override required)
-        names = new string[](0);
-        weights = new uint16[](0);
+        // Default: Universal PoA dimensions only
+        names = ProtocolConstants.getDefaultPoADimensions();
+        weights = ProtocolConstants.getDefaultPoAWeights();
     }
     
     // ============ Internal Helper Functions ============

@@ -176,19 +176,31 @@ contract PredictionMarketLogic is LogicModule {
         string[] memory names,
         uint16[] memory weights
     ) {
-        // Define 4 scoring criteria for prediction markets
-        names = new string[](4);
-        names[0] = "Accuracy";      // How correct was the prediction?
-        names[1] = "Timeliness";    // How early was it submitted?
-        names[2] = "Reasoning";     // Quality of justification
-        names[3] = "Confidence";    // Stake + conviction alignment
+        // Total: 5 universal PoA + 3 prediction-specific = 8 dimensions
+        names = new string[](8);
+        weights = new uint16[](8);
+        
+        // Universal PoA dimensions (REQUIRED)
+        names[0] = "Initiative";
+        names[1] = "Collaboration";
+        names[2] = "Reasoning Depth";
+        names[3] = "Compliance";
+        names[4] = "Efficiency";
+        
+        // Prediction market-specific dimensions
+        names[5] = "Accuracy";      // How correct was the prediction?
+        names[6] = "Timeliness";    // How early was it submitted?
+        names[7] = "Confidence";    // Stake + conviction alignment
         
         // Weights (100 = 1.0x baseline)
-        weights = new uint16[](4);
-        weights[0] = 150;  // 1.5x weight on accuracy (most important)
-        weights[1] = 100;  // 1.0x weight on timeliness
-        weights[2] = 80;   // 0.8x weight on reasoning quality
-        weights[3] = 70;   // 0.7x weight on confidence calibration
+        weights[0] = 100;  // Initiative: 1.0x
+        weights[1] = 100;  // Collaboration: 1.0x
+        weights[2] = 100;  // Reasoning Depth: 1.0x
+        weights[3] = 100;  // Compliance: 1.0x
+        weights[4] = 100;  // Efficiency: 1.0x
+        weights[5] = 200;  // Accuracy: 2.0x (MOST CRITICAL!)
+        weights[6] = 150;  // Timeliness: 1.5x (important for predictions)
+        weights[7] = 120;  // Confidence: 1.2x (calibration matters)
     }
 }
 

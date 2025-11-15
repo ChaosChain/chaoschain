@@ -81,6 +81,7 @@ contract ChaosCore is Ownable, IChaosCore {
         // Deploy new StudioProxy
         proxy = address(new StudioProxy(
             address(this),
+            address(registry),
             logicModule,
             rewardsDistributor
         ));

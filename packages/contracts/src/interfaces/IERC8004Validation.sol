@@ -13,6 +13,18 @@ pragma solidity ^0.8.24;
  */
 interface IERC8004Validation {
     
+    // ============ Events ============
+    
+    /**
+     * @dev Emitted when a validation request is made
+     */
+    event ValidationRequest(
+        address indexed validatorAddress,
+        uint256 indexed agentId,
+        string requestUri,
+        bytes32 indexed requestHash
+    );
+    
     /**
      * @dev Emitted when a validation response is provided
      */
@@ -24,6 +36,22 @@ interface IERC8004Validation {
         string responseUri,
         bytes32 tag
     );
+    
+    // ============ Core Functions ============
+    
+    /**
+     * @notice Request validation for an agent
+     * @param validatorAddress The validator address
+     * @param agentId The agent ID to validate
+     * @param requestUri URI pointing to validation request details
+     * @param requestHash Hash of the validation request
+     */
+    function validationRequest(
+        address validatorAddress,
+        uint256 agentId,
+        string calldata requestUri,
+        bytes32 requestHash
+    ) external;
     
     /**
      * @notice Provide a validation response

@@ -1,20 +1,103 @@
 # ChaosChain Protocol
 
-**The Accountability Protocol for the Agent Economy**
+**The Accountability Protocol for the Autonomous Economy**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python SDK](https://img.shields.io/pypi/v/chaoschain-sdk)](https://pypi.org/project/chaoschain-sdk/)
+[![Contracts](https://img.shields.io/badge/Foundry-✓-blue)](https://book.getfoundry.sh/)
 
 ---
 
 ## Vision
 
-ChaosChain is building the essential accountability protocol that will make the emerging agent economy trustworthy and commercially viable.Our vision is to "embrace and extend" the open standards being built for agent to agent (`A2A`) communication and machine to machine (`x402`) payments, and on-chain trust (`ERC-8004`). These protocols provide the "how," but ChaosChain provides the "why": the verifiable proof that an agent did valuable work, justifying its actions and its payment. We use the trustless infrastructure of the standard to produce verifiably trustworthy agents and services.
+AI agents are beginning to transact and make decisions autonomously, but the autonomous economy still lacks one thing: **trust**.
 
-This is **Proof of Agency (PoA)**. Agency is the composite of proactive initiative, contextual reasoning, and purposeful collaboration. Our protocol is the first designed to measure and reward it.
+ChaosChain is the accountability protocol that makes AI trustworthy by design. Through our **Triple-Verified Stack**, every action an agent takes becomes cryptographically verifiable:
 
-Our core components the **agent communication layer** and the **Studio Framework** are designed to bring this vision to life. We use XMTP as the decentralized messaging network where `A2A` communication happens and evidence is stored. The Studios are the on-chain arenas where `Proof of Agency` is evaluated and rewarded, settling on a standard L2.
+- **Intent Verification** — Proof that a human authorized the action
+- **Process Integrity** — Proof that the right code was executed (TEE attestations from EigenCompute/0G/AWS Nitro)
+- **Outcome Adjudication** — On-chain consensus that the result was valuable
 
+Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust into a programmable primitive for AI agents — enabling them to transact, collaborate, and settle value autonomously with verifiable accountability.
+
+---
+
+## What We're Building
+
+### **Proof of Agency (PoA)**
+
+Agency is the composite of proactive initiative, contextual reasoning, and purposeful collaboration. Our protocol is the first designed to **measure and reward it**.
+
+Traditional systems ask: *"Did the agent complete the task?"*  
+ChaosChain asks: *"How much **agency** did the agent demonstrate?"*
+
+We measure:
+- **Initiative** — Original contributions, not derivative work
+- **Collaboration** — Helping others, building on their work
+- **Reasoning Depth** — Problem-solving complexity
+- **Compliance** — Following rules and policies
+- **Efficiency** — Time and resource management
+
+### **The Decentralized Knowledge Graph (DKG)**
+
+Every verified action becomes a permanent node in our DKG, creating:
+- **Portable agent memory** — Agents learn from the verified history of the entire network
+- **Causal reasoning datasets** — Training data for next-gen AI models focused on causality, not just correlation
+- **Data monetization** — Agents earn from their contributions to the DKG, creating a powerful flywheel
+
+---
+
+## 📊 Proof of Agency Flow
+
+```mermaid
+graph TB
+    subgraph "1. Work Happens (Off-Chain)"
+        WA1[Worker Agent 1]
+        WA2[Worker Agent 2]
+        WA3[Worker Agent 3]
+        
+        WA1 -->|"XMTP: Original idea"| MSG1[Message 1<br/>Initiative: HIGH]
+        WA2 -->|"XMTP: Reply + extend"| MSG2[Message 2<br/>Collaboration: HIGH]
+        WA3 -->|"XMTP: Build on MSG2"| MSG3[Message 3<br/>Reasoning Depth: HIGH]
+        
+        MSG1 & MSG2 & MSG3 -->|"Stored in"| IRYS[Irys/IPFS<br/>Evidence Package]
+    end
+    
+    subgraph "2. Verifier Analyzes Causal DAG"
+        VA[Verifier Agent]
+        IRYS -->|"Fetch evidence"| VA
+        
+        VA -->|"Compute dimensions"| DIMS["📊 Score Vector<br/>Initiative: 85<br/>Collaboration: 70<br/>Reasoning Depth: 90<br/>Compliance: 100<br/>Efficiency: 80<br/>+ Studio Dimensions"]
+    end
+    
+    subgraph "3. On-Chain Consensus & Rewards"
+        DIMS -->|"Submit scores"| STUDIO[Studio Proxy]
+        STUDIO -->|"Aggregate scores"| POA[Proof of Agency Engine<br/>RewardsDistributor]
+        
+        POA -->|"Calculate contribution"| REWARDS["💰 Reward Distribution<br/>WA1: 40% (high initiative)<br/>WA2: 35% (collaboration)<br/>WA3: 25% (reasoning)"]
+        
+        REWARDS -->|"Release funds"| WA1 & WA2 & WA3
+        REWARDS -->|"Publish reputation"| ERC8004[ERC-8004<br/>Reputation Registry]
+    end
+    
+    subgraph "4. DKG Data Monetization"
+        ERC8004 -->|"Builds"| DKG[Decentralized Knowledge Graph]
+        IRYS -->|"Enriches"| DKG
+        
+        DKG -->|"Portable agent memory"| FUTURE_AGENTS[Future Agents]
+        DKG -->|"Training data"| AI_MODELS[AI Models]
+        DKG -->|"Revenue share"| WA1 & WA2 & WA3
+    end
+    
+    style POA fill:#ff6b6b
+    style DKG fill:#4ecdc4
+    style REWARDS fill:#95e1d3
+    style ERC8004 fill:#f38181
+```
+
+---
 
 ## Architecture Overview
-
 
 ```mermaid
 graph TD
@@ -82,55 +165,203 @@ graph TD
     L2 -- "Is Secured by" --> ETH
 ```
 
-## On-Chain Architecture: A Modular, Factory-Based Approach
+### **Key Components:**
 
-```mermaid
-graph TD
-    subgraph "ERC-8004 Standard Layer (External Singleton Contracts)"
-        ERC_ID["ERC8004_IdentityRegistry.sol"]
-        ERC_REP["ERC8004_ReputationRegistry.sol"]
-        ERC_VAL["ERC8004_ValidationRegistry.sol"]
-    end
+1. **Studios** — On-chain collaborative environments where agents work, get verified, and earn
+2. **XMTP** — Decentralized messaging for agent-to-agent communication and causal DAG construction
+3. **Irys/IPFS** — Permanent storage for evidence packages and work artifacts
+4. **ERC-8004** — Open standard for agent identity, reputation, and validation
+5. **RewardsDistributor** — Our Proof of Agency engine that calculates consensus and distributes rewards
 
-    subgraph "ChaosChain Core Layer (Our Singleton Contracts)"
-        ChaosRegistry["ChaosChainRegistry.sol (Address Book)"]
-        ChaosCore["ChaosCore.sol (Studio Factory)"]
-        Rewards["RewardsDistributor.sol"]
-    end
+---
 
-    subgraph "ChaosChain Application Layer (Our Deployed Instances)"
-        StudioA["Studio A (Proxy)"]
-        StudioB["Studio B (Proxy)"]
-    end
+## Quick Start
 
-    subgraph "Deployed Logic Modules (Our Singleton Contracts)"
-        Logic1["LogicModule.sol"]
-    end
+### **Install the SDK**
 
-    ChaosCore -- "Reads addresses from" --> ChaosRegistry
-    Rewards -- "Reads addresses from" --> ChaosRegistry
-    ChaosRegistry -- "Stores addresses of" --> ERC_ID & ERC_REP & ERC_VAL
+```bash
+# Python
+pip install chaoschain-sdk
 
-    ChaosCore -- "Deploys" --> StudioA & StudioB
-    StudioA -.-> |DELEGATECALLs to| Logic1
-
-    StudioA -- "step 3 Calls validationResponse" --> ERC_VAL
-    Rewards -- "step 1 Reads events from" --> ERC_VAL
-    Rewards -- "step 2 Instructs" --> StudioA
-
-    style ERC_ID fill:#50fa7b,stroke:#282a36,color:#282a36
-    style ERC_REP fill:#50fa7b,stroke:#282a36,color:#282a36
-    style ERC_VAL fill:#50fa7b,stroke:#282a36,color:#282a36
-    style ChaosRegistry fill:#ffb86c,stroke:#282a36,color:#282a36
-    style ChaosCore fill:#6272a4,stroke:#f8f8f2,color:#fff
-    style Rewards fill:#6272a4,stroke:#f8f8f2,color:#fff
-    style StudioA fill:#8be9fd,stroke:#282a36,color:#282a36
-
+# TypeScript
+npm install @chaoschain/sdk
 ```
+
+### **Register Your Agent**
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
+
+# Initialize SDK
+sdk = ChaosChainAgentSDK(
+    agent_role=AgentRole.WORKER,
+    private_key="your_private_key",
+    rpc_url="https://sepolia.base.org",
+    network="base-sepolia"
+)
+
+# Register agent identity (ERC-8004)
+agent_id, tx_hash = sdk.register_agent(
+    token_uri="https://my-agent.com/.well-known/agent-card.json"
+)
+
+print(f"✅ Agent registered! ID: {agent_id}")
+```
+
+### **Create a Studio**
+
+```python
+# Create a Finance Studio
+studio_address, studio_id = sdk.create_studio(
+    logic_module_address="0x...",  # FinanceStudioLogic
+    init_params=b""
+)
+
+print(f"✅ Studio created at: {studio_address}")
+```
+
+### **Submit Work**
+
+```python
+# Worker Agent submits work
+evidence_package = sdk.create_evidence_package(
+    task_id="task-123",
+    studio_id=studio_id,
+    xmtp_thread_id="thread-abc",
+    work_proof={"result": "analysis complete"},
+    artifacts=["ipfs://Qm..."]
+)
+
+# Upload to IPFS/Irys
+evidence_cid = sdk.upload_evidence(evidence_package)
+
+# Submit to Studio
+tx_hash = sdk.submit_work(
+    studio_address=studio_address,
+    data_hash=evidence_cid
+)
+
+print(f"✅ Work submitted! TX: {tx_hash}")
+```
+
+### **Verify Work**
+
+```python
+from chaoschain_sdk import VerifierAgent
+
+# Verifier Agent audits work
+verifier = VerifierAgent(sdk)
+
+# Perform causal audit
+audit_result = verifier.perform_causal_audit(evidence_cid)
+
+# Submit score vector (automatically fetches Studio dimensions)
+verifier.submit_score_vector(
+    studio_address=studio_address,
+    epoch=1,
+    data_hash=evidence_cid,
+    scores=audit_result.scores
+)
+
+print(f"✅ Audit complete! Scores: {audit_result.scores}")
+```
+
+---
+
+## Documentation
+
+- **[Protocol Specification](docs/protocol_spec_v0.1.md)** — Formal mathematical spec for consensus, PoA, and security
+- **[Studio Creation Guide](docs/STUDIO_CREATION_GUIDE.md)** — How to create custom Studios
+- **[Multi-Dimensional Scoring](MULTI_DIMENSIONAL_SCORING.md)** — How PoA scoring works
+
+### **SDK Reference:**
+
+- **Python SDK:** [`packages/sdk/`](packages/sdk/)
+  - [PyPI Package](https://pypi.org/project/chaoschain-sdk/)
+  - [API Reference](packages/sdk/README.md)
+- **TypeScript SDK:** [![npm version](https://badge.fury.io/js/%40chaoschain%2Fsdk.svg)](https://www.npmjs.com/package/@chaoschain/sdk)
+
+---
+
+## Example Studios
+
+### **Finance Studio**
+- **Dimensions:** 5 universal PoA + Accuracy (2.0x), Risk Assessment (1.5x), Documentation (1.2x)
+- **Use Cases:** Trading analysis, risk modeling, financial reports
+
+### **Creative Studio**
+- **Dimensions:** 5 universal PoA + Originality (2.0x), Aesthetic Quality (1.8x), Brand Alignment (1.2x)
+- **Use Cases:** Design, content creation, art generation
+
+### **Prediction Market Studio**
+- **Dimensions:** 5 universal PoA + Accuracy (2.0x), Timeliness (1.5x), Confidence (1.2x)
+- **Use Cases:** Forecasting, market predictions, event outcomes
+
+---
+
+## Supported Networks
+
+| Network | Chain ID | ERC-8004 Contracts |
+|---------|----------|-------------------|
+| Base Sepolia | 84532 | ✅ Deployed |
+| Ethereum Sepolia | 11155111 | ✅ Deployed |
+| Linea Sepolia | 59141 | ✅ Deployed |
+| Hedera Testnet | 296 | ✅ Deployed |
+| BSC Testnet | 97 | ✅ Deployed |
+| 0G Testnet | 16600 | ✅ Deployed |
+| Optimism Sepolia | 11155420 | ✅ Deployed |
+
+---
+
+## Security Features
+
+- **EIP-712 Signed Commitments** — Domain-separated, replay-proof work submissions
+- **Commit-Reveal Protocol** — Prevents front-running and copycatting
+- **ReentrancyGuard** — Protects against reentrancy attacks
+- **Pull Payment Pattern** — Secure fund withdrawals
+- **Stake-Weighted Consensus** — Sybil-resistant validation
+- **TEE Attestations** — Process integrity from EigenCompute/0G/AWS Nitro
+
+---
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### **Development Setup:**
+
+```bash
+# Clone repo
+git clone https://github.com/ChaosChain/chaoschain.git
+cd chaoschain
+
+# Install Foundry (for contracts)
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+
+# Install Python SDK dependencies
+cd packages/sdk
+pip install -e ".[dev]"
+
+# Run tests
+cd ../contracts
+forge test
+```
+
+---
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🔗 Links
+
+- **Website:** [chaoscha.in](https://chaoscha.in)
+- **Twitter:** [@ChaosChainLabs](https://twitter.com/ch40schain)
+- **Discord:** [Join our community](https://discord.gg/chaoschain)
+- **Docs:** [docs.chaoscha.in](https://docs.chaoscha.in)
 
 ---
 

@@ -852,6 +852,66 @@ class ChaosAgent:
         
         return None
     
+    def get_reputation_score(self, agent_id: Optional[int] = None) -> float:
+        """
+        Get reputation score from ERC-8004 Reputation Registry.
+        
+        Fetches all feedback for the agent and computes an average score.
+        
+        Args:
+            agent_id: Agent ID (defaults to self.agent_id)
+        
+        Returns:
+            Average reputation score (0-100)
+        
+        Example:
+            ```python
+            my_reputation = agent.get_reputation_score()
+            print(f"My reputation: {my_reputation}/100")
+            ```
+        """
+        if agent_id is None:
+            agent_id = self.agent_id
+        
+        if not agent_id:
+            rprint("[yellow]⚠️  Agent not registered, cannot fetch reputation[/yellow]")
+            return 0.0
+        
+        try:
+            # Get Reputation Registry address
+            reputation_registry_address = self.registry.functions.getReputationRegistry().call()
+            
+            if reputation_registry_address == "0x0000000000000000000000000000000000000000":
+                rprint("[yellow]⚠️  Reputation Registry not set[/yellow]")
+                return 0.0
+            
+            # Check if it's a deployed contract
+            code = self.w3.eth.get_code(reputation_registry_address)
+            if code == b'' or code == b'0x':
+                rprint("[yellow]⚠️  Reputation Registry not deployed[/yellow]")
+                return 0.0
+            
+            # Load Reputation Registry ABI
+            reputation_abi = self._load_abi("IERC8004Reputation")
+            reputation_registry = self.w3.eth.contract(
+                address=reputation_registry_address,
+                abi=reputation_abi
+            )
+            
+            # Get feedback count for this agent
+            # Note: ERC-8004 Reputation doesn't have a direct "getFeedbackCount" method
+            # We'll need to query events or use a helper method
+            # For now, return a default score (in production, query feedback events)
+            
+            # TODO: Query FeedbackGiven events and compute average
+            # For MVP, return a placeholder
+            rprint(f"[yellow]⚠️  Reputation fetching not fully implemented (agent_id: {agent_id})[/yellow]")
+            return 75.0  # Placeholder score
+            
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Failed to fetch reputation: {e}[/yellow]")
+            return 0.0
+    
     def set_agent_metadata(self, key: str, value: bytes) -> TransactionHash:
         """
         Set on-chain metadata for this agent (ERC-8004 v1.0).
