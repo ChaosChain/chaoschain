@@ -87,7 +87,15 @@ class ChaosAgent:
                 'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
+                # ChaosChain Protocol Contracts (deployed Nov 16, 2025)
+                'chaos_registry': '0x0D28e47E4b2Bc1a7ca300b88698a9D55112Ec7Cd',
+                'chaos_core': '0x6268C0793891Bc1dD3284Ad8443FAa35a585cf28',
+                'rewards_distributor': '0xA29e2f232CB818fc63691E7C509c5afb082bd5a5',
+                # LogicModules
+                'prediction_logic': '0x32e3086b9Db2667Cd261b195E8fF669C959738C3',
+                'finance_logic': '0xC2B686C4EBA34701d0cC7f250D05B3c62c7CF492',
+                'creative_logic': '0xe6775EdC0A0D9BA7E198F435aEa07D34bC24Fdf2'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -176,7 +184,7 @@ class ChaosAgent:
         - ownerOf() to get agent owner
         - tokenURI() to get registration file
         """
-            return [
+        return [
             # ERC-8004 v1.0 Registration Functions
                 {
                     "inputs": [
@@ -388,7 +396,7 @@ class ChaosAgent:
         - revokeFeedback() support
         - appendResponse() for audit trails
         """
-            return [
+        return [
             # Core Functions
                 {
                     "inputs": [
@@ -544,7 +552,7 @@ class ChaosAgent:
         - validationResponse() uses requestHash with response (0-100)
         - Support for multiple responses per request (progressive validation)
         """
-            return [
+        return [
             # Core Functions
                 {
                     "inputs": [
@@ -714,8 +722,8 @@ class ChaosAgent:
                     owner = self.identity_registry.functions.ownerOf(potential_id).call()
                     if owner.lower() == self.address.lower():
                         self.agent_id = potential_id
-                rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
-                return self.agent_id, "already_registered"
+                        rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                        return self.agent_id, "already_registered"
                 except:
                     continue
                     
@@ -778,9 +786,9 @@ class ChaosAgent:
                     logs = registered_event.process_receipt(receipt)
                     if logs:
                         self.agent_id = logs[0]['args']['agentId']
-                rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
+                        rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
                         rprint(f"[blue]📋 View on explorer: Transaction {tx_hash.hex()[:10]}...[/blue]")
-                return self.agent_id, tx_hash.hex()
+                        return self.agent_id, tx_hash.hex()
                 except Exception as log_error:
                     rprint(f"[yellow]⚠️  Could not parse event logs: {log_error}[/yellow]")
                     # Fallback: Check ownership to find agent ID
@@ -833,8 +841,8 @@ class ChaosAgent:
                     owner = self.identity_registry.functions.ownerOf(potential_id).call()
                     if owner.lower() == self.address.lower():
                         self.agent_id = potential_id
-                return self.agent_id
-        except:
+                        return self.agent_id
+                except:
                     continue
             
             # If not found in recent agents, check older ones
@@ -970,7 +978,7 @@ class ChaosAgent:
             if receipt.status == 1:
                 rprint(f"[green]✅ Metadata '{key}' set successfully[/green]")
                 return tx_hash.hex()
-                else:
+            else:
                 raise ContractError("Metadata update transaction failed")
                 
         except Exception as e:
@@ -1051,7 +1059,7 @@ class ChaosAgent:
             if isinstance(request_hash, str):
                 if request_hash.startswith('0x'):
                     request_hash_bytes = bytes.fromhex(request_hash[2:])
-            else:
+                else:
                     request_hash_bytes = bytes.fromhex(request_hash)
             else:
                 request_hash_bytes = request_hash
@@ -1187,7 +1195,7 @@ class ChaosAgent:
             
             if receipt.status == 1:
                 rprint(f"[green]✅ Validation response submitted: {tx_hash.hex()[:10]}...[/green]")
-            return tx_hash.hex()
+                return tx_hash.hex()
             else:
                 raise ContractError("Validation response transaction failed")
             
