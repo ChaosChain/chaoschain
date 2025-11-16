@@ -222,7 +222,7 @@ class ChaosChainAgentSDK:
                             self.storage_manager = zerog_storage
                             rprint(f"[green]✅ Storage initialized: 0G Storage (decentralized)[/green]")
                             return
-            except Exception as e:
+                    except Exception as e:
                         rprint(f"[yellow]⚠️  0G Storage not available: {e}[/yellow]")
                 
                 # 2. Try Pinata if credentials provided

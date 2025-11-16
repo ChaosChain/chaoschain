@@ -359,7 +359,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Links
 
 - **Website:** [chaoscha.in](https://chaoscha.in)
-- **Twitter:** [@ChaosChainLabs](https://twitter.com/ch40schain)
+- **Twitter:** [@ChaosChain](https://twitter.com/ch40schain)
 - **Discord:** [Join our community](https://discord.gg/chaoschain)
 - **Docs:** [docs.chaoscha.in](https://docs.chaoscha.in)
 
