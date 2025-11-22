@@ -76,9 +76,18 @@ class WalletManager:
             )
         
         try:
-            self.w3 = Web3(Web3.HTTPProvider(rpc_url))
-            if not self.w3.is_connected():
-                raise NetworkError(f"Failed to connect to {self.network} at {rpc_url}")
+            # Create Web3 instance with timeout
+            from web3.providers import HTTPProvider
+            provider = HTTPProvider(rpc_url, request_kwargs={'timeout': 30})
+            self.w3 = Web3(provider)
+            
+            # Test connection with a simple call
+            try:
+                self.w3.eth.block_number
+            except Exception as conn_err:
+                raise NetworkError(f"Failed to connect to {self.network} at {rpc_url}: {str(conn_err)}")
+        except NetworkError:
+            raise
         except Exception as e:
             raise NetworkError(f"Web3 connection failed: {str(e)}")
     

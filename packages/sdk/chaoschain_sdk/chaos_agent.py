@@ -137,13 +137,13 @@ class ChaosAgent:
         network_contracts = contract_addresses.get(self.network)
         if not network_contracts:
             raise ConfigurationError(f"No deployed contracts configured for network: {self.network}")
-            
-            self.contract_addresses = ContractAddresses(
+        
+        self.contract_addresses = ContractAddresses(
             identity_registry=network_contracts['identity_registry'],
             reputation_registry=network_contracts['reputation_registry'], 
             validation_registry=network_contracts['validation_registry'],
-                network=self.network
-            )
+            network=self.network
+        )
     
     def _load_contracts(self):
         """Load contract instances with embedded ABIs."""
