@@ -123,12 +123,15 @@ def test_submit_work(sdk, studio_address):
         # Create a simple data hash (in production, this would be EIP-712 DataHash)
         import hashlib
         data_hash = bytes.fromhex(hashlib.sha256(b"test_work_submission").hexdigest())
+        thread_root = bytes.fromhex(hashlib.sha256(b"test_thread_root").hexdigest())
+        evidence_root = bytes.fromhex(hashlib.sha256(b"test_evidence_root").hexdigest())
         
         console.print(f"  [cyan]→[/cyan] Submitting work...")
         tx_hash = sdk.submit_work(
             studio_address=studio_address,
             data_hash=data_hash,
-            evidence_uri="ipfs://test_evidence"
+            thread_root=thread_root,
+            evidence_root=evidence_root
         )
         
         console.print(f"  [green]✓[/green] Work submitted")

@@ -1503,15 +1503,17 @@ class ChaosChainAgentSDK:
         self,
         studio_address: str,
         data_hash: bytes,
-        evidence_uri: str = ""
+        thread_root: bytes,
+        evidence_root: bytes
     ) -> str:
         """
-        Submit work to a Studio.
+        Submit work to a Studio (§1.4 protocol spec).
         
         Args:
             studio_address: Address of the Studio proxy
             data_hash: EIP-712 DataHash of the work (bytes32)
-            evidence_uri: URI to evidence package (IPFS/Irys, default: "")
+            thread_root: VLC/Merkle root of XMTP thread (bytes32)
+            evidence_root: Merkle root of Irys payloads (bytes32)
             
         Returns:
             Transaction hash
@@ -1530,7 +1532,8 @@ class ChaosChainAgentSDK:
                 {
                     "inputs": [
                         {"name": "dataHash", "type": "bytes32"},
-                        {"name": "evidenceUri", "type": "string"}
+                        {"name": "threadRoot", "type": "bytes32"},
+                        {"name": "evidenceRoot", "type": "bytes32"}
                     ],
                     "name": "submitWork",
                     "outputs": [],
@@ -1550,11 +1553,14 @@ class ChaosChainAgentSDK:
             
             rprint(f"[cyan]→[/cyan] Submitting work to studio {studio_address}")
             rprint(f"[dim]   DataHash: {data_hash.hex() if isinstance(data_hash, bytes) else data_hash}[/dim]")
+            rprint(f"[dim]   ThreadRoot: {thread_root.hex() if isinstance(thread_root, bytes) else thread_root}[/dim]")
+            rprint(f"[dim]   EvidenceRoot: {evidence_root.hex() if isinstance(evidence_root, bytes) else evidence_root}[/dim]")
             
             # Build transaction
             tx = studio.functions.submitWork(
                 data_hash,
-                evidence_uri
+                thread_root,
+                evidence_root
             ).build_transaction({
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
@@ -1583,18 +1589,16 @@ class ChaosChainAgentSDK:
     def commit_score(
         self,
         studio_address: str,
-        epoch: int,
         data_hash: bytes,
         score_commitment: bytes
     ) -> str:
         """
-        Commit a score (commit phase of commit-reveal).
+        Commit a score (commit phase of commit-reveal, §2.4 protocol spec).
         
         Args:
             studio_address: Address of the Studio proxy
-            epoch: Current epoch number
             data_hash: DataHash of the work being scored
-            score_commitment: keccak256(abi.encodePacked(scoreVector, salt))
+            score_commitment: keccak256(abi.encodePacked(scoreVector, salt, dataHash))
             
         Returns:
             Transaction hash
@@ -1612,9 +1616,8 @@ class ChaosChainAgentSDK:
             studio_proxy_abi = [
                 {
                     "inputs": [
-                        {"name": "epoch", "type": "uint256"},
                         {"name": "dataHash", "type": "bytes32"},
-                        {"name": "scoreCommitment", "type": "bytes32"}
+                        {"name": "commitment", "type": "bytes32"}
                     ],
                     "name": "commitScore",
                     "outputs": [],
@@ -1636,7 +1639,6 @@ class ChaosChainAgentSDK:
             
             # Build transaction
             tx = studio.functions.commitScore(
-                epoch,
                 data_hash,
                 score_commitment
             ).build_transaction({
@@ -1667,17 +1669,15 @@ class ChaosChainAgentSDK:
     def reveal_score(
         self,
         studio_address: str,
-        epoch: int,
         data_hash: bytes,
         score_vector: List[int],
         salt: bytes
     ) -> str:
         """
-        Reveal a score (reveal phase of commit-reveal).
+        Reveal a score (reveal phase of commit-reveal, §2.4 protocol spec).
         
         Args:
             studio_address: Address of the Studio proxy
-            epoch: Current epoch number
             data_hash: DataHash of the work being scored
             score_vector: Array of scores (must match commitment)
             salt: Random salt used in commitment
@@ -1698,9 +1698,8 @@ class ChaosChainAgentSDK:
             studio_proxy_abi = [
                 {
                     "inputs": [
-                        {"name": "epoch", "type": "uint256"},
                         {"name": "dataHash", "type": "bytes32"},
-                        {"name": "scoreVector", "type": "uint8[]"},
+                        {"name": "scoreVector", "type": "bytes"},
                         {"name": "salt", "type": "bytes32"}
                     ],
                     "name": "revealScore",
@@ -1721,11 +1720,14 @@ class ChaosChainAgentSDK:
             
             rprint(f"[cyan]→[/cyan] Revealing score to studio {studio_address}")
             
+            # Encode score vector as bytes
+            from eth_abi import encode
+            score_bytes = encode(['uint8[]'], [score_vector])
+            
             # Build transaction
             tx = studio.functions.revealScore(
-                epoch,
                 data_hash,
-                score_vector,
+                score_bytes,
                 salt
             ).build_transaction({
                 'from': account.address,
@@ -1755,20 +1757,26 @@ class ChaosChainAgentSDK:
     def close_epoch(
         self,
         studio_address: str,
-        epoch: int
+        epoch: int,
+        rewards_distributor_address: str = None
     ) -> str:
         """
-        Close an epoch and trigger reward distribution.
+        Close an epoch and trigger reward distribution (§7.2 protocol spec).
         
         Args:
             studio_address: Address of the Studio proxy
             epoch: Epoch number to close
+            rewards_distributor_address: Address of RewardsDistributor (default: from contract addresses)
             
         Returns:
             Transaction hash
             
         Raises:
             ContractError: If epoch closure fails
+            
+        Note:
+            This calls RewardsDistributor.closeEpoch(), not StudioProxy.
+            Only the owner of RewardsDistributor can call this.
         """
         try:
             from rich import print as rprint
@@ -1776,11 +1784,18 @@ class ChaosChainAgentSDK:
             # Checksum address
             studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
             
-            # StudioProxy ABI
-            studio_proxy_abi = [
+            # Get RewardsDistributor address
+            if rewards_distributor_address is None:
+                rewards_distributor_address = self.chaos_agent.contract_addresses.rewards_distributor
+            
+            rewards_distributor_address = self.chaos_agent.w3.to_checksum_address(rewards_distributor_address)
+            
+            # RewardsDistributor ABI
+            rewards_distributor_abi = [
                 {
                     "inputs": [
-                        {"name": "epoch", "type": "uint256"}
+                        {"name": "studio", "type": "address"},
+                        {"name": "epoch", "type": "uint64"}
                     ],
                     "name": "closeEpoch",
                     "outputs": [],
@@ -1790,23 +1805,25 @@ class ChaosChainAgentSDK:
             ]
             
             # Create contract instance
-            studio = self.chaos_agent.w3.eth.contract(
-                address=studio_address,
-                abi=studio_proxy_abi
+            distributor = self.chaos_agent.w3.eth.contract(
+                address=rewards_distributor_address,
+                abi=rewards_distributor_abi
             )
             
             # Get wallet account
             account = self.wallet_manager.wallets[self.agent_name]
             
             rprint(f"[cyan]→[/cyan] Closing epoch {epoch} for studio {studio_address}")
+            rprint(f"[dim]   RewardsDistributor: {rewards_distributor_address}[/dim]")
             
             # Build transaction
-            tx = studio.functions.closeEpoch(
+            tx = distributor.functions.closeEpoch(
+                studio_address,
                 epoch
             ).build_transaction({
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
-                'gas': 2000000,
+                'gas': 3000000,
                 'gasPrice': self.chaos_agent.w3.eth.gas_price
             })
             

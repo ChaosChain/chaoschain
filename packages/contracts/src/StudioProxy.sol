@@ -230,8 +230,10 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     }
     
     /// @inheritdoc IStudioProxy
-    function submitWork(bytes32 dataHash, string calldata evidenceUri) external override {
+    function submitWork(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot) external override {
         require(dataHash != bytes32(0), "Invalid dataHash");
+        require(threadRoot != bytes32(0), "Invalid threadRoot");
+        require(evidenceRoot != bytes32(0), "Invalid evidenceRoot");
         require(_workSubmissions[dataHash] == address(0), "Work already submitted");
         
         // Verify agent is registered with worker role
@@ -241,7 +243,7 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         
         _workSubmissions[dataHash] = msg.sender;
         
-        emit WorkSubmitted(agentId, dataHash, evidenceUri, block.timestamp);
+        emit WorkSubmitted(agentId, dataHash, threadRoot, evidenceRoot, block.timestamp);
     }
     
     /// @inheritdoc IStudioProxy

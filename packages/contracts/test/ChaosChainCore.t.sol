@@ -284,7 +284,7 @@ contract ChaosChainCoreTest is Test {
         // Submit work
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         assertEq(StudioProxy(payable(proxy)).getWorkSubmitter(dataHash), workerAgent);
     }
@@ -373,7 +373,7 @@ contract ChaosChainCoreTest is Test {
         // 3. Submit work
         bytes32 dataHash = keccak256("e2e_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://e2e_evidence");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // 4. Submit score vector
         bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
@@ -402,7 +402,7 @@ contract ChaosChainCoreTest is Test {
         // Submit work
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Prepare score vector
         bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
@@ -437,7 +437,7 @@ contract ChaosChainCoreTest is Test {
         // Submit work
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Simulate RewardsDistributor releasing funds
         vm.prank(address(rewardsDistributor));
@@ -516,7 +516,7 @@ contract ChaosChainCoreTest is Test {
         // Submit work
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Set commit-reveal deadlines
         vm.prank(address(rewardsDistributor));
@@ -556,7 +556,7 @@ contract ChaosChainCoreTest is Test {
         
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Set short commit window
         vm.prank(address(rewardsDistributor));
@@ -582,7 +582,7 @@ contract ChaosChainCoreTest is Test {
         
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         vm.prank(address(rewardsDistributor));
         StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
@@ -611,7 +611,7 @@ contract ChaosChainCoreTest is Test {
         
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         vm.prank(address(rewardsDistributor));
         StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
@@ -644,7 +644,7 @@ contract ChaosChainCoreTest is Test {
         
         bytes32 dataHash = keccak256("test_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         vm.prank(address(rewardsDistributor));
         StudioProxy(payable(proxy)).setCommitRevealDeadlines(dataHash, 1 hours, 1 hours);
@@ -681,7 +681,7 @@ contract ChaosChainCoreTest is Test {
         // Submit work
         bytes32 dataHash = keccak256("epoch_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://epoch_evidence");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Register work for epoch
         uint64 epoch = 1;
@@ -795,7 +795,7 @@ contract ChaosChainCoreTest is Test {
         
         bytes32 dataHash = keccak256("validation_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://test");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Submit score
         bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
@@ -881,7 +881,7 @@ contract ChaosChainCoreTest is Test {
         // Worker submits work
         bytes32 dataHash = keccak256("completed_work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://evidence");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         // Complete task (simulating RewardsDistributor call)
         vm.prank(address(rewardsDistributor));
@@ -928,7 +928,7 @@ contract ChaosChainCoreTest is Test {
         // Complete 2 out of 3 tasks
         for (uint256 i = 0; i < 2; i++) {
             vm.prank(workerAgent);
-            StudioProxy(payable(proxy)).submitWork(dataHashes[i], string(abi.encodePacked("ipfs://evidence", i)));
+            StudioProxy(payable(proxy)).submitWork(dataHashes[i], bytes32(uint256(1)), bytes32(uint256(2)));
             
             vm.prank(address(rewardsDistributor));
             StudioProxy(payable(proxy)).completeTask(taskIds[i], workerAgentId, dataHashes[i]);
@@ -984,7 +984,7 @@ contract ChaosChainCoreTest is Test {
         
         bytes32 dataHash = keccak256("work");
         vm.prank(workerAgent);
-        StudioProxy(payable(proxy)).submitWork(dataHash, "ipfs://evidence");
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)));
         
         vm.prank(address(rewardsDistributor));
         StudioProxy(payable(proxy)).completeTask(taskId, workerAgentId, dataHash);
