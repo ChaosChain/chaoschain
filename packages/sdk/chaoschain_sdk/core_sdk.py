@@ -28,7 +28,9 @@ from .exceptions import (
     ChaosChainSDKError,
     AgentRegistrationError,
     PaymentError,
-    IntegrityVerificationError
+    IntegrityVerificationError,
+    ContractError,
+    NetworkError
 )
 from .wallet_manager import WalletManager
 from .providers.storage import StorageProvider, LocalIPFSStorage
@@ -1292,6 +1294,661 @@ class ChaosChainAgentSDK:
         return package
     
     # === PROPERTIES ===
+    
+    # === CHAOSCHAIN PROTOCOL METHODS ===
+    
+    def create_studio(
+        self,
+        name: str,
+        logic_module_address: str
+    ) -> str:
+        """
+        Create a new Studio on the ChaosChain protocol.
+        
+        Args:
+            name: Name for the studio
+            logic_module_address: Address of deployed LogicModule contract
+            
+        Returns:
+            Studio proxy address
+            
+        Raises:
+            ContractError: If studio creation fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # ChaosCore contract address on Ethereum Sepolia
+            chaos_core_address = "0x6268C0793891Bc1dD3284Ad8443FAa35a585cf28"
+            
+            # Get ChaosCore ABI
+            chaos_core_abi = [
+                {
+                    "inputs": [
+                        {"name": "name", "type": "string"},
+                        {"name": "logicModule", "type": "address"}
+                    ],
+                    "name": "createStudio",
+                    "outputs": [
+                        {"name": "proxy", "type": "address"},
+                        {"name": "studioId", "type": "uint256"}
+                    ],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                },
+                {
+                    "anonymous": False,
+                    "inputs": [
+                        {"indexed": True, "name": "studioId", "type": "uint256"},
+                        {"indexed": False, "name": "proxy", "type": "address"},
+                        {"indexed": False, "name": "logicModule", "type": "address"},
+                        {"indexed": True, "name": "creator", "type": "address"}
+                    ],
+                    "name": "StudioCreated",
+                    "type": "event"
+                }
+            ]
+            
+            # Create contract instance
+            chaos_core = self.chaos_agent.w3.eth.contract(
+                address=chaos_core_address,
+                abi=chaos_core_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Creating Studio with LogicModule: {logic_module_address}")
+            
+            # Build transaction
+            tx = chaos_core.functions.createStudio(
+                name,
+                logic_module_address
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 3000000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign transaction
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            
+            # Send transaction
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Studio creation transaction failed")
+            
+            # Extract studio address from event logs
+            # The proxy address is in topics[1] of the StudioCreated event
+            studio_address = None
+            for log in receipt['logs']:
+                if log['address'].lower() == chaos_core_address.lower():
+                    # topics[0] = event signature
+                    # topics[1] = proxy address (indexed)
+                    if len(log['topics']) >= 2:
+                        raw_address = '0x' + log['topics'][1].hex()[-40:]
+                        studio_address = self.chaos_agent.w3.to_checksum_address(raw_address)
+                        rprint(f"[green]✓[/green] Studio created: {studio_address}")
+                        break
+            
+            if not studio_address:
+                raise ContractError("Could not extract studio address from transaction")
+            
+            return studio_address
+            
+        except Exception as e:
+            raise ContractError(f"Failed to create studio: {str(e)}")
+    
+    def register_with_studio(
+        self,
+        studio_address: str,
+        agent_id: int,
+        role: int,
+        stake_amount: int = None
+    ) -> str:
+        """
+        Register this agent with a Studio.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            agent_id: Agent's ERC-8004 ID
+            role: Agent role (1=WORKER, 2=VERIFIER, 3=CLIENT, 4=WORKER_VERIFIER, etc.)
+            stake_amount: Amount to stake in wei (default: 0.0001 ETH if None)
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If registration fails
+            
+        Note:
+            Stake is required by the contract. Default is 0.0001 ETH (100000000000000 wei).
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # Default stake: 0.0001 ETH (required by contract)
+            if stake_amount is None:
+                stake_amount = 100000000000000  # 0.0001 ETH in wei
+            
+            if stake_amount == 0:
+                raise ContractError("Stake amount must be > 0 (contract requirement)")
+            
+            # StudioProxy ABI (minimal)
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "agentId", "type": "uint256"},
+                        {"name": "role", "type": "uint8"}
+                    ],
+                    "name": "registerAgent",
+                    "outputs": [],
+                    "stateMutability": "payable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Registering agent {agent_id} with studio {studio_address}")
+            rprint(f"[dim]   Role: {role}, Stake: {stake_amount / 1e18} ETH[/dim]")
+            
+            # Build transaction
+            tx = studio.functions.registerAgent(
+                agent_id,
+                role
+            ).build_transaction({
+                'from': account.address,
+                'value': stake_amount,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 500000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Studio registration transaction failed")
+            
+            rprint(f"[green]✓[/green] Agent registered with studio")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to register with studio: {str(e)}")
+    
+    def submit_work(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        evidence_uri: str = ""
+    ) -> str:
+        """
+        Submit work to a Studio.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: EIP-712 DataHash of the work (bytes32)
+            evidence_uri: URI to evidence package (IPFS/Irys, default: "")
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If submission fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "evidenceUri", "type": "string"}
+                    ],
+                    "name": "submitWork",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Submitting work to studio {studio_address}")
+            rprint(f"[dim]   DataHash: {data_hash.hex() if isinstance(data_hash, bytes) else data_hash}[/dim]")
+            
+            # Build transaction
+            tx = studio.functions.submitWork(
+                data_hash,
+                evidence_uri
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 500000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Work submission transaction failed")
+            
+            rprint(f"[green]✓[/green] Work submitted successfully")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit work: {str(e)}")
+    
+    def commit_score(
+        self,
+        studio_address: str,
+        epoch: int,
+        data_hash: bytes,
+        score_commitment: bytes
+    ) -> str:
+        """
+        Commit a score (commit phase of commit-reveal).
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            epoch: Current epoch number
+            data_hash: DataHash of the work being scored
+            score_commitment: keccak256(abi.encodePacked(scoreVector, salt))
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If commit fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "epoch", "type": "uint256"},
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "scoreCommitment", "type": "bytes32"}
+                    ],
+                    "name": "commitScore",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Committing score to studio {studio_address}")
+            
+            # Build transaction
+            tx = studio.functions.commitScore(
+                epoch,
+                data_hash,
+                score_commitment
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 300000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Score commit transaction failed")
+            
+            rprint(f"[green]✓[/green] Score committed successfully")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to commit score: {str(e)}")
+    
+    def reveal_score(
+        self,
+        studio_address: str,
+        epoch: int,
+        data_hash: bytes,
+        score_vector: List[int],
+        salt: bytes
+    ) -> str:
+        """
+        Reveal a score (reveal phase of commit-reveal).
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            epoch: Current epoch number
+            data_hash: DataHash of the work being scored
+            score_vector: Array of scores (must match commitment)
+            salt: Random salt used in commitment
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If reveal fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "epoch", "type": "uint256"},
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "scoreVector", "type": "uint8[]"},
+                        {"name": "salt", "type": "bytes32"}
+                    ],
+                    "name": "revealScore",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Revealing score to studio {studio_address}")
+            
+            # Build transaction
+            tx = studio.functions.revealScore(
+                epoch,
+                data_hash,
+                score_vector,
+                salt
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 500000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Score reveal transaction failed")
+            
+            rprint(f"[green]✓[/green] Score revealed successfully")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to reveal score: {str(e)}")
+    
+    def close_epoch(
+        self,
+        studio_address: str,
+        epoch: int
+    ) -> str:
+        """
+        Close an epoch and trigger reward distribution.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            epoch: Epoch number to close
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If epoch closure fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "epoch", "type": "uint256"}
+                    ],
+                    "name": "closeEpoch",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Closing epoch {epoch} for studio {studio_address}")
+            
+            # Build transaction
+            tx = studio.functions.closeEpoch(
+                epoch
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 2000000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Epoch closure transaction failed")
+            
+            rprint(f"[green]✓[/green] Epoch closed successfully")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to close epoch: {str(e)}")
+    
+    def get_pending_rewards(
+        self,
+        studio_address: str
+    ) -> int:
+        """
+        Get pending rewards for this agent in a Studio.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            
+        Returns:
+            Pending reward amount in wei
+            
+        Raises:
+            ContractError: If query fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "agent", "type": "address"}
+                    ],
+                    "name": "pendingRewards",
+                    "outputs": [{"name": "", "type": "uint256"}],
+                    "stateMutability": "view",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # Query pending rewards
+            pending = studio.functions.pendingRewards(account.address).call()
+            
+            return pending
+            
+        except Exception as e:
+            raise ContractError(f"Failed to get pending rewards: {str(e)}")
+    
+    def withdraw_rewards(
+        self,
+        studio_address: str
+    ) -> str:
+        """
+        Withdraw pending rewards from a Studio.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If withdrawal fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI
+            studio_proxy_abi = [
+                {
+                    "inputs": [],
+                    "name": "withdrawRewards",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Withdrawing rewards from studio {studio_address}")
+            
+            # Build transaction
+            tx = studio.functions.withdrawRewards().build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 300000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Reward withdrawal transaction failed")
+            
+            rprint(f"[green]✓[/green] Rewards withdrawn successfully")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to withdraw rewards: {str(e)}")
     
     @property
     def wallet_address(self) -> str:

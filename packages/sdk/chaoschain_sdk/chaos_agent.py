@@ -7,7 +7,7 @@ ERC-8004 registry interactions, identity management, and core protocol operation
 
 import json
 import os
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, List
 from web3 import Web3
 from web3.contract import Contract
 from rich import print as rprint
@@ -1517,6 +1517,54 @@ class ChaosAgent:
             
         except Exception as e:
             raise Exception(f"Failed to create feedback with payment: {str(e)}")
+    
+    def get_reputation(
+        self,
+        agent_id: Optional[int] = None,
+        tag1: Optional[bytes] = None,
+        tag2: Optional[bytes] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get reputation feedback for an agent from ERC-8004 Reputation Registry.
+        
+        Args:
+            agent_id: Agent ID to query (default: this agent)
+            tag1: Optional first tag filter (e.g., dimension name)
+            tag2: Optional second tag filter (e.g., studio address)
+            
+        Returns:
+            List of feedback entries
+            
+        Raises:
+            ContractError: If query fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Use this agent's ID if not specified
+            if agent_id is None:
+                agent_id = self.agent_id
+                if agent_id is None:
+                    raise AgentRegistrationError("Agent not registered")
+            
+            rprint(f"[cyan]→[/cyan] Querying reputation for agent {agent_id}")
+            
+            # Query reputation registry
+            # Note: This is a simplified version. In production, you'd need to:
+            # 1. Query feedback count
+            # 2. Iterate through feedback entries
+            # 3. Filter by tags if provided
+            # 4. Fetch feedbackUri content from IPFS
+            
+            # For now, return empty list as placeholder
+            # TODO: Implement full reputation query when contract events are indexed
+            rprint(f"[yellow]⚠[/yellow] Full reputation query not yet implemented")
+            rprint(f"[dim]   Returning empty list (requires event indexing)[/dim]")
+            
+            return []
+            
+        except Exception as e:
+            raise ContractError(f"Failed to get reputation: {str(e)}")
     
     @property
     def wallet_address(self) -> str:
