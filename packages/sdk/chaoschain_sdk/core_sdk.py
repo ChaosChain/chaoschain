@@ -1318,8 +1318,10 @@ class ChaosChainAgentSDK:
         try:
             from rich import print as rprint
             
-            # ChaosCore contract address on Ethereum Sepolia
-            chaos_core_address = "0x6268C0793891Bc1dD3284Ad8443FAa35a585cf28"
+            # Get ChaosCore contract address from contract_addresses
+            chaos_core_address = self.chaos_agent.contract_addresses.chaos_core
+            if not chaos_core_address:
+                raise ContractError("ChaosCore address not configured for this network")
             
             # Get ChaosCore ABI
             chaos_core_abi = [
@@ -1367,7 +1369,7 @@ class ChaosChainAgentSDK:
             ).build_transaction({
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
-                'gas': 3000000,
+                'gas': 5000000,  # Increased for StudioProxy deployment
                 'gasPrice': self.chaos_agent.w3.eth.gas_price
             })
             
@@ -1871,10 +1873,10 @@ class ChaosChainAgentSDK:
             studio_proxy_abi = [
                 {
                     "inputs": [
-                        {"name": "agent", "type": "address"}
+                        {"name": "account", "type": "address"}
                     ],
-                    "name": "pendingRewards",
-                    "outputs": [{"name": "", "type": "uint256"}],
+                    "name": "getWithdrawableBalance",
+                    "outputs": [{"name": "balance", "type": "uint256"}],
                     "stateMutability": "view",
                     "type": "function"
                 }
@@ -1890,7 +1892,7 @@ class ChaosChainAgentSDK:
             account = self.wallet_manager.wallets[self.agent_name]
             
             # Query pending rewards
-            pending = studio.functions.pendingRewards(account.address).call()
+            pending = studio.functions.getWithdrawableBalance(account.address).call()
             
             return pending
             

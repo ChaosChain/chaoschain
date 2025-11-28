@@ -88,14 +88,14 @@ class ChaosAgent:
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts (deployed Nov 16, 2025)
-                'chaos_registry': '0x0D28e47E4b2Bc1a7ca300b88698a9D55112Ec7Cd',
-                'chaos_core': '0x6268C0793891Bc1dD3284Ad8443FAa35a585cf28',
-                'rewards_distributor': '0xA29e2f232CB818fc63691E7C509c5afb082bd5a5',
+                # ChaosChain Protocol Contracts (deployed Nov 28, 2025 - Protocol Spec v0.1 FINAL)
+                'chaos_registry': '0x15DC5D011DbB61b1Fa5b521880d501E2Dd723d0f',
+                'chaos_core': '0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA',
+                'rewards_distributor': '0xaC3BC53eC1774c746638b4B1949eCF79984C2DE0',
                 # LogicModules
-                'prediction_logic': '0x32e3086b9Db2667Cd261b195E8fF669C959738C3',
-                'finance_logic': '0xC2B686C4EBA34701d0cC7f250D05B3c62c7CF492',
-                'creative_logic': '0xe6775EdC0A0D9BA7E198F435aEa07D34bC24Fdf2'
+                'prediction_logic': '0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9',
+                'finance_logic': '0x48E3820CE20E2ee6D68c127a63206D40ea182031',
+                'creative_logic': '0xF44B2E486437362F3CE972Da96E9700Bd0DC3b33'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -142,6 +142,8 @@ class ChaosAgent:
             identity_registry=network_contracts['identity_registry'],
             reputation_registry=network_contracts['reputation_registry'], 
             validation_registry=network_contracts['validation_registry'],
+            rewards_distributor=network_contracts.get('rewards_distributor'),
+            chaos_core=network_contracts.get('chaos_core'),
             network=self.network
         )
     

@@ -147,7 +147,9 @@ class ContractAddresses:
     identity_registry: str
     reputation_registry: str
     validation_registry: str
-    network: NetworkConfig
+    rewards_distributor: str = None
+    chaos_core: str = None
+    network: NetworkConfig = None
 
 
 # Type aliases for common patterns

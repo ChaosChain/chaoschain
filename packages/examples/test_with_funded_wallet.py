@@ -50,8 +50,8 @@ def test_create_studio():
             console.print(f"  [yellow]Please fund: {TEST_WALLET_ADDRESS}[/yellow]")
             return False, None
         
-        # Finance LogicModule on Ethereum Sepolia
-        finance_logic = "0xC2B686C4EBA34701d0cC7f250D05B3c62c7CF492"
+        # Finance LogicModule on Ethereum Sepolia (deployed Nov 28, 2025)
+        finance_logic = "0x48E3820CE20E2ee6D68c127a63206D40ea182031"
         
         console.print(f"  [cyan]→[/cyan] Creating studio with FinanceLogic...")
         studio_address = sdk.create_studio(
@@ -166,7 +166,6 @@ def test_scoring(sdk, studio_address, data_hash):
         console.print(f"  [cyan]→[/cyan] Committing score...")
         tx_hash = sdk.commit_score(
             studio_address=studio_address,
-            epoch=1,
             data_hash=data_hash,
             score_commitment=commitment
         )
@@ -177,7 +176,6 @@ def test_scoring(sdk, studio_address, data_hash):
         console.print(f"  [cyan]→[/cyan] Revealing score...")
         tx_hash = sdk.reveal_score(
             studio_address=studio_address,
-            epoch=1,
             data_hash=data_hash,
             score_vector=score_vector,
             salt=salt
