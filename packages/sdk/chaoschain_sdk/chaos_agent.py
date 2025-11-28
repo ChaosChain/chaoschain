@@ -834,28 +834,44 @@ class ChaosAgent:
             return self.agent_id
         
         try:
-            # v1.0: Check if this wallet owns any agents by iterating through tokens
-            total_agents = self.identity_registry.functions.totalAgents().call()
+            # v1.0: Use balanceOf to check if wallet owns any tokens
+            balance = self.identity_registry.functions.balanceOf(self.address).call()
             
-            # Check ownership of recent agents first (more efficient)
-            for potential_id in range(total_agents, max(0, total_agents - 100), -1):
-                try:
-                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                    if owner.lower() == self.address.lower():
-                        self.agent_id = potential_id
-                        return self.agent_id
-                except:
-                    continue
+            if balance == 0:
+                return None
             
-            # If not found in recent agents, check older ones
-            for potential_id in range(1, min(max(0, total_agents - 100), 100)):
+            # If wallet has tokens, try to get the first one using tokenOfOwnerByIndex
+            try:
+                # ERC-721 Enumerable extension
+                agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(self.address, 0).call()
+                self.agent_id = agent_id
+                return self.agent_id
+            except:
+                # If enumerable not available, try totalSupply and iterate
                 try:
-                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                    if owner.lower() == self.address.lower():
-                        self.agent_id = potential_id
-                        return self.agent_id
+                    total_supply = self.identity_registry.functions.totalSupply().call()
+                    
+                    # Check recent tokens first (more efficient)
+                    for potential_id in range(total_supply, max(0, total_supply - 100), -1):
+                        try:
+                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                            if owner.lower() == self.address.lower():
+                                self.agent_id = potential_id
+                                return self.agent_id
+                        except:
+                            continue
+                    
+                    # Check older tokens
+                    for potential_id in range(1, min(101, total_supply + 1)):
+                        try:
+                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                            if owner.lower() == self.address.lower():
+                                self.agent_id = potential_id
+                                return self.agent_id
+                        except:
+                            continue
                 except:
-                    continue
+                    pass
                     
         except Exception as e:
             rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
@@ -1558,15 +1574,128 @@ class ChaosAgent:
             # 3. Filter by tags if provided
             # 4. Fetch feedbackUri content from IPFS
             
-            # For now, return empty list as placeholder
-            # TODO: Implement full reputation query when contract events are indexed
-            rprint(f"[yellow]⚠[/yellow] Full reputation query not yet implemented")
-            rprint(f"[dim]   Returning empty list (requires event indexing)[/dim]")
+            # Get reputation registry
+            reputation_registry = self.w3.eth.contract(
+                address=self.contract_addresses.reputation_registry,
+                abi=self._get_reputation_registry_abi()
+            )
             
-            return []
+            # Get all clients who gave feedback
+            clients = reputation_registry.functions.getClients(agent_id).call()
+            
+            if not clients:
+                rprint(f"[dim]No reputation feedback found for agent {agent_id}[/dim]")
+                return []
+            
+            rprint(f"[dim]Found feedback from {len(clients)} client(s)[/dim]")
+            
+            # Collect all feedback
+            all_feedback = []
+            
+            for client in clients:
+                # Get last index for this client
+                last_index = reputation_registry.functions.getLastIndex(agent_id, client).call()
+                
+                # Read all feedback from this client
+                for idx in range(last_index):
+                    try:
+                        # readFeedback returns (score, tag1, tag2, isRevoked)
+                        score, feedback_tag1, feedback_tag2, is_revoked = reputation_registry.functions.readFeedback(
+                            agent_id,
+                            client,
+                            idx
+                        ).call()
+                        
+                        # Filter by tags if provided
+                        if tag1 and feedback_tag1 != tag1:
+                            continue
+                        if tag2 and feedback_tag2 != tag2:
+                            continue
+                        
+                        if not is_revoked:
+                            all_feedback.append({
+                                'client': client,
+                                'score': score,
+                                'tag1': feedback_tag1.hex() if isinstance(feedback_tag1, bytes) else str(feedback_tag1),
+                                'tag2': feedback_tag2.hex() if isinstance(feedback_tag2, bytes) else str(feedback_tag2),
+                                'index': idx
+                            })
+                    except Exception as e:
+                        rprint(f"[dim]Error reading feedback {idx}: {e}[/dim]")
+            
+            if all_feedback:
+                rprint(f"[green]✓[/green] Found {len(all_feedback)} reputation entries")
+            else:
+                rprint(f"[dim]No matching reputation feedback found[/dim]")
+            
+            return all_feedback
             
         except Exception as e:
             raise ContractError(f"Failed to get reputation: {str(e)}")
+    
+    def get_reputation_summary(
+        self,
+        agent_id: Optional[int] = None,
+        client_addresses: Optional[List[str]] = None,
+        tag1: Optional[bytes] = None,
+        tag2: Optional[bytes] = None
+    ) -> Dict[str, Any]:
+        """
+        Get reputation summary for an agent (count and average score).
+        
+        Args:
+            agent_id: Agent ID to query (default: this agent)
+            client_addresses: Optional list of client addresses to filter by
+            tag1: Optional first tag filter (e.g., dimension name)
+            tag2: Optional second tag filter (e.g., studio address)
+            
+        Returns:
+            Dictionary with count and averageScore
+            
+        Raises:
+            ContractError: If query fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Use this agent's ID if not specified
+            if agent_id is None:
+                agent_id = self.agent_id
+                if agent_id is None:
+                    raise AgentRegistrationError("Agent not registered")
+            
+            # Get reputation registry
+            reputation_registry = self.w3.eth.contract(
+                address=self.contract_addresses.reputation_registry,
+                abi=self._get_reputation_registry_abi()
+            )
+            
+            # Convert client addresses to checksummed format
+            clients = []
+            if client_addresses:
+                clients = [self.w3.to_checksum_address(addr) for addr in client_addresses]
+            
+            # Convert tags to bytes32 if needed
+            tag1_bytes = tag1 if isinstance(tag1, bytes) else b'\x00' * 32
+            tag2_bytes = tag2 if isinstance(tag2, bytes) else b'\x00' * 32
+            
+            # Call getSummary
+            count, avg_score = reputation_registry.functions.getSummary(
+                agent_id,
+                clients,
+                tag1_bytes,
+                tag2_bytes
+            ).call()
+            
+            rprint(f"[green]✓[/green] Reputation summary: {count} entries, avg {avg_score}/100")
+            
+            return {
+                'count': count,
+                'averageScore': avg_score
+            }
+            
+        except Exception as e:
+            raise ContractError(f"Failed to get reputation summary: {str(e)}")
     
     @property
     def wallet_address(self) -> str:

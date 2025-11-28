@@ -2,5 +2,13 @@
   "test_worker": {
     "address": "0x2BF4e0A1bd69ede0b55054c24c85bF912aEf4836",
     "private_key": "0e3bfbfa6108cb2f98f284c2ba9017fe485f7975eed94a3c8d1418ea145d7f7b"
+  },
+  "test_check": {
+    "address": "0xE14835864D7d0E5507350Bcf15f7CbCE74195e0B",
+    "private_key": "9a3f9d0ccd89fce7ffacaca7e5e205bc418b6316d74e25bf4564e5fb4b68e3fd"
+  },
+  "test_worker_poa": {
+    "address": "0x27eE4e7083D3E6e7497AE1A2A9B250D21e15AC5c",
+    "private_key": "b0b652d19264a62f6ecf06f32d957354a549fb9e9d8756ef79394f430cf96a00"
   }
 }

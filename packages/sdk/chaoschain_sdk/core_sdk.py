@@ -1049,6 +1049,46 @@ class ChaosChainAgentSDK:
         """
         return self.chaos_agent.submit_validation_response(data_hash, score)
     
+    def get_reputation(
+        self,
+        agent_id: Optional[int] = None,
+        tag1: Optional[bytes] = None,
+        tag2: Optional[bytes] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get reputation feedback for an agent from ERC-8004 Reputation Registry.
+        
+        Args:
+            agent_id: Agent ID to query (default: this agent)
+            tag1: Optional first tag filter (e.g., dimension name)
+            tag2: Optional second tag filter (e.g., studio address)
+            
+        Returns:
+            List of reputation entries
+        """
+        return self.chaos_agent.get_reputation(agent_id, tag1, tag2)
+    
+    def get_reputation_summary(
+        self,
+        agent_id: Optional[int] = None,
+        client_addresses: Optional[List[str]] = None,
+        tag1: Optional[bytes] = None,
+        tag2: Optional[bytes] = None
+    ) -> Dict[str, Any]:
+        """
+        Get reputation summary for an agent (count and average score).
+        
+        Args:
+            agent_id: Agent ID to query (default: this agent)
+            client_addresses: Optional list of client addresses to filter by
+            tag1: Optional first tag filter (e.g., dimension name)
+            tag2: Optional second tag filter (e.g., studio address)
+            
+        Returns:
+            Dictionary with count and averageScore
+        """
+        return self.chaos_agent.get_reputation_summary(agent_id, client_addresses, tag1, tag2)
+    
     # === XMTP AGENT COMMUNICATION ===
     
     def send_message(
