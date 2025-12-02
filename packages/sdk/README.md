@@ -1,6 +1,6 @@
 # ChaosChain SDK
 
-**Production-ready SDK for building verifiable, monetizable AI agents with on-chain identity**
+**Production-ready SDK for building verifiable, accountable AI agent systems**
 
 [![PyPI version](https://badge.fury.io/py/chaoschain-sdk.svg)](https://badge.fury.io/py/chaoschain-sdk)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -8,13 +8,14 @@
 [![ERC-8004 v1.0](https://img.shields.io/badge/ERC--8004-v1.0-success.svg)](https://eips.ethereum.org/EIPS/eip-8004)
 
 The ChaosChain SDK is a complete toolkit for building autonomous AI agents with:
-- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, validation and reputation (pre-deployed on 5 networks)
+- **ChaosChain Protocol** - Studios, multi-agent verification, and Proof of Agency (PoA)
+- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, validation and reputation (pre-deployed on 7 networks)
 - **x402 payments** using Coinbase's HTTP 402 protocol  
 - **Google AP2** intent verification
 - **Process Integrity** with cryptographic proofs
 - **Pluggable architecture** - choose your compute, storage, and payment providers
 
-**Zero setup required** - all ERC-8004 v1.0 contracts are pre-deployed, just `pip install` and build!
+**Zero setup required** - all contracts are pre-deployed, just `pip install` and build!
 
 ## Quick Start
 
@@ -67,8 +68,8 @@ from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
 sdk = ChaosChainAgentSDK(
     agent_name="MyAgent",
     agent_domain="myagent.example.com", 
-    agent_role=AgentRole.SERVER,
-    network=NetworkConfig.BASE_SEPOLIA,  # or BASE_SEPOLIA, OPTIMISM_SEPOLIA, etc.
+    agent_role=AgentRole.WORKER,  # or VERIFIER, ORCHESTRATOR
+    network=NetworkConfig.ETHEREUM_SEPOLIA,  # Sepolia, Base, Optimism, etc.
     enable_ap2=True,          # Google AP2 intent verification
     enable_process_integrity=True,  # Cryptographic execution proofs
     enable_payments=True      # x402 crypto payments
@@ -113,6 +114,123 @@ evidence_cid = sdk.store_evidence({
 
 print(f"🎉 Complete verifiable workflow with on-chain identity!")
 ```
+
+## ChaosChain Protocol (MVP)
+
+The SDK now includes full support for the **ChaosChain Protocol** - a decentralized system for verifiable AI agent work with multi-agent consensus and reputation building.
+
+### Studios: Domain-Specific Agent Marketplaces
+
+Studios are customizable marketplaces with their own business logic and scoring criteria:
+
+```python
+# Create a Studio
+studio_address = sdk.create_studio(
+    studio_name="AI Analysis Studio",
+    logic_module_address="0x...",  # Your deployed LogicModule
+    initial_budget=1000000000000000000  # 1 ETH in wei
+)
+
+# Register as a Worker Agent
+sdk.register_with_studio(
+    studio_address=studio_address,
+    role=AgentRole.WORKER,
+    stake_amount=100000000000000000  # 0.1 ETH stake
+)
+
+# Submit work
+sdk.submit_work(
+    studio_address=studio_address,
+    data_hash=work_hash,
+    thread_root=xmtp_thread_root,  # XMTP conversation root
+    evidence_root=ipfs_evidence_root  # IPFS evidence root
+)
+```
+
+### Multi-Dimensional Scoring & Proof of Agency (PoA)
+
+Work is scored across multiple dimensions by Verifier Agents:
+
+```python
+from chaoschain_sdk.verifier_agent import VerifierAgent
+
+# Initialize Verifier Agent
+verifier = VerifierAgent(sdk)
+
+# Perform causal audit on submitted work
+audit_result = verifier.perform_causal_audit(
+    studio_address=studio_address,
+    work_hash=work_hash,
+    xmtp_thread=thread_data,
+    evidence_data=evidence_data
+)
+
+# Compute multi-dimensional scores
+scores = verifier.compute_multi_dimensional_scores(
+    audit_result=audit_result,
+    studio_address=studio_address  # Fetches studio-specific dimensions
+)
+# Returns: [Initiative, Collaboration, Reasoning, Compliance, Efficiency, ...]
+
+# Commit score (commit-reveal protocol)
+commit_hash = verifier.commit_score(
+    studio_address=studio_address,
+    work_hash=work_hash,
+    scores=scores,
+    salt="random_salt_123"
+)
+
+# Later, reveal score
+verifier.reveal_score(
+    studio_address=studio_address,
+    work_hash=work_hash,
+    scores=scores,
+    salt="random_salt_123"
+)
+```
+
+### Reputation Building (ERC-8004 Integration)
+
+Reputation is automatically published to ERC-8004 Reputation Registry:
+
+```python
+# Query agent reputation
+reputation = sdk.get_reputation(agent_id=worker_agent_id)
+# Returns: List of feedback entries with scores by dimension
+
+# Get reputation summary
+summary = sdk.get_reputation_summary(
+    agent_id=worker_agent_id,
+    tag1=b"Initiative",  # Filter by dimension
+    tag2=studio_address_bytes  # Filter by studio
+)
+# Returns: {'count': 10, 'averageScore': 87}
+```
+
+### Rewards Distribution
+
+```python
+# Close epoch (triggers consensus & rewards calculation)
+sdk.close_epoch(studio_address=studio_address, epoch=1)
+
+# Check pending rewards
+pending = sdk.get_pending_rewards(studio_address=studio_address)
+print(f"Pending rewards: {pending} wei")
+
+# Withdraw rewards
+tx_hash = sdk.withdraw_rewards(studio_address=studio_address)
+```
+
+### Key Features
+
+- ✅ **Studios** - Domain-specific marketplaces with custom scoring
+- ✅ **Multi-Agent Verification** - 3+ Verifier Agents reach consensus
+- ✅ **Proof of Agency (PoA)** - 5 universal dimensions + studio-specific
+- ✅ **Commit-Reveal Protocol** - Prevents score manipulation
+- ✅ **Reputation Building** - ERC-8004 integration with multi-dimensional feedback
+- ✅ **Role-Based Access** - WORKER, VERIFIER, ORCHESTRATOR roles
+- ✅ **DataHash Pattern** - EIP-712 compliant work commitments
+- ✅ **Causal Audit** - XMTP thread + IPFS evidence verification
 
 ## Core Features
 
@@ -178,19 +296,7 @@ sdk.request_validation(
 - ✅ `ReputationRegistry.sol` - Feedback and reputation scores (signature-based)
 - ✅ `ValidationRegistry.sol` - Peer validation and consensus (URI-based)
 
-**Deployed addresses** (per network):
-- **Ethereum Sepolia**: 
-  - Identity: `0x8004a6090Cd10A7288092483047B097295Fb8847`
-  - Reputation: `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E`
-  - Validation: `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5`
-- **Base Sepolia**: 
-  - Identity: `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb`
-  - Reputation: `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF`
-  - Validation: `0x8004C269D0A5647E51E121FeB226200ECE932d55`
-- **Linea Sepolia**: 
-  - Identity: `0x8004aa7C931bCE1233973a0C6A667f73F66282e7`
-  - Reputation: `0x8004bd8483b99310df121c46ED8858616b2Bba02`
-  - Validation: `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB`
+**Deployed addresses:** See [Supported Networks](#supported-networks) table below for all 7 testnets.
 
 ### **x402 Crypto Payments** (Coinbase Official)
 
@@ -412,17 +518,38 @@ payment = sdk.execute_traditional_payment(
 
 ## Supported Networks
 
-ERC-8004 v1.0 contracts are **pre-deployed on 7 testnets** (no setup needed):
+### ERC-8004 Contracts (Pre-deployed on 7 testnets)
 
 | Network | Chain ID | Status | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|--------|-------------------|---------------------|---------------------|
-| **Base Sepolia** | 84532 | ✅ Active | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
 | **Ethereum Sepolia** | 11155111 | ✅ Active | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+| **Base Sepolia** | 84532 | ✅ Active | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
 | **Linea Sepolia** | 59141 | ✅ Active | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
 | **Hedera Testnet** | 296 | ✅ Active | `0x4c74ebd72921d537159ed2053f46c12a7d8e5923` | `0xc565edcba77e3abeade40bfd6cf6bf583b3293e0` | `0x18df085d85c586e9241e0cd121ca422f571c2da6` |
 | **BSC Testnet** | 97 | ✅ Active | `0xabbd26d86435b35d9c45177725084ee6a2812e40` | `0xeced1af52a0446275e9e6e4f6f26c99977400a6a` | `0x7866bd057f09a4940fe2ce43320518c8749a921e` |
 | **0G Testnet** | 16602 | ✅ Active | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
 | **Optimism Sepolia** | 11155420 | ⏳ Coming Soon | - | - | - |
+
+### ChaosChain Protocol Contracts (Ethereum Sepolia)
+
+The core protocol contracts for Studios, Proof of Agency, and rewards distribution:
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| **ChaosCore** | `0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA` | Factory & registry for Studios (deploys StudioProxy instances) |
+| **RewardsDistributor** | `0xaC3BC53eC1774c746638b4B1949eCF79984C2DE0` | PoA consensus & reward distribution |
+
+> **Note:** `StudioProxy` contracts are created dynamically via `ChaosCore.createStudio()`. Each Studio gets its own proxy that holds funds and delegates logic to a LogicModule.
+
+### LogicModules (Ethereum Sepolia)
+
+Pre-deployed Studio templates for different domains:
+
+| LogicModule | Address | Domain |
+|-------------|---------|--------|
+| **FinanceStudioLogic** | `0x48E3820CE20E2ee6D68c127a63206D40ea182031` | Trading, risk analysis, financial reports |
+| **CreativeStudioLogic** | `0xF44B2E486437362F3CE972Da96E9700Bd0DC3b33` | Design, content creation, art generation |
+| **PredictionMarketLogic** | `0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9` | Forecasting, market predictions |
 
 **Features:**
 - ✅ **Base Sepolia & Ethereum Sepolia**: Full x402 USDC payments support
@@ -751,6 +878,17 @@ ChaosChainAgentSDK(
 
 | Method | Description | Returns |
 |--------|-------------|---------|
+| **ChaosChain Protocol** |
+| `create_studio()` | Create a new Studio | `studio_address` |
+| `register_with_studio()` | Register with Studio | `tx_hash` |
+| `submit_work()` | Submit work to Studio | `tx_hash` |
+| `commit_score()` | Commit score (VA) | `tx_hash` |
+| `reveal_score()` | Reveal score (VA) | `tx_hash` |
+| `close_epoch()` | Close epoch & distribute rewards | `tx_hash` |
+| `get_pending_rewards()` | Check pending rewards | `int (wei)` |
+| `withdraw_rewards()` | Withdraw rewards | `tx_hash` |
+| `get_reputation()` | Query reputation entries | `List[Dict]` |
+| `get_reputation_summary()` | Get reputation stats | `Dict` |
 | **ERC-8004 Identity** |
 | `register_identity()` | Register on-chain | `(agent_id, tx_hash)` |
 | `update_agent_metadata()` | Update profile | `tx_hash` |

@@ -299,17 +299,32 @@ print(f"✅ Audit complete! Scores: {audit_result.scores}")
 
 ---
 
-## Supported Networks
+## Deployed Contracts
 
-| Network | Chain ID | ERC-8004 Contracts |
-|---------|----------|-------------------|
-| Base Sepolia | 84532 | ✅ Deployed |
-| Ethereum Sepolia | 11155111 | ✅ Deployed |
-| Linea Sepolia | 59141 | ✅ Deployed |
-| Hedera Testnet | 296 | ✅ Deployed |
-| BSC Testnet | 97 | ✅ Deployed |
-| 0G Testnet | 16600 | ✅ Deployed |
-| Optimism Sepolia | 11155420 | ✅ Deployed |
+### ChaosChain Protocol (Ethereum Sepolia)
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| **ChaosCore** | `0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA` | Factory & registry for Studios (deploys StudioProxy instances) |
+| **RewardsDistributor** | `0xaC3BC53eC1774c746638b4B1949eCF79984C2DE0` | PoA consensus & reward distribution |
+| **FinanceStudioLogic** | `0x48E3820CE20E2ee6D68c127a63206D40ea182031` | Finance domain LogicModule |
+| **CreativeStudioLogic** | `0xF44B2E486437362F3CE972Da96E9700Bd0DC3b33` | Creative domain LogicModule |
+| **PredictionMarketLogic** | `0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9` | Prediction market LogicModule |
+
+> **Note:** `StudioProxy` contracts are created dynamically when you call `ChaosCore.createStudio()`. Each Studio gets its own proxy instance that holds funds and delegates logic to a LogicModule.
+
+### ERC-8004 Registries (Multi-Network)
+
+| Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
+|---------|----------|-------------------|---------------------|---------------------|
+| **Ethereum Sepolia** | 11155111 | `0x8004a609...8847` | `0x8004B8FD...5B7E` | `0x8004CB39...dfC5` |
+| **Base Sepolia** | 84532 | `0x8004AA63...9Fb` | `0x8004bd8d...41BF` | `0x8004C269...2d55` |
+| **Linea Sepolia** | 59141 | `0x8004aa7C...2e7` | `0x8004bd84...a02` | `0x8004c44d...4EB` |
+| **Hedera Testnet** | 296 | `0x4c74ebd7...923` | `0xc565edcb...3e0` | `0x18df085d...da6` |
+| **BSC Testnet** | 97 | `0xabbd26d8...e40` | `0xeced1af5...a6a` | `0x7866bd05...21e` |
+| **0G Testnet** | 16602 | `0x80043ed9...e4a` | `0x80045d7b...202` | `0x80041728...afb` |
+
+> Full addresses available in [SDK README](packages/sdk/README.md#supported-networks)
 
 ---
 
