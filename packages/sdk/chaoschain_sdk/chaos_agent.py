@@ -1697,6 +1697,112 @@ class ChaosAgent:
         except Exception as e:
             raise ContractError(f"Failed to get reputation summary: {str(e)}")
     
+    def submit_score_vector(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        score_vector: List[int]
+    ) -> TransactionHash:
+        """
+        Submit score vector directly to StudioProxy (simpler alternative to commit-reveal).
+        
+        This is the simpler method for verifiers to submit scores without the commit-reveal
+        protocol. Use this when commit-reveal deadlines are not set.
+        
+        Per ChaosChain_Implementation_Plan.md:
+        - Verifier Agent monitors StudioProxy for new work submissions
+        - VA fetches full EvidencePackage and performs causal audit
+        - VA generates ScoreVector and submits to StudioProxy
+        
+        Args:
+            studio_address: The StudioProxy contract address
+            data_hash: The work hash (bytes32) being scored
+            score_vector: Multi-dimensional score vector (list of uint8 scores 0-100)
+                         e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+        
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If score submission fails
+            
+        Example:
+            ```python
+            # Verifier submits scores after causal audit
+            scores = [85, 90, 88, 95, 82]  # Initiative, Collab, Reasoning, Compliance, Efficiency
+            tx_hash = agent.submit_score_vector(
+                studio_address="0x123...",
+                data_hash=work_data_hash,
+                score_vector=scores
+            )
+            ```
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI for submitScoreVector
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "scoreVector", "type": "bytes"}
+                    ],
+                    "name": "submitScoreVector",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            studio_proxy = self.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Encode score vector as bytes
+            # Contract expects: abi.encode(uint8, uint8, uint8, uint8, uint8) for 5 dimensions
+            # Or dynamic length bytes
+            score_bytes = bytes(score_vector)
+            
+            rprint(f"[cyan]📊 Submitting score vector to Studio {studio_address[:10]}...[/cyan]")
+            rprint(f"   Data Hash: {data_hash.hex()[:16]}...")
+            rprint(f"   Scores: {score_vector}")
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # Build transaction
+            tx = studio_proxy.functions.submitScoreVector(
+                data_hash,
+                score_bytes
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.w3.eth.get_transaction_count(account.address),
+                'gas': 200000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.w3.eth.account.sign_transaction(tx, account.key)
+            raw_transaction = getattr(signed_tx, 'raw_transaction', getattr(signed_tx, 'rawTransaction', None))
+            tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
+            
+            # Wait for confirmation
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Score submission transaction failed")
+            
+            tx_hash_hex = tx_hash.hex()
+            rprint(f"[green]✅ Score vector submitted: {tx_hash_hex[:10]}...[/green]")
+            
+            return tx_hash_hex
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit score vector: {str(e)}")
+    
     @property
     def wallet_address(self) -> str:
         """Get the agent's wallet address."""

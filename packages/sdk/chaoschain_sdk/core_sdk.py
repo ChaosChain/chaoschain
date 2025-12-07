@@ -1796,6 +1796,64 @@ class ChaosChainAgentSDK:
         except Exception as e:
             raise ContractError(f"Failed to reveal score: {str(e)}")
     
+    def submit_score_vector(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        score_vector: List[int]
+    ) -> str:
+        """
+        Submit score vector directly (simpler alternative to commit-reveal).
+        
+        This method submits scores directly without the commit-reveal protocol.
+        Use this when:
+        - Commit-reveal deadlines are not set by admin
+        - Quick testing of verifier workflow
+        - Studios that don't require commit-reveal protection
+        
+        Per ChaosChain_Implementation_Plan.md §3 (Verification & Attestation):
+        - Verifier Agents monitor StudioProxy for new work submissions
+        - VA fetches EvidencePackage from XMTP/Irys
+        - VA performs causal audit and generates ScoreVector
+        - VA submits ScoreVector to StudioProxy
+        
+        Multi-dimensional scoring dimensions (per protocol spec):
+        - Initiative: Original contributions (non-derivative)
+        - Collaboration: Building on others' work
+        - Reasoning Depth: Complexity of analysis
+        - Compliance: Following rules/requirements
+        - Efficiency: Time and resource usage
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: DataHash of the work being scored (bytes32)
+            score_vector: Multi-dimensional scores [0-100 each]
+                         e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If submission fails
+            
+        Example:
+            ```python
+            # After causal audit of worker's evidence
+            scores = [85, 90, 88, 95, 82]  # Multi-dimensional PoA scores
+            
+            tx_hash = sdk.submit_score_vector(
+                studio_address="0x67b76181...",
+                data_hash=work_data_hash,
+                score_vector=scores
+            )
+            ```
+        """
+        return self.chaos_agent.submit_score_vector(
+            studio_address=studio_address,
+            data_hash=data_hash,
+            score_vector=score_vector
+        )
+    
     def close_epoch(
         self,
         studio_address: str,
