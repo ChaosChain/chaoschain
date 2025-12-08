@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.3.3"
+version = "0.3.4"
 description = "Production SDK for building verifiable AI agents with ChaosChain Protocol - Studios, Proof of Agency, ERC-8004, x402"
 readme = "README.md"
 license = "MIT"

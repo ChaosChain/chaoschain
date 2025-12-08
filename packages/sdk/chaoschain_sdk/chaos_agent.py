@@ -711,23 +711,42 @@ class ChaosAgent:
         """
         rprint(f"[yellow]🔧 Registering agent: {self.agent_name} ({self.agent_domain})[/yellow]")
         
-        # v1.0: Check if already registered by iterating through tokens owned by this address
-        # In v1.0, agents are ERC-721 NFTs
+        # v1.0: Check if already registered using ERC-721 Enumerable methods
+        # ERC-8004 IdentityRegistry is ERC-721 based
         try:
-            # Try to get total agents to search through
-            total_agents = self.identity_registry.functions.totalAgents().call()
-            rprint(f"[blue]🔍 Checking {total_agents} existing agents for ownership...[/blue]")
+            # Use balanceOf to check if this wallet owns any agent NFTs
+            balance = self.identity_registry.functions.balanceOf(self.address).call()
             
-            # Check if this wallet owns any agents
-            for potential_id in range(1, min(total_agents + 1, 1000)):  # Limit search to 1000
+            if balance > 0:
+                rprint(f"[blue]🔍 Wallet owns {balance} agent NFT(s), checking...[/blue]")
+                
+                # Use tokenOfOwnerByIndex to get the first agent ID owned by this wallet
                 try:
-                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                    if owner.lower() == self.address.lower():
-                        self.agent_id = potential_id
-                        rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
-                        return self.agent_id, "already_registered"
-                except:
-                    continue
+                    existing_agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(
+                        self.address, 0
+                    ).call()
+                    self.agent_id = existing_agent_id
+                    rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                    return self.agent_id, "already_registered"
+                except Exception as enum_error:
+                    # If tokenOfOwnerByIndex not available, try iterating through recent tokens
+                    rprint(f"[yellow]⚠️  Enumerable not available, checking recent tokens...[/yellow]")
+                    try:
+                        total_supply = self.identity_registry.functions.totalSupply().call()
+                        # Check last 100 tokens for ownership
+                        for potential_id in range(total_supply, max(0, total_supply - 100), -1):
+                            try:
+                                owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                                if owner.lower() == self.address.lower():
+                                    self.agent_id = potential_id
+                                    rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                                    return self.agent_id, "already_registered"
+                            except:
+                                continue
+                    except:
+                        pass
+            else:
+                rprint(f"[blue]🔍 No existing agent found for this wallet[/blue]")
                     
         except Exception as e:
             rprint(f"[blue]🔍 Could not check existing registrations: {e}[/blue]")
@@ -793,17 +812,29 @@ class ChaosAgent:
                         return self.agent_id, tx_hash.hex()
                 except Exception as log_error:
                     rprint(f"[yellow]⚠️  Could not parse event logs: {log_error}[/yellow]")
-                    # Fallback: Check ownership to find agent ID
-                    total_agents = self.identity_registry.functions.totalAgents().call()
-                    for potential_id in range(total_agents, max(0, total_agents - 10), -1):
+                    # Fallback: Use ERC-721 methods to find agent ID
+                    try:
+                        # First try tokenOfOwnerByIndex (ERC-721 Enumerable)
+                        self.agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(
+                            self.address, 0
+                        ).call()
+                        rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
+                        return self.agent_id, tx_hash.hex()
+                    except:
+                        # Fallback: Check recent tokens by totalSupply
                         try:
-                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                            if owner.lower() == self.address.lower():
-                                self.agent_id = potential_id
-                                rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
-                                return self.agent_id, tx_hash.hex()
+                            total_supply = self.identity_registry.functions.totalSupply().call()
+                            for potential_id in range(total_supply, max(0, total_supply - 10), -1):
+                                try:
+                                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                                    if owner.lower() == self.address.lower():
+                                        self.agent_id = potential_id
+                                        rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
+                                        return self.agent_id, tx_hash.hex()
+                                except:
+                                    continue
                         except:
-                            continue
+                            pass
                     
                     raise AgentRegistrationError("Registration succeeded but could not determine agent ID")
             else:
