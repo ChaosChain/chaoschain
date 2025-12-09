@@ -130,3 +130,5 @@ packages/sdk/chaoschain_wallets.json
 !docs/MERCHANT_GUIDE.md
 
 packages/contracts-v1/IMPLEMENTATION_ROADMAP.md
+packages/contracts/deploy_rewards_only.sh
+packages/contracts/script/DeployRewardsOnly.s.sol

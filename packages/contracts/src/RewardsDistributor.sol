@@ -136,8 +136,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             }
             uint256 qualityScalar = qualitySum / consensusScores.length; // 0-100
             
-            // Calculate rewards with Studio Orchestrator fee
-            uint256 totalBudget = 1 ether; // Simplified - would come from escrow
+            // Calculate rewards based on ACTUAL studio escrow balance
+            // This allows studios to operate with any budget amount
+            uint256 totalBudget = studioProxy.getTotalEscrow();
+            if (totalBudget == 0) {
+                // If no escrow, skip reward distribution but still record consensus
+                emit EpochClosed(studio, epoch, 0, 0);
+                continue;
+            }
             
             // Studio Orchestrator fee (5% of total budget)
             uint256 orchestratorFee = (totalBudget * 5) / 100;

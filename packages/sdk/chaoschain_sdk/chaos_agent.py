@@ -91,7 +91,7 @@ class ChaosAgent:
                 # ChaosChain Protocol Contracts (deployed Nov 28, 2025 - Protocol Spec v0.1 FINAL)
                 'chaos_registry': '0x15DC5D011DbB61b1Fa5b521880d501E2Dd723d0f',
                 'chaos_core': '0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA',
-                'rewards_distributor': '0xaC3BC53eC1774c746638b4B1949eCF79984C2DE0',
+                'rewards_distributor': '0x0D75dF16119536Ed25dF7352478A04168518Eaf4',
                 # LogicModules
                 'prediction_logic': '0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9',
                 'finance_logic': '0x48E3820CE20E2ee6D68c127a63206D40ea182031',
@@ -1792,10 +1792,16 @@ class ChaosAgent:
                 abi=studio_proxy_abi
             )
             
-            # Encode score vector as bytes
-            # Contract expects: abi.encode(uint8, uint8, uint8, uint8, uint8) for 5 dimensions
-            # Or dynamic length bytes
-            score_bytes = bytes(score_vector)
+            # Encode score vector as ABI-encoded bytes
+            # Contract expects: abi.encode(uint8, uint8, uint8, uint8, uint8) = 160 bytes
+            # Each uint8 is padded to 32 bytes in ABI encoding
+            from eth_abi import encode
+            
+            # Ensure we have exactly 5 scores (pad with 0 if needed)
+            scores_padded = (score_vector + [0, 0, 0, 0, 0])[:5]
+            
+            # ABI encode as 5 uint8s - this produces 160 bytes
+            score_bytes = encode(['uint8', 'uint8', 'uint8', 'uint8', 'uint8'], scores_padded)
             
             rprint(f"[cyan]📊 Submitting score vector to Studio {studio_address[:10]}...[/cyan]")
             rprint(f"   Data Hash: {data_hash.hex()[:16]}...")

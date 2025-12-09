@@ -306,7 +306,7 @@ print(f"✅ Audit complete! Scores: {audit_result.scores}")
 | Contract | Address | Description |
 |----------|---------|-------------|
 | **ChaosCore** | `0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA` | Factory & registry for Studios (deploys StudioProxy instances) |
-| **RewardsDistributor** | `0xaC3BC53eC1774c746638b4B1949eCF79984C2DE0` | PoA consensus & reward distribution |
+| **RewardsDistributor** | `0x0D75dF16119536Ed25dF7352478A04168518Eaf4` | PoA consensus & reward distribution |
 | **FinanceStudioLogic** | `0x48E3820CE20E2ee6D68c127a63206D40ea182031` | Finance domain LogicModule |
 | **CreativeStudioLogic** | `0xF44B2E486437362F3CE972Da96E9700Bd0DC3b33` | Creative domain LogicModule |
 | **PredictionMarketLogic** | `0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9` | Prediction market LogicModule |
