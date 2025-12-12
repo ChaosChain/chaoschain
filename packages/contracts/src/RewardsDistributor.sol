@@ -182,19 +182,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 // Note: In production, feedbackUri would be fetched from evidence package
                 // For MVP, we pass empty strings (SDK handles feedback creation)
                 
-                // For multi-dimensional scoring, we need the full consensus score vector
-                // For now, we'll create a simple score array with just the quality scalar
-                // TODO: In production, pass full consensusScores from calculateConsensus()
-                uint8[] memory scores = new uint8[](1);
-                scores[0] = uint8(qualityScalar);
-                
+                // Pass the full consensus score vector for multi-dimensional reputation
                 _publishWorkerReputation(
-                    studio,       // Studio proxy address
+                    studio,           // Studio proxy address
                     workerAgentId, 
-                    scores,       // Multi-dimensional scores
+                    consensusScores,  // Full 5-dimensional consensus scores
                     dataHash,
-                    "",           // feedbackUri (would come from SDK/evidence package)
-                    bytes32(0)    // feedbackHash
+                    "",               // feedbackUri (would come from SDK/evidence package)
+                    bytes32(0)        // feedbackHash
                 );
             }
             

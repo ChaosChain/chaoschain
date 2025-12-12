@@ -536,8 +536,11 @@ The core protocol contracts for Studios, Proof of Agency, and rewards distributi
 
 | Contract | Address | Description |
 |----------|---------|-------------|
-| **ChaosCore** | `0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA` | Factory & registry for Studios (deploys StudioProxy instances) |
-| **RewardsDistributor** | `0x0D75dF16119536Ed25dF7352478A04168518Eaf4` | PoA consensus & reward distribution |
+| **ChaosChainRegistry** | `0x37ecDB758044b003E9b59584da54Ea8c1565832F` | Protocol address registry |
+| **ChaosCore** | `0x1f9FbEAc824023341ECB3fCa295F81abA30F9bC1` | Factory & registry for Studios (deploys StudioProxy instances) |
+| **RewardsDistributor** | `0x65a0cd461dc707B6FAa25AA5936b3293f71B32c9` | PoA consensus & reward distribution (V3: Multi-dimensional reputation) |
+| **FinanceStudioLogic** | `0x922A44759E31fc270E2447D4a43465C41CaBF762` | Finance domain LogicModule |
+| **PredictionMarketLogic** | `0x68264C538Fa9fCFF54AD4B22E645b80cb3432b6f` | Prediction market LogicModule |
 
 > **Note:** `StudioProxy` contracts are created dynamically via `ChaosCore.createStudio()`. Each Studio gets its own proxy that holds funds and delegates logic to a LogicModule.
 

@@ -88,14 +88,13 @@ class ChaosAgent:
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts (deployed Nov 28, 2025 - Protocol Spec v0.1 FINAL)
-                'chaos_registry': '0x15DC5D011DbB61b1Fa5b521880d501E2Dd723d0f',
-                'chaos_core': '0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA',
-                'rewards_distributor': '0x0D75dF16119536Ed25dF7352478A04168518Eaf4',
+                # ChaosChain Protocol Contracts V2 (deployed Dec 9, 2024 - Fixed RewardsDistributor)
+                'chaos_registry': '0x37ecDB758044b003E9b59584da54Ea8c1565832F',
+                'chaos_core': '0x1f9FbEAc824023341ECB3fCa295F81abA30F9bC1',
+                'rewards_distributor': '0x65a0cd461dc707B6FAa25AA5936b3293f71B32c9',
                 # LogicModules
-                'prediction_logic': '0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9',
-                'finance_logic': '0x48E3820CE20E2ee6D68c127a63206D40ea182031',
-                'creative_logic': '0xF44B2E486437362F3CE972Da96E9700Bd0DC3b33'
+                'finance_logic': '0x922A44759E31fc270E2447D4a43465C41CaBF762',
+                'prediction_logic': '0x68264C538Fa9fCFF54AD4B22E645b80cb3432b6f'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed

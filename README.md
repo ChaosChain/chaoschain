@@ -305,11 +305,11 @@ print(f"✅ Audit complete! Scores: {audit_result.scores}")
 
 | Contract | Address | Description |
 |----------|---------|-------------|
-| **ChaosCore** | `0x91235F3AcEEc27f7A3458cd1faeF247CeFeB13BA` | Factory & registry for Studios (deploys StudioProxy instances) |
-| **RewardsDistributor** | `0x0D75dF16119536Ed25dF7352478A04168518Eaf4` | PoA consensus & reward distribution |
-| **FinanceStudioLogic** | `0x48E3820CE20E2ee6D68c127a63206D40ea182031` | Finance domain LogicModule |
-| **CreativeStudioLogic** | `0xF44B2E486437362F3CE972Da96E9700Bd0DC3b33` | Creative domain LogicModule |
-| **PredictionMarketLogic** | `0x4D193d3Bf8B8CC9b8811720d67E74497fF7223D9` | Prediction market LogicModule |
+| **ChaosChainRegistry** | `0x37ecDB758044b003E9b59584da54Ea8c1565832F` | Protocol address registry |
+| **ChaosCore** | `0x1f9FbEAc824023341ECB3fCa295F81abA30F9bC1` | Factory & registry for Studios (deploys StudioProxy instances) |
+| **RewardsDistributor** | `0x65a0cd461dc707B6FAa25AA5936b3293f71B32c9` | PoA consensus & reward distribution (V3: Multi-dimensional reputation) |
+| **FinanceStudioLogic** | `0x922A44759E31fc270E2447D4a43465C41CaBF762` | Finance domain LogicModule |
+| **PredictionMarketLogic** | `0x68264C538Fa9fCFF54AD4B22E645b80cb3432b6f` | Prediction market LogicModule |
 
 > **Note:** `StudioProxy` contracts are created dynamically when you call `ChaosCore.createStudio()`. Each Studio gets its own proxy instance that holds funds and delegates logic to a LogicModule.
 
