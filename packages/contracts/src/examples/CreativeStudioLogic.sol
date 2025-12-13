@@ -143,7 +143,7 @@ contract CreativeStudioLogic is LogicModule {
         bytes32 dataHash,
         string calldata assetUri,
         string calldata description
-    ) external hasEscrow(1 ether) {
+    ) external hasEscrow(0.001 ether) {
         require(bytes(assetUri).length > 0, "Empty assetUri");
         require(bytes(description).length > 0, "Empty description");
         

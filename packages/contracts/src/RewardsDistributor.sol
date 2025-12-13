@@ -466,7 +466,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address studioProxy,
         uint256 workerAgentId,
         uint8[] memory scores,
-        bytes32 /* dataHash */,
+        bytes32 dataHash,
         string memory feedbackUri,
         bytes32 feedbackHash
     ) internal {
@@ -490,6 +490,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return;
         }
         
+        // Get worker address from StudioProxy
+        address workerAddress = StudioProxy(payable(studioProxy)).getWorkSubmitter(dataHash);
+        if (workerAddress == address(0)) return; // Invalid worker
+        
+        // Get feedbackAuth from StudioProxy
+        bytes memory feedbackAuth = StudioProxy(payable(studioProxy)).getFeedbackAuth(dataHash, workerAddress);
+        if (feedbackAuth.length < 65) return; // Invalid feedbackAuth signature
+        
         // Studio address as tag2 for filtering
         bytes32 studioTag = bytes32(uint256(uint160(studioProxy)));
         
@@ -507,7 +515,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 studioTag,           // tag2: Studio address (for filtering)
                 feedbackUri,         // Contains full PoA analysis + proofs
                 feedbackHash,
-                new bytes(0)         // feedbackAuth (empty for MVP)
+                feedbackAuth         // ← NOW USING REAL FEEDBACKAUTH!
             ) {
                 // Success - reputation published for this dimension
             } catch {

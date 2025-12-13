@@ -141,3 +141,6 @@ packages/contracts/script/DeployFinanceLogic.s.sol
 packages/contracts/script/DeployRewardsV3.s.sol
 packages/contracts/src/logic/FinanceStudioLogic.sol
 revoke_v0312_approvals.py
+
+debug_reputation.py
+register_logic_module.py

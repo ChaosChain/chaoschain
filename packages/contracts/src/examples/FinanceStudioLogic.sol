@@ -144,7 +144,7 @@ contract FinanceStudioLogic is LogicModule {
         bytes32 dataHash,
         int256 prediction,
         uint8 confidence
-    ) external hasEscrow(1 ether) {
+    ) external hasEscrow(0.001 ether) {
         require(confidence <= 100, "Invalid confidence");
         
         // Record work
@@ -166,7 +166,7 @@ contract FinanceStudioLogic is LogicModule {
         bytes32 dataHash,
         uint8 riskScore,
         string calldata mitigationStrategy
-    ) external hasEscrow(1 ether) {
+    ) external hasEscrow(0.001 ether) {
         require(riskScore <= 100, "Invalid riskScore");
         require(bytes(mitigationStrategy).length > 0, "Empty mitigation");
         

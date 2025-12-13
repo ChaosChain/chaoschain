@@ -1569,13 +1569,31 @@ class ChaosChainAgentSDK:
             # Checksum address
             studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
             
-            # StudioProxy ABI
+            # Get agent ID
+            agent_id = self.chaos_agent.get_agent_id()
+            if not agent_id or agent_id == 0:
+                raise ContractError("Agent not registered. Call register_agent() first.")
+            
+            # Generate feedbackAuth signature
+            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
+            if not rewards_distributor:
+                raise ContractError("RewardsDistributor address not configured")
+            
+            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature...")
+            feedback_auth = self.chaos_agent._generate_feedback_auth(
+                agent_id,
+                rewards_distributor
+            )
+            rprint(f"[dim]   Signature length: {len(feedback_auth)} bytes[/dim]")
+            
+            # StudioProxy ABI (with feedbackAuth)
             studio_proxy_abi = [
                 {
                     "inputs": [
                         {"name": "dataHash", "type": "bytes32"},
                         {"name": "threadRoot", "type": "bytes32"},
-                        {"name": "evidenceRoot", "type": "bytes32"}
+                        {"name": "evidenceRoot", "type": "bytes32"},
+                        {"name": "feedbackAuth", "type": "bytes"}
                     ],
                     "name": "submitWork",
                     "outputs": [],
@@ -1598,11 +1616,12 @@ class ChaosChainAgentSDK:
             rprint(f"[dim]   ThreadRoot: {thread_root.hex() if isinstance(thread_root, bytes) else thread_root}[/dim]")
             rprint(f"[dim]   EvidenceRoot: {evidence_root.hex() if isinstance(evidence_root, bytes) else evidence_root}[/dim]")
             
-            # Build transaction
+            # Build transaction with feedbackAuth
             tx = studio.functions.submitWork(
                 data_hash,
                 thread_root,
-                evidence_root
+                evidence_root,
+                feedback_auth
             ).build_transaction({
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),

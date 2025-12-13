@@ -7,9 +7,12 @@ ERC-8004 registry interactions, identity management, and core protocol operation
 
 import json
 import os
+import time
 from typing import Dict, Optional, Any, Tuple, List
 from web3 import Web3
 from web3.contract import Contract
+from eth_account.messages import encode_defunct
+from eth_abi import encode as abi_encode
 from rich import print as rprint
 
 from .types import NetworkConfig, AgentID, TransactionHash, ContractAddresses
@@ -88,13 +91,13 @@ class ChaosAgent:
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts V2 (deployed Dec 9, 2024 - Fixed RewardsDistributor)
-                'chaos_registry': '0x37ecDB758044b003E9b59584da54Ea8c1565832F',
-                'chaos_core': '0x1f9FbEAc824023341ECB3fCa295F81abA30F9bC1',
-                'rewards_distributor': '0x65a0cd461dc707B6FAa25AA5936b3293f71B32c9',
+                # ChaosChain Protocol Contracts V3 (deployed Dec 9, 2024 - FeedbackAuth support)
+                'chaos_registry': '0xd0839467e3b87BBd123C82555bCC85FC9e345977',
+                'chaos_core': '0xB17e4810bc150e1373f288bAD2DEA47bBcE34239',
+                'rewards_distributor': '0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39',
                 # LogicModules
-                'finance_logic': '0x922A44759E31fc270E2447D4a43465C41CaBF762',
-                'prediction_logic': '0x68264C538Fa9fCFF54AD4B22E645b80cb3432b6f'
+                'finance_logic': '0xb37c1F3a35CA99c509d087c394F5B4470599734D',
+                'prediction_logic': '0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -1838,6 +1841,78 @@ class ChaosAgent:
             
         except Exception as e:
             raise ContractError(f"Failed to submit score vector: {str(e)}")
+    
+    def _generate_feedback_auth(
+        self,
+        agent_id: int,
+        rewards_distributor: str
+    ) -> bytes:
+        """
+        Generate EIP-712 signed feedbackAuth for reputation publishing.
+        
+        This authorizes RewardsDistributor to publish reputation on behalf of the agent
+        when work is completed and consensus is reached.
+        
+        Args:
+            agent_id: The agent's ERC-8004 identity ID
+            rewards_distributor: Address of RewardsDistributor contract
+            
+        Returns:
+            bytes: Full feedbackAuth (289 bytes: encoded struct + signature)
+                   - First 224 bytes: ABI-encoded struct (agentId, clientAddress, etc.)
+                   - Last 65 bytes: EIP-712 signature (r, s, v)
+            
+        Raises:
+            ContractError: If signature generation fails
+        """
+        try:
+            # Get account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # FeedbackAuth parameters
+            agent_id_param = agent_id
+            client_address_param = self.w3.to_checksum_address(rewards_distributor)
+            index_limit = 1000  # Allow many feedbacks
+            expiry = int(time.time()) + (365 * 24 * 60 * 60)  # 1 year
+            chain_id = self.w3.eth.chain_id
+            identity_registry_param = self.contract_addresses.identity_registry
+            signer_address = account.address
+            
+            # Encode the struct (224 bytes) - must match contract's abi.encode()
+            encoded_struct = abi_encode(
+                ['uint256', 'address', 'uint64', 'uint256', 'uint256', 'address', 'address'],
+                [
+                    agent_id_param,
+                    client_address_param,
+                    index_limit,
+                    expiry,
+                    chain_id,
+                    identity_registry_param,
+                    signer_address
+                ]
+            )
+            
+            # Hash the encoded struct
+            message_hash = self.w3.keccak(encoded_struct)
+            
+            # Sign using Ethereum signed message format (NOT EIP-712!)
+            # This adds "\x19Ethereum Signed Message:\n32" prefix
+            from eth_account.messages import encode_defunct
+            signable_message = encode_defunct(message_hash)
+            signed_message = self.w3.eth.account.sign_message(
+                signable_message,
+                private_key=account.key
+            )
+            
+            # Build full feedbackAuth (289 bytes):
+            # First 224 bytes: ABI-encoded struct
+            # Last 65 bytes: Signature (r, s, v)
+            full_feedback_auth = encoded_struct + signed_message.signature
+            
+            return full_feedback_auth
+            
+        except Exception as e:
+            raise ContractError(f"Failed to generate feedbackAuth: {str(e)}")
     
     @property
     def wallet_address(self) -> str:

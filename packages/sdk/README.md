@@ -135,7 +135,7 @@ studio_address = sdk.create_studio(
 sdk.register_with_studio(
     studio_address=studio_address,
     role=AgentRole.WORKER,
-    stake_amount=100000000000000000  # 0.1 ETH stake
+    stake_amount=1000000000000000  # 0.001 ETH stake (1000000000000000 wei)
 )
 
 # Submit work
@@ -536,11 +536,11 @@ The core protocol contracts for Studios, Proof of Agency, and rewards distributi
 
 | Contract | Address | Description |
 |----------|---------|-------------|
-| **ChaosChainRegistry** | `0x37ecDB758044b003E9b59584da54Ea8c1565832F` | Protocol address registry |
-| **ChaosCore** | `0x1f9FbEAc824023341ECB3fCa295F81abA30F9bC1` | Factory & registry for Studios (deploys StudioProxy instances) |
-| **RewardsDistributor** | `0x65a0cd461dc707B6FAa25AA5936b3293f71B32c9` | PoA consensus & reward distribution (V3: Multi-dimensional reputation) |
-| **FinanceStudioLogic** | `0x922A44759E31fc270E2447D4a43465C41CaBF762` | Finance domain LogicModule |
-| **PredictionMarketLogic** | `0x68264C538Fa9fCFF54AD4B22E645b80cb3432b6f` | Prediction market LogicModule |
+| **ChaosChainRegistry** | `0xd0839467e3b87BBd123C82555bCC85FC9e345977` | Protocol address registry |
+| **ChaosCore** | `0xB17e4810bc150e1373f288bAD2DEA47bBcE34239` | Factory & registry for Studios (deploys StudioProxy instances) |
+| **RewardsDistributor** | `0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39` | PoA consensus & reward distribution (V3: FeedbackAuth support) |
+| **FinanceStudioLogic** | `0xb37c1F3a35CA99c509d087c394F5B4470599734D` | Finance domain LogicModule |
+| **PredictionMarketLogic** | `0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A` | Prediction market LogicModule |
 
 > **Note:** `StudioProxy` contracts are created dynamically via `ChaosCore.createStudio()`. Each Studio gets its own proxy that holds funds and delegates logic to a LogicModule.
 
