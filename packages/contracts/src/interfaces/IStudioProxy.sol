@@ -26,7 +26,8 @@ interface IStudioProxy {
     event WorkSubmitted(
         uint256 indexed agentId,
         bytes32 indexed dataHash,
-        string evidenceUri,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
         uint256 timestamp
     );
     
@@ -71,11 +72,12 @@ interface IStudioProxy {
     function upgradeLogicModule(address newLogic) external;
     
     /**
-     * @notice Submit work evidence
-     * @param dataHash The hash of the work evidence
-     * @param evidenceUri URI pointing to the evidence on IPFS/Irys
+     * @notice Submit work evidence (§1.4 protocol spec)
+     * @param dataHash The EIP-712 DataHash (computed from studio, epoch, demandHash, threadRoot, evidenceRoot, paramsHash)
+     * @param threadRoot VLC/Merkle root of XMTP thread
+     * @param evidenceRoot Merkle root of Irys payloads
      */
-    function submitWork(bytes32 dataHash, string calldata evidenceUri) external;
+    function submitWork(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, bytes calldata feedbackAuth) external;
     
     /**
      * @notice Submit score vector for validation
@@ -99,6 +101,21 @@ interface IStudioProxy {
      * @return The escrow balance
      */
     function getEscrowBalance(address account) external view returns (uint256);
+    
+    /**
+     * @notice Get feedbackAuth for a work submission
+     * @param dataHash The work dataHash
+     * @param worker The worker address
+     * @return The feedbackAuth signature
+     */
+    function getFeedbackAuth(bytes32 dataHash, address worker) external view returns (bytes memory);
+    
+    /**
+     * @notice Get work submitter
+     * @param dataHash The work dataHash
+     * @return The submitter address
+     */
+    function getWorkSubmitter(bytes32 dataHash) external view returns (address);
     
     /**
      * @notice Deposit funds to escrow

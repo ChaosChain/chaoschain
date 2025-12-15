@@ -136,8 +136,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             }
             uint256 qualityScalar = qualitySum / consensusScores.length; // 0-100
             
-            // Calculate rewards with Studio Orchestrator fee
-            uint256 totalBudget = 1 ether; // Simplified - would come from escrow
+            // Calculate rewards based on ACTUAL studio escrow balance
+            // This allows studios to operate with any budget amount
+            uint256 totalBudget = studioProxy.getTotalEscrow();
+            if (totalBudget == 0) {
+                // If no escrow, skip reward distribution but still record consensus
+                emit EpochClosed(studio, epoch, 0, 0);
+                continue;
+            }
             
             // Studio Orchestrator fee (5% of total budget)
             uint256 orchestratorFee = (totalBudget * 5) / 100;
@@ -176,19 +182,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 // Note: In production, feedbackUri would be fetched from evidence package
                 // For MVP, we pass empty strings (SDK handles feedback creation)
                 
-                // For multi-dimensional scoring, we need the full consensus score vector
-                // For now, we'll create a simple score array with just the quality scalar
-                // TODO: In production, pass full consensusScores from calculateConsensus()
-                uint8[] memory scores = new uint8[](1);
-                scores[0] = uint8(qualityScalar);
-                
+                // Pass the full consensus score vector for multi-dimensional reputation
                 _publishWorkerReputation(
-                    studio,       // Studio proxy address
+                    studio,           // Studio proxy address
                     workerAgentId, 
-                    scores,       // Multi-dimensional scores
+                    consensusScores,  // Full 5-dimensional consensus scores
                     dataHash,
-                    "",           // feedbackUri (would come from SDK/evidence package)
-                    bytes32(0)    // feedbackHash
+                    "",               // feedbackUri (would come from SDK/evidence package)
+                    bytes32(0)        // feedbackHash
                 );
             }
             
@@ -465,7 +466,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address studioProxy,
         uint256 workerAgentId,
         uint8[] memory scores,
-        bytes32 /* dataHash */,
+        bytes32 dataHash,
         string memory feedbackUri,
         bytes32 feedbackHash
     ) internal {
@@ -489,6 +490,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return;
         }
         
+        // Get worker address from StudioProxy
+        address workerAddress = StudioProxy(payable(studioProxy)).getWorkSubmitter(dataHash);
+        if (workerAddress == address(0)) return; // Invalid worker
+        
+        // Get feedbackAuth from StudioProxy
+        bytes memory feedbackAuth = StudioProxy(payable(studioProxy)).getFeedbackAuth(dataHash, workerAddress);
+        if (feedbackAuth.length < 65) return; // Invalid feedbackAuth signature
+        
         // Studio address as tag2 for filtering
         bytes32 studioTag = bytes32(uint256(uint160(studioProxy)));
         
@@ -506,7 +515,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 studioTag,           // tag2: Studio address (for filtering)
                 feedbackUri,         // Contains full PoA analysis + proofs
                 feedbackHash,
-                new bytes(0)         // feedbackAuth (empty for MVP)
+                feedbackAuth         // ← NOW USING REAL FEEDBACKAUTH!
             ) {
                 // Success - reputation published for this dimension
             } catch {

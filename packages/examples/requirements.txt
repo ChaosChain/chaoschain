@@ -1,0 +1,19 @@
+# ChaosChain Protocol Examples - Dependencies
+
+# Core SDK
+chaoschain-sdk>=0.2.10
+
+# Environment management
+python-dotenv>=1.0.0
+
+# CLI & Output
+rich>=13.0.0
+click>=8.1.0
+
+# Testing & Validation
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Utilities
+pydantic>=2.0.0
+

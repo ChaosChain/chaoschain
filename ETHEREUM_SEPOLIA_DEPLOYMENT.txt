@@ -1,0 +1,100 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                                                                              ║
+║           ✅ CHAOSCHAIN PROTOCOL - ETHEREUM SEPOLIA DEPLOYMENT               ║
+║                                                                              ║
+║                         Date: November 16, 2025                              ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## 🌐 NETWORK DETAILS
+
+Network: Ethereum Sepolia
+Chain ID: 11155111
+RPC: https://eth-sepolia.g.alchemy.com/v2/...
+Explorer: https://sepolia.etherscan.io
+
+## 📋 DEPLOYED CONTRACTS
+
+### ERC-8004 Registries (Pre-existing)
+├─ IdentityRegistry:    0x8004a6090Cd10A7288092483047B097295Fb8847
+├─ ReputationRegistry:  0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E
+└─ ValidationRegistry:  0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5
+
+### ChaosChain Core Protocol
+├─ ChaosChainRegistry:  0x0D28e47E4b2Bc1a7ca300b88698a9D55112Ec7Cd
+├─ ChaosCore:           0x6268C0793891Bc1dD3284Ad8443FAa35a585cf28
+└─ RewardsDistributor:  0xA29e2f232CB818fc63691E7C509c5afb082bd5a5
+
+### LogicModules (Studio Types)
+├─ PredictionMarket:    0x32e3086b9Db2667Cd261b195E8fF669C959738C3
+├─ FinanceStudio:       0xC2B686C4EBA34701d0cC7f250D05B3c62c7CF492
+└─ CreativeStudio:      0xe6775EdC0A0D9BA7E198F435aEa07D34bC24Fdf2
+
+## 🔗 EXPLORER LINKS
+
+ChaosChainRegistry:
+https://sepolia.etherscan.io/address/0x0D28e47E4b2Bc1a7ca300b88698a9D55112Ec7Cd
+
+ChaosCore:
+https://sepolia.etherscan.io/address/0x6268C0793891Bc1dD3284Ad8443FAa35a585cf28
+
+RewardsDistributor:
+https://sepolia.etherscan.io/address/0xA29e2f232CB818fc63691E7C509c5afb082bd5a5
+
+PredictionMarketLogic:
+https://sepolia.etherscan.io/address/0x32e3086b9Db2667Cd261b195E8fF669C959738C3
+
+FinanceStudioLogic:
+https://sepolia.etherscan.io/address/0xC2B686C4EBA34701d0cC7f250D05B3c62c7CF492
+
+CreativeStudioLogic:
+https://sepolia.etherscan.io/address/0xe6775EdC0A0D9BA7E198F435aEa07D34bC24Fdf2
+
+## ✅ DEPLOYMENT STATUS
+
+[x] ChaosChainRegistry deployed
+[x] RewardsDistributor deployed
+[x] ChaosCore deployed
+[x] PredictionMarketLogic deployed & registered
+[x] FinanceStudioLogic deployed & registered
+[x] CreativeStudioLogic deployed & registered
+[x] SDK updated with contract addresses
+
+## 🚀 NEXT STEPS
+
+1. Test Studio creation via SDK
+2. Register test agents
+3. Create test Studios (Finance, Creative, Prediction)
+4. Run end-to-end workflow test
+5. Deploy to Base Sepolia (production testnet)
+
+## 📝 USAGE EXAMPLE
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
+
+# Initialize SDK on Ethereum Sepolia
+sdk = ChaosChainAgentSDK(
+    agent_role=AgentRole.CLIENT,
+    private_key="your_private_key",
+    rpc_url="https://eth-sepolia.g.alchemy.com/v2/...",
+    network="ethereum-sepolia"
+)
+
+# Create a Finance Studio
+studio_address, studio_id = sdk.create_studio(
+    logic_module_address="0xC2B686C4EBA34701d0cC7f250D05B3c62c7CF492",
+    init_params=b""
+)
+
+print(f"✅ Finance Studio created at: {studio_address}")
+```
+
+## 📊 GAS USAGE
+
+Core Deployment:      ~11,398,641 gas
+LogicModules:         ~1,909,025 gas
+Total:                ~13,307,666 gas
+
+Estimated Cost:       ~0.000013 ETH (~$0.05 at current prices)
+

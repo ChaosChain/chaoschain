@@ -7,9 +7,12 @@ ERC-8004 registry interactions, identity management, and core protocol operation
 
 import json
 import os
-from typing import Dict, Optional, Any, Tuple
+import time
+from typing import Dict, Optional, Any, Tuple, List
 from web3 import Web3
 from web3.contract import Contract
+from eth_account.messages import encode_defunct
+from eth_abi import encode as abi_encode
 from rich import print as rprint
 
 from .types import NetworkConfig, AgentID, TransactionHash, ContractAddresses
@@ -87,7 +90,14 @@ class ChaosAgent:
                 'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
+                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
+                # ChaosChain Protocol Contracts V3 (deployed Dec 9, 2024 - FeedbackAuth support)
+                'chaos_registry': '0xd0839467e3b87BBd123C82555bCC85FC9e345977',
+                'chaos_core': '0xB17e4810bc150e1373f288bAD2DEA47bBcE34239',
+                'rewards_distributor': '0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39',
+                # LogicModules
+                'finance_logic': '0xb37c1F3a35CA99c509d087c394F5B4470599734D',
+                'prediction_logic': '0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -129,13 +139,15 @@ class ChaosAgent:
         network_contracts = contract_addresses.get(self.network)
         if not network_contracts:
             raise ConfigurationError(f"No deployed contracts configured for network: {self.network}")
-            
-            self.contract_addresses = ContractAddresses(
+        
+        self.contract_addresses = ContractAddresses(
             identity_registry=network_contracts['identity_registry'],
             reputation_registry=network_contracts['reputation_registry'], 
             validation_registry=network_contracts['validation_registry'],
-                network=self.network
-            )
+            rewards_distributor=network_contracts.get('rewards_distributor'),
+            chaos_core=network_contracts.get('chaos_core'),
+            network=self.network
+        )
     
     def _load_contracts(self):
         """Load contract instances with embedded ABIs."""
@@ -176,7 +188,7 @@ class ChaosAgent:
         - ownerOf() to get agent owner
         - tokenURI() to get registration file
         """
-            return [
+        return [
             # ERC-8004 v1.0 Registration Functions
                 {
                     "inputs": [
@@ -388,7 +400,7 @@ class ChaosAgent:
         - revokeFeedback() support
         - appendResponse() for audit trails
         """
-            return [
+        return [
             # Core Functions
                 {
                     "inputs": [
@@ -544,7 +556,7 @@ class ChaosAgent:
         - validationResponse() uses requestHash with response (0-100)
         - Support for multiple responses per request (progressive validation)
         """
-            return [
+        return [
             # Core Functions
                 {
                     "inputs": [
@@ -701,23 +713,42 @@ class ChaosAgent:
         """
         rprint(f"[yellow]🔧 Registering agent: {self.agent_name} ({self.agent_domain})[/yellow]")
         
-        # v1.0: Check if already registered by iterating through tokens owned by this address
-        # In v1.0, agents are ERC-721 NFTs
+        # v1.0: Check if already registered using ERC-721 Enumerable methods
+        # ERC-8004 IdentityRegistry is ERC-721 based
         try:
-            # Try to get total agents to search through
-            total_agents = self.identity_registry.functions.totalAgents().call()
-            rprint(f"[blue]🔍 Checking {total_agents} existing agents for ownership...[/blue]")
+            # Use balanceOf to check if this wallet owns any agent NFTs
+            balance = self.identity_registry.functions.balanceOf(self.address).call()
             
-            # Check if this wallet owns any agents
-            for potential_id in range(1, min(total_agents + 1, 1000)):  # Limit search to 1000
+            if balance > 0:
+                rprint(f"[blue]🔍 Wallet owns {balance} agent NFT(s), checking...[/blue]")
+                
+                # Use tokenOfOwnerByIndex to get the first agent ID owned by this wallet
                 try:
-                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                    if owner.lower() == self.address.lower():
-                        self.agent_id = potential_id
-                rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
-                return self.agent_id, "already_registered"
-                except:
-                    continue
+                    existing_agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(
+                        self.address, 0
+                    ).call()
+                    self.agent_id = existing_agent_id
+                    rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                    return self.agent_id, "already_registered"
+                except Exception as enum_error:
+                    # If tokenOfOwnerByIndex not available, try iterating through recent tokens
+                    rprint(f"[yellow]⚠️  Enumerable not available, checking recent tokens...[/yellow]")
+                    try:
+                        total_supply = self.identity_registry.functions.totalSupply().call()
+                        # Check last 100 tokens for ownership
+                        for potential_id in range(total_supply, max(0, total_supply - 100), -1):
+                            try:
+                                owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                                if owner.lower() == self.address.lower():
+                                    self.agent_id = potential_id
+                                    rprint(f"[green]✅ Agent already registered with ID: {self.agent_id}[/green]")
+                                    return self.agent_id, "already_registered"
+                            except:
+                                continue
+                    except:
+                        pass
+            else:
+                rprint(f"[blue]🔍 No existing agent found for this wallet[/blue]")
                     
         except Exception as e:
             rprint(f"[blue]🔍 Could not check existing registrations: {e}[/blue]")
@@ -778,22 +809,34 @@ class ChaosAgent:
                     logs = registered_event.process_receipt(receipt)
                     if logs:
                         self.agent_id = logs[0]['args']['agentId']
-                rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
+                        rprint(f"[green]✅ Agent registered successfully with ID: {self.agent_id}[/green]")
                         rprint(f"[blue]📋 View on explorer: Transaction {tx_hash.hex()[:10]}...[/blue]")
-                return self.agent_id, tx_hash.hex()
+                        return self.agent_id, tx_hash.hex()
                 except Exception as log_error:
                     rprint(f"[yellow]⚠️  Could not parse event logs: {log_error}[/yellow]")
-                    # Fallback: Check ownership to find agent ID
-                    total_agents = self.identity_registry.functions.totalAgents().call()
-                    for potential_id in range(total_agents, max(0, total_agents - 10), -1):
+                    # Fallback: Use ERC-721 methods to find agent ID
+                    try:
+                        # First try tokenOfOwnerByIndex (ERC-721 Enumerable)
+                        self.agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(
+                            self.address, 0
+                        ).call()
+                        rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
+                        return self.agent_id, tx_hash.hex()
+                    except:
+                        # Fallback: Check recent tokens by totalSupply
                         try:
-                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                            if owner.lower() == self.address.lower():
-                                self.agent_id = potential_id
-                                rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
-                                return self.agent_id, tx_hash.hex()
+                            total_supply = self.identity_registry.functions.totalSupply().call()
+                            for potential_id in range(total_supply, max(0, total_supply - 10), -1):
+                                try:
+                                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                                    if owner.lower() == self.address.lower():
+                                        self.agent_id = potential_id
+                                        rprint(f"[green]✅ Agent registered with ID: {self.agent_id}[/green]")
+                                        return self.agent_id, tx_hash.hex()
+                                except:
+                                    continue
                         except:
-                            continue
+                            pass
                     
                     raise AgentRegistrationError("Registration succeeded but could not determine agent ID")
             else:
@@ -824,28 +867,44 @@ class ChaosAgent:
             return self.agent_id
         
         try:
-            # v1.0: Check if this wallet owns any agents by iterating through tokens
-            total_agents = self.identity_registry.functions.totalAgents().call()
+            # v1.0: Use balanceOf to check if wallet owns any tokens
+            balance = self.identity_registry.functions.balanceOf(self.address).call()
             
-            # Check ownership of recent agents first (more efficient)
-            for potential_id in range(total_agents, max(0, total_agents - 100), -1):
-                try:
-                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                    if owner.lower() == self.address.lower():
-                        self.agent_id = potential_id
+            if balance == 0:
+                return None
+            
+            # If wallet has tokens, try to get the first one using tokenOfOwnerByIndex
+            try:
+                # ERC-721 Enumerable extension
+                agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(self.address, 0).call()
+                self.agent_id = agent_id
                 return self.agent_id
-        except:
-                    continue
-            
-            # If not found in recent agents, check older ones
-            for potential_id in range(1, min(max(0, total_agents - 100), 100)):
+            except:
+                # If enumerable not available, try totalSupply and iterate
                 try:
-                    owner = self.identity_registry.functions.ownerOf(potential_id).call()
-                    if owner.lower() == self.address.lower():
-                        self.agent_id = potential_id
-                        return self.agent_id
+                    total_supply = self.identity_registry.functions.totalSupply().call()
+                    
+                    # Check recent tokens first (more efficient)
+                    for potential_id in range(total_supply, max(0, total_supply - 100), -1):
+                        try:
+                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                            if owner.lower() == self.address.lower():
+                                self.agent_id = potential_id
+                                return self.agent_id
+                        except:
+                            continue
+                    
+                    # Check older tokens
+                    for potential_id in range(1, min(101, total_supply + 1)):
+                        try:
+                            owner = self.identity_registry.functions.ownerOf(potential_id).call()
+                            if owner.lower() == self.address.lower():
+                                self.agent_id = potential_id
+                                return self.agent_id
+                        except:
+                            continue
                 except:
-                    continue
+                    pass
                     
         except Exception as e:
             rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
@@ -970,7 +1029,7 @@ class ChaosAgent:
             if receipt.status == 1:
                 rprint(f"[green]✅ Metadata '{key}' set successfully[/green]")
                 return tx_hash.hex()
-                else:
+            else:
                 raise ContractError("Metadata update transaction failed")
                 
         except Exception as e:
@@ -1051,7 +1110,7 @@ class ChaosAgent:
             if isinstance(request_hash, str):
                 if request_hash.startswith('0x'):
                     request_hash_bytes = bytes.fromhex(request_hash[2:])
-            else:
+                else:
                     request_hash_bytes = bytes.fromhex(request_hash)
             else:
                 request_hash_bytes = request_hash
@@ -1187,7 +1246,7 @@ class ChaosAgent:
             
             if receipt.status == 1:
                 rprint(f"[green]✅ Validation response submitted: {tx_hash.hex()[:10]}...[/green]")
-            return tx_hash.hex()
+                return tx_hash.hex()
             else:
                 raise ContractError("Validation response transaction failed")
             
@@ -1509,6 +1568,351 @@ class ChaosAgent:
             
         except Exception as e:
             raise Exception(f"Failed to create feedback with payment: {str(e)}")
+    
+    def get_reputation(
+        self,
+        agent_id: Optional[int] = None,
+        tag1: Optional[bytes] = None,
+        tag2: Optional[bytes] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get reputation feedback for an agent from ERC-8004 Reputation Registry.
+        
+        Args:
+            agent_id: Agent ID to query (default: this agent)
+            tag1: Optional first tag filter (e.g., dimension name)
+            tag2: Optional second tag filter (e.g., studio address)
+            
+        Returns:
+            List of feedback entries
+            
+        Raises:
+            ContractError: If query fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Use this agent's ID if not specified
+            if agent_id is None:
+                agent_id = self.agent_id
+                if agent_id is None:
+                    raise AgentRegistrationError("Agent not registered")
+            
+            rprint(f"[cyan]→[/cyan] Querying reputation for agent {agent_id}")
+            
+            # Query reputation registry
+            # Note: This is a simplified version. In production, you'd need to:
+            # 1. Query feedback count
+            # 2. Iterate through feedback entries
+            # 3. Filter by tags if provided
+            # 4. Fetch feedbackUri content from IPFS
+            
+            # Get reputation registry
+            reputation_registry = self.w3.eth.contract(
+                address=self.contract_addresses.reputation_registry,
+                abi=self._get_reputation_registry_abi()
+            )
+            
+            # Get all clients who gave feedback
+            clients = reputation_registry.functions.getClients(agent_id).call()
+            
+            if not clients:
+                rprint(f"[dim]No reputation feedback found for agent {agent_id}[/dim]")
+                return []
+            
+            rprint(f"[dim]Found feedback from {len(clients)} client(s)[/dim]")
+            
+            # Collect all feedback
+            all_feedback = []
+            
+            for client in clients:
+                # Get last index for this client
+                last_index = reputation_registry.functions.getLastIndex(agent_id, client).call()
+                
+                # Read all feedback from this client
+                for idx in range(last_index):
+                    try:
+                        # readFeedback returns (score, tag1, tag2, isRevoked)
+                        score, feedback_tag1, feedback_tag2, is_revoked = reputation_registry.functions.readFeedback(
+                            agent_id,
+                            client,
+                            idx
+                        ).call()
+                        
+                        # Filter by tags if provided
+                        if tag1 and feedback_tag1 != tag1:
+                            continue
+                        if tag2 and feedback_tag2 != tag2:
+                            continue
+                        
+                        if not is_revoked:
+                            all_feedback.append({
+                                'client': client,
+                                'score': score,
+                                'tag1': feedback_tag1.hex() if isinstance(feedback_tag1, bytes) else str(feedback_tag1),
+                                'tag2': feedback_tag2.hex() if isinstance(feedback_tag2, bytes) else str(feedback_tag2),
+                                'index': idx
+                            })
+                    except Exception as e:
+                        rprint(f"[dim]Error reading feedback {idx}: {e}[/dim]")
+            
+            if all_feedback:
+                rprint(f"[green]✓[/green] Found {len(all_feedback)} reputation entries")
+            else:
+                rprint(f"[dim]No matching reputation feedback found[/dim]")
+            
+            return all_feedback
+            
+        except Exception as e:
+            raise ContractError(f"Failed to get reputation: {str(e)}")
+    
+    def get_reputation_summary(
+        self,
+        agent_id: Optional[int] = None,
+        client_addresses: Optional[List[str]] = None,
+        tag1: Optional[bytes] = None,
+        tag2: Optional[bytes] = None
+    ) -> Dict[str, Any]:
+        """
+        Get reputation summary for an agent (count and average score).
+        
+        Args:
+            agent_id: Agent ID to query (default: this agent)
+            client_addresses: Optional list of client addresses to filter by
+            tag1: Optional first tag filter (e.g., dimension name)
+            tag2: Optional second tag filter (e.g., studio address)
+            
+        Returns:
+            Dictionary with count and averageScore
+            
+        Raises:
+            ContractError: If query fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Use this agent's ID if not specified
+            if agent_id is None:
+                agent_id = self.agent_id
+                if agent_id is None:
+                    raise AgentRegistrationError("Agent not registered")
+            
+            # Get reputation registry
+            reputation_registry = self.w3.eth.contract(
+                address=self.contract_addresses.reputation_registry,
+                abi=self._get_reputation_registry_abi()
+            )
+            
+            # Convert client addresses to checksummed format
+            clients = []
+            if client_addresses:
+                clients = [self.w3.to_checksum_address(addr) for addr in client_addresses]
+            
+            # Convert tags to bytes32 if needed
+            tag1_bytes = tag1 if isinstance(tag1, bytes) else b'\x00' * 32
+            tag2_bytes = tag2 if isinstance(tag2, bytes) else b'\x00' * 32
+            
+            # Call getSummary
+            count, avg_score = reputation_registry.functions.getSummary(
+                agent_id,
+                clients,
+                tag1_bytes,
+                tag2_bytes
+            ).call()
+            
+            rprint(f"[green]✓[/green] Reputation summary: {count} entries, avg {avg_score}/100")
+            
+            return {
+                'count': count,
+                'averageScore': avg_score
+            }
+            
+        except Exception as e:
+            raise ContractError(f"Failed to get reputation summary: {str(e)}")
+    
+    def submit_score_vector(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        score_vector: List[int]
+    ) -> TransactionHash:
+        """
+        Submit score vector directly to StudioProxy (simpler alternative to commit-reveal).
+        
+        This is the simpler method for verifiers to submit scores without the commit-reveal
+        protocol. Use this when commit-reveal deadlines are not set.
+        
+        Per ChaosChain_Implementation_Plan.md:
+        - Verifier Agent monitors StudioProxy for new work submissions
+        - VA fetches full EvidencePackage and performs causal audit
+        - VA generates ScoreVector and submits to StudioProxy
+        
+        Args:
+            studio_address: The StudioProxy contract address
+            data_hash: The work hash (bytes32) being scored
+            score_vector: Multi-dimensional score vector (list of uint8 scores 0-100)
+                         e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+        
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If score submission fails
+            
+        Example:
+            ```python
+            # Verifier submits scores after causal audit
+            scores = [85, 90, 88, 95, 82]  # Initiative, Collab, Reasoning, Compliance, Efficiency
+            tx_hash = agent.submit_score_vector(
+                studio_address="0x123...",
+                data_hash=work_data_hash,
+                score_vector=scores
+            )
+            ```
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum address
+            studio_address = self.w3.to_checksum_address(studio_address)
+            
+            # StudioProxy ABI for submitScoreVector
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "scoreVector", "type": "bytes"}
+                    ],
+                    "name": "submitScoreVector",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            studio_proxy = self.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Encode score vector as ABI-encoded bytes
+            # Contract expects: abi.encode(uint8, uint8, uint8, uint8, uint8) = 160 bytes
+            # Each uint8 is padded to 32 bytes in ABI encoding
+            from eth_abi import encode
+            
+            # Ensure we have exactly 5 scores (pad with 0 if needed)
+            scores_padded = (score_vector + [0, 0, 0, 0, 0])[:5]
+            
+            # ABI encode as 5 uint8s - this produces 160 bytes
+            score_bytes = encode(['uint8', 'uint8', 'uint8', 'uint8', 'uint8'], scores_padded)
+            
+            rprint(f"[cyan]📊 Submitting score vector to Studio {studio_address[:10]}...[/cyan]")
+            rprint(f"   Data Hash: {data_hash.hex()[:16]}...")
+            rprint(f"   Scores: {score_vector}")
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # Build transaction
+            tx = studio_proxy.functions.submitScoreVector(
+                data_hash,
+                score_bytes
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.w3.eth.get_transaction_count(account.address),
+                'gas': 200000,
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.w3.eth.account.sign_transaction(tx, account.key)
+            raw_transaction = getattr(signed_tx, 'raw_transaction', getattr(signed_tx, 'rawTransaction', None))
+            tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
+            
+            # Wait for confirmation
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Score submission transaction failed")
+            
+            tx_hash_hex = tx_hash.hex()
+            rprint(f"[green]✅ Score vector submitted: {tx_hash_hex[:10]}...[/green]")
+            
+            return tx_hash_hex
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit score vector: {str(e)}")
+    
+    def _generate_feedback_auth(
+        self,
+        agent_id: int,
+        rewards_distributor: str
+    ) -> bytes:
+        """
+        Generate EIP-712 signed feedbackAuth for reputation publishing.
+        
+        This authorizes RewardsDistributor to publish reputation on behalf of the agent
+        when work is completed and consensus is reached.
+        
+        Args:
+            agent_id: The agent's ERC-8004 identity ID
+            rewards_distributor: Address of RewardsDistributor contract
+            
+        Returns:
+            bytes: Full feedbackAuth (289 bytes: encoded struct + signature)
+                   - First 224 bytes: ABI-encoded struct (agentId, clientAddress, etc.)
+                   - Last 65 bytes: EIP-712 signature (r, s, v)
+            
+        Raises:
+            ContractError: If signature generation fails
+        """
+        try:
+            # Get account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # FeedbackAuth parameters
+            agent_id_param = agent_id
+            client_address_param = self.w3.to_checksum_address(rewards_distributor)
+            index_limit = 1000  # Allow many feedbacks
+            expiry = int(time.time()) + (365 * 24 * 60 * 60)  # 1 year
+            chain_id = self.w3.eth.chain_id
+            identity_registry_param = self.contract_addresses.identity_registry
+            signer_address = account.address
+            
+            # Encode the struct (224 bytes) - must match contract's abi.encode()
+            encoded_struct = abi_encode(
+                ['uint256', 'address', 'uint64', 'uint256', 'uint256', 'address', 'address'],
+                [
+                    agent_id_param,
+                    client_address_param,
+                    index_limit,
+                    expiry,
+                    chain_id,
+                    identity_registry_param,
+                    signer_address
+                ]
+            )
+            
+            # Hash the encoded struct
+            message_hash = self.w3.keccak(encoded_struct)
+            
+            # Sign using Ethereum signed message format (NOT EIP-712!)
+            # This adds "\x19Ethereum Signed Message:\n32" prefix
+            from eth_account.messages import encode_defunct
+            signable_message = encode_defunct(message_hash)
+            signed_message = self.w3.eth.account.sign_message(
+                signable_message,
+                private_key=account.key
+            )
+            
+            # Build full feedbackAuth (289 bytes):
+            # First 224 bytes: ABI-encoded struct
+            # Last 65 bytes: Signature (r, s, v)
+            full_feedback_auth = encoded_struct + signed_message.signature
+            
+            return full_feedback_auth
+            
+        except Exception as e:
+            raise ContractError(f"Failed to generate feedbackAuth: {str(e)}")
     
     @property
     def wallet_address(self) -> str:

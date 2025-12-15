@@ -91,6 +91,9 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     /// @dev Agent stakes: agentId => stake amount
     mapping(uint256 => uint256) private _agentStakes;
     
+    /// @dev FeedbackAuth signatures: dataHash => workerAddress => feedbackAuth
+    mapping(bytes32 => mapping(address => bytes)) private _feedbackAuths;
+    
     /// @dev Agent role enum (aligned with SDK: SERVER=WORKER, VALIDATOR=VERIFIER, CLIENT=CLIENT)
     enum AgentRole {
         NONE,               // 0 - Not registered
@@ -230,9 +233,17 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     }
     
     /// @inheritdoc IStudioProxy
-    function submitWork(bytes32 dataHash, string calldata evidenceUri) external override {
+    function submitWork(
+        bytes32 dataHash,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
+        bytes calldata feedbackAuth
+    ) external override {
         require(dataHash != bytes32(0), "Invalid dataHash");
+        require(threadRoot != bytes32(0), "Invalid threadRoot");
+        require(evidenceRoot != bytes32(0), "Invalid evidenceRoot");
         require(_workSubmissions[dataHash] == address(0), "Work already submitted");
+        require(feedbackAuth.length >= 65, "Invalid feedbackAuth"); // ECDSA signature is 65 bytes
         
         // Verify agent is registered with worker role
         uint256 agentId = _agentIds[msg.sender];
@@ -240,8 +251,9 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         require(hasWorkerRole(_agentRoles[agentId]), "Not a worker agent");
         
         _workSubmissions[dataHash] = msg.sender;
+        _feedbackAuths[dataHash][msg.sender] = feedbackAuth;
         
-        emit WorkSubmitted(agentId, dataHash, evidenceUri, block.timestamp);
+        emit WorkSubmitted(agentId, dataHash, threadRoot, evidenceRoot, block.timestamp);
     }
     
     /// @inheritdoc IStudioProxy
@@ -356,6 +368,16 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
      */
     function getTotalEscrow() external view returns (uint256 total) {
         return _totalEscrow;
+    }
+    
+    /**
+     * @notice Get feedbackAuth signature for a work submission
+     * @param dataHash The work dataHash
+     * @param worker The worker address
+     * @return feedbackAuth The EIP-712 signed feedbackAuth
+     */
+    function getFeedbackAuth(bytes32 dataHash, address worker) external view returns (bytes memory feedbackAuth) {
+        return _feedbackAuths[dataHash][worker];
     }
     
     /**

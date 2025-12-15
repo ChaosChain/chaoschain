@@ -49,26 +49,45 @@ class WalletManager:
         
     def _initialize_web3_connection(self):
         """Initialize Web3 connection based on network configuration."""
+        # Default public RPC URLs (can be overridden via environment variables)
+        default_rpc_urls = {
+            NetworkConfig.BASE_SEPOLIA: 'https://sepolia.base.org',
+            NetworkConfig.ETHEREUM_SEPOLIA: 'https://ethereum-sepolia-rpc.publicnode.com',
+            NetworkConfig.OPTIMISM_SEPOLIA: 'https://sepolia.optimism.io',
+            NetworkConfig.MODE_TESTNET: 'https://sepolia.mode.network',
+            NetworkConfig.ZEROG_TESTNET: 'https://evmrpc-testnet.0g.ai',
+            NetworkConfig.LOCAL: 'http://127.0.0.1:8545'
+        }
+        
         rpc_urls = {
-            NetworkConfig.BASE_SEPOLIA: os.getenv('BASE_SEPOLIA_RPC_URL'),
-            NetworkConfig.ETHEREUM_SEPOLIA: os.getenv('SEPOLIA_RPC_URL'), 
-            NetworkConfig.OPTIMISM_SEPOLIA: os.getenv('OPTIMISM_SEPOLIA_RPC_URL'),
-            NetworkConfig.MODE_TESTNET: os.getenv('MODE_TESTNET_RPC_URL'),
-            NetworkConfig.ZEROG_TESTNET: os.getenv('ZEROG_TESTNET_RPC_URL'),
-            NetworkConfig.LOCAL: os.getenv('LOCAL_RPC_URL', 'http://127.0.0.1:8545')
+            NetworkConfig.BASE_SEPOLIA: os.getenv('BASE_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.BASE_SEPOLIA]),
+            NetworkConfig.ETHEREUM_SEPOLIA: os.getenv('SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.ETHEREUM_SEPOLIA]), 
+            NetworkConfig.OPTIMISM_SEPOLIA: os.getenv('OPTIMISM_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.OPTIMISM_SEPOLIA]),
+            NetworkConfig.MODE_TESTNET: os.getenv('MODE_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.MODE_TESTNET]),
+            NetworkConfig.ZEROG_TESTNET: os.getenv('ZEROG_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.ZEROG_TESTNET]),
+            NetworkConfig.LOCAL: os.getenv('LOCAL_RPC_URL', default_rpc_urls[NetworkConfig.LOCAL])
         }
         
         rpc_url = rpc_urls.get(self.network)
         if not rpc_url:
             raise ConfigurationError(
                 f"RPC URL not configured for network: {self.network}",
-                {"network": self.network, "required_env_var": f"{self.network.upper()}_RPC_URL"}
+                {"network": self.network, "available_networks": list(rpc_urls.keys())}
             )
         
         try:
-            self.w3 = Web3(Web3.HTTPProvider(rpc_url))
-            if not self.w3.is_connected():
-                raise NetworkError(f"Failed to connect to {self.network} at {rpc_url}")
+            # Create Web3 instance with timeout
+            from web3.providers import HTTPProvider
+            provider = HTTPProvider(rpc_url, request_kwargs={'timeout': 30})
+            self.w3 = Web3(provider)
+            
+            # Test connection with a simple call
+            try:
+                self.w3.eth.block_number
+            except Exception as conn_err:
+                raise NetworkError(f"Failed to connect to {self.network} at {rpc_url}: {str(conn_err)}")
+        except NetworkError:
+            raise
         except Exception as e:
             raise NetworkError(f"Web3 connection failed: {str(e)}")
     

@@ -130,3 +130,17 @@ packages/sdk/chaoschain_wallets.json
 !docs/MERCHANT_GUIDE.md
 
 packages/contracts-v1/IMPLEMENTATION_ROADMAP.md
+packages/contracts/deploy_rewards_only.sh
+packages/contracts/script/DeployRewardsOnly.s.sol
+packages/contracts/script/DeployProtocolV2.s.sol
+packages/contracts/script/UpdateRegistry.s.sol
+packages/contracts/update_registry.py
+
+
+packages/contracts/script/DeployFinanceLogic.s.sol
+packages/contracts/script/DeployRewardsV3.s.sol
+packages/contracts/src/logic/FinanceStudioLogic.sol
+revoke_v0312_approvals.py
+
+debug_reputation.py
+register_logic_module.py

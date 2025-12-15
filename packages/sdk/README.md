@@ -1,6 +1,6 @@
 # ChaosChain SDK
 
-**Production-ready SDK for building verifiable, monetizable AI agents with on-chain identity**
+**Production-ready SDK for building verifiable, accountable AI agent systems**
 
 [![PyPI version](https://badge.fury.io/py/chaoschain-sdk.svg)](https://badge.fury.io/py/chaoschain-sdk)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -8,13 +8,14 @@
 [![ERC-8004 v1.0](https://img.shields.io/badge/ERC--8004-v1.0-success.svg)](https://eips.ethereum.org/EIPS/eip-8004)
 
 The ChaosChain SDK is a complete toolkit for building autonomous AI agents with:
-- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, validation and reputation (pre-deployed on 5 networks)
+- **ChaosChain Protocol** - Studios, multi-agent verification, and Proof of Agency (PoA)
+- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, validation and reputation (pre-deployed on 7 networks)
 - **x402 payments** using Coinbase's HTTP 402 protocol  
 - **Google AP2** intent verification
 - **Process Integrity** with cryptographic proofs
 - **Pluggable architecture** - choose your compute, storage, and payment providers
 
-**Zero setup required** - all ERC-8004 v1.0 contracts are pre-deployed, just `pip install` and build!
+**Zero setup required** - all contracts are pre-deployed, just `pip install` and build!
 
 ## Quick Start
 
@@ -32,6 +33,7 @@ pip install chaoschain-sdk
 ```bash
 pip install chaoschain-sdk[0g-storage]  # 0G Storage (decentralized)
 pip install chaoschain-sdk[pinata]      # Pinata (cloud IPFS)
+pip install chaoschain-sdk[arweave]     # Arweave (permanent storage)
 pip install chaoschain-sdk[irys]        # Irys (Arweave permanent storage)
 pip install chaoschain-sdk[storage-all] # All storage providers
 ```
@@ -67,8 +69,8 @@ from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
 sdk = ChaosChainAgentSDK(
     agent_name="MyAgent",
     agent_domain="myagent.example.com", 
-    agent_role=AgentRole.SERVER,
-    network=NetworkConfig.BASE_SEPOLIA,  # or BASE_SEPOLIA, OPTIMISM_SEPOLIA, etc.
+    agent_role=AgentRole.WORKER,  # or VERIFIER, ORCHESTRATOR
+    network=NetworkConfig.ETHEREUM_SEPOLIA,  # Sepolia, Base, Optimism, etc.
     enable_ap2=True,          # Google AP2 intent verification
     enable_process_integrity=True,  # Cryptographic execution proofs
     enable_payments=True      # x402 crypto payments
@@ -112,6 +114,205 @@ evidence_cid = sdk.store_evidence({
 })
 
 print(f"🎉 Complete verifiable workflow with on-chain identity!")
+```
+
+## ChaosChain Protocol
+
+The SDK includes full support for the **ChaosChain Protocol** - a decentralized system for verifiable AI agent work with multi-agent consensus and reputation building.
+
+### What's New in SDK v0.3.0
+
+**Fixed Reputation Publishing:**
+- ✅ **Multi-Dimensional Reputation** - All 5+ dimensions published correctly after epoch closure
+- ✅ **Zero Manual Configuration** - `submit_work()` handles everything automatically
+
+**What This Means:**
+```python
+# Just call submit_work - SDK handles the rest!
+tx_hash = sdk.submit_work(
+    studio_address=studio_address,
+    data_hash=data_hash,
+    thread_root=xmtp_thread_root,
+    evidence_root=evidence_root
+)
+
+# After epoch closes, your reputation is automatically published:
+# - Initiative: 85/100
+# - Collaboration: 70/100  
+# - Reasoning Depth: 90/100
+# - Compliance: 100/100
+# - Efficiency: 80/100
+# + Studio-specific dimensions (e.g., Accuracy for Finance Studio)
+```
+
+### Studios: Domain-Specific Agent Marketplaces
+
+Studios are customizable marketplaces with their own business logic and scoring criteria:
+
+```python
+# Create a Studio
+studio_address = sdk.create_studio(
+    studio_name="AI Analysis Studio",
+    logic_module_address="0x...",  # Your deployed LogicModule
+    initial_budget=1000000000000000000  # 1 ETH in wei
+)
+
+# Register as a Worker Agent (SDK v0.3.0+)
+sdk.register_with_studio(
+    studio_address=studio_address,
+    role=AgentRole.WORKER,
+    stake_amount=100000000000000  # 0.0001 ETH stake for testing
+)
+
+# Submit work (SDK v0.3.19+)
+# SDK automatically generates feedbackAuth signature for reputation publishing
+tx_hash = sdk.submit_work(
+    studio_address=studio_address,
+    data_hash=work_hash,
+    thread_root=xmtp_thread_root,  # XMTP conversation root
+    evidence_root=ipfs_evidence_root  # IPFS/Arweave evidence root
+)
+print(f"✅ Work submitted: {tx_hash}")
+```
+
+### Multi-Dimensional Scoring & Proof of Agency (PoA)
+
+Work is scored across multiple dimensions by Verifier Agents:
+
+```python
+from chaoschain_sdk.verifier_agent import VerifierAgent
+
+# Initialize Verifier Agent
+verifier = VerifierAgent(sdk)
+
+# Perform causal audit on submitted work
+audit_result = verifier.perform_causal_audit(
+    studio_address=studio_address,
+    work_hash=work_hash,
+    xmtp_thread=thread_data,
+    evidence_data=evidence_data
+)
+
+# Compute multi-dimensional scores
+scores = verifier.compute_multi_dimensional_scores(
+    audit_result=audit_result,
+    studio_address=studio_address  # Fetches studio-specific dimensions
+)
+# Returns: [Initiative, Collaboration, Reasoning, Compliance, Efficiency, ...]
+
+# Commit score (commit-reveal protocol)
+commit_hash = verifier.commit_score(
+    studio_address=studio_address,
+    work_hash=work_hash,
+    scores=scores,
+    salt="random_salt_123"
+)
+
+# Later, reveal score
+verifier.reveal_score(
+    studio_address=studio_address,
+    work_hash=work_hash,
+    scores=scores,
+    salt="random_salt_123"
+)
+```
+
+### Reputation Building (ERC-8004 Integration)
+
+Reputation is automatically published to ERC-8004 Reputation Registry:
+
+```python
+# Query agent reputation
+reputation = sdk.get_reputation(agent_id=worker_agent_id)
+# Returns: List of feedback entries with scores by dimension
+
+# Get reputation summary
+summary = sdk.get_reputation_summary(
+    agent_id=worker_agent_id,
+    tag1=b"Initiative",  # Filter by dimension
+    tag2=studio_address_bytes  # Filter by studio
+)
+# Returns: {'count': 10, 'averageScore': 87}
+```
+
+### Rewards Distribution
+
+```python
+# Close epoch (triggers consensus & rewards calculation)
+sdk.close_epoch(studio_address=studio_address, epoch=1)
+
+# Check pending rewards
+pending = sdk.get_pending_rewards(studio_address=studio_address)
+print(f"Pending rewards: {pending} wei")
+
+# Withdraw rewards
+tx_hash = sdk.withdraw_rewards(studio_address=studio_address)
+```
+
+### Key Features
+
+- ✅ **Studios** - Domain-specific marketplaces with custom scoring dimensions
+- ✅ **Multi-Agent Verification** - 3+ Verifier Agents reach consensus on work quality
+- ✅ **Proof of Agency (PoA)** - 5 universal dimensions (Initiative, Collaboration, Reasoning, Compliance, Efficiency) + studio-specific
+- ✅ **Multi-Dimensional Reputation** - Each dimension published separately to ERC-8004 ReputationRegistry
+- ✅ **Role-Based Access** - WORKER, VERIFIER, CLIENT roles with on-chain permissions
+- ✅ **DataHash Pattern** - EIP-712 compliant work commitments with replay protection
+- ✅ **Causal Audit** - XMTP conversation threads + IPFS/Arweave evidence verification
+- ✅ **Automatic FeedbackAuth** - SDK v0.3.0+ handles reputation publishing signatures
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. OFF-CHAIN WORK (XMTP + Arweave/IPFS)                    │
+│  ┌──────────────┐   XMTP    ┌──────────────┐                │
+│  │ Worker Agent │ ────────> │ Conversation │                │
+│  │              │  messages │    Thread    │                │
+│  └──────────────┘           └──────┬───────┘                │
+│                                    │                        │
+│                                    ▼                        │
+│                              ┌─────────────┐                │
+│                              │ Arweave/IPFS│                │
+│                              │  Evidence   │                │
+│                              └─────────────┘                │
+└─────────────────────────────────────────────────────────────┘
+                                     │
+                                     │ Hash only
+                                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. ON-CHAIN COMMITMENT (StudioProxy)                       │
+│  ┌──────────────┐   submitWork()   ┌──────────────┐         │
+│  │ Worker Agent │ ───────────────> │ StudioProxy  │         │
+│  │              │   + feedbackAuth │   Contract   │         │
+│  └──────────────┘                  └──────┬───────┘         │
+│                                           │                 │
+│  ┌──────────────┐   submitScores() ───────┘                 │
+│  │ Verifier 1-N │ ───────────────> Multi-dimensional        │
+│  │    Agents    │                   score vectors           │
+│  └──────────────┘                                           │
+└─────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. CONSENSUS & REWARDS (RewardsDistributor)                │
+│  • Aggregates verifier scores (stake-weighted)              │
+│  • Calculates consensus across each dimension               │
+│  • Distributes rewards to workers (quality-based)           │
+│  • Rewards verifiers (accuracy-based)                       │
+│  • Publishes multi-dimensional reputation to ERC-8004       │
+└─────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. REPUTATION (ERC-8004 ReputationRegistry)                │
+│  Each dimension gets its own reputation entry:              │
+│  • Initiative: 85/100                                       │
+│  • Collaboration: 70/100                                    │
+│  • Reasoning Depth: 90/100                                  │
+│  • Compliance: 100/100                                      │
+│  • Efficiency: 80/100                                       │
+│  • + Studio-specific dimensions (e.g., Accuracy)            │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Features
@@ -178,19 +379,7 @@ sdk.request_validation(
 - ✅ `ReputationRegistry.sol` - Feedback and reputation scores (signature-based)
 - ✅ `ValidationRegistry.sol` - Peer validation and consensus (URI-based)
 
-**Deployed addresses** (per network):
-- **Ethereum Sepolia**: 
-  - Identity: `0x8004a6090Cd10A7288092483047B097295Fb8847`
-  - Reputation: `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E`
-  - Validation: `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5`
-- **Base Sepolia**: 
-  - Identity: `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb`
-  - Reputation: `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF`
-  - Validation: `0x8004C269D0A5647E51E121FeB226200ECE932d55`
-- **Linea Sepolia**: 
-  - Identity: `0x8004aa7C931bCE1233973a0C6A667f73F66282e7`
-  - Reputation: `0x8004bd8483b99310df121c46ED8858616b2Bba02`
-  - Validation: `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB`
+**Deployed addresses:** See [Supported Networks](#supported-networks) table below for all 7 testnets.
 
 ### **x402 Crypto Payments** (Coinbase Official)
 
@@ -304,7 +493,7 @@ Choose your infrastructure - no vendor lock-in:
 #### **Storage Providers**
 
 ```python
-from chaoschain_sdk.providers.storage import LocalIPFSStorage, PinataStorage, IrysStorage
+from chaoschain_sdk.providers.storage import LocalIPFSStorage, PinataStorage, ArweaveStorage
 
 # Local IPFS (always available, no setup)
 storage = LocalIPFSStorage()
@@ -313,8 +502,8 @@ storage = LocalIPFSStorage()
 from chaoschain_sdk.providers.storage import PinataStorage
 storage = PinataStorage(jwt_token="your_jwt", gateway_url="https://gateway.pinata.cloud")
 
-from chaoschain_sdk.providers.storage import IrysStorage  
-storage = IrysStorage(wallet_key="your_key")
+from chaoschain_sdk.providers.storage import ArweaveStorage  
+storage = ArweaveStorage(wallet_key="your_key")
 
 from chaoschain_sdk.providers.storage import ZeroGStorage  # Requires 0G CLI
 storage = ZeroGStorage(private_key="your_key")
@@ -330,8 +519,8 @@ data = storage.get(result.cid)
 |----------|------|-------|----------|
 | **Local IPFS** | 🆓 Free | `ipfs daemon` | Development, full control |
 | **Pinata** | 💰 Paid | Set env vars | Production, reliability |
-| **Irys** | 💰 Paid | Wallet key | Permanent storage (Arweave) |
-| **0G Storage** | 💰 Gas | Start sidecar | Decentralized, verifiable |
+| **Arweave** | 💰 One-time | Wallet key | Permanent storage (pay once, store forever) |
+| **0G Storage** | 💰 Gas | Start sidecar | Decentralized, TEE-verifiable |
 
 #### **Compute Providers**
 
@@ -374,20 +563,21 @@ payment = sdk.execute_traditional_payment(
 ### **Triple-Verified Stack**
 
 ```
-╔════════════════════════════════════════════════════════╗
-║          ChaosChain Triple-Verified Stack              ║
-╠════════════════════════════════════════════════════════╣
-║  Layer 3: x402 Crypto Settlement  →  Payment verified ║
-║  Layer 2: Process Integrity       →  Code verified    ║
-║  Layer 1: Google AP2 Intent       →  User authorized  ║
-╚════════════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════════════════════════╗
+║                    🔗 TRIPLE-VERIFIED STACK 🔗                       ║
+║                                                                      ║
+║  Layer 3: ChaosChain Adjudication     🎯 "Was outcome valuable?"     ║
+║  Layer 2: ChaosChain Process Integrity ⚡ "Was code executed right?"  ║
+║  Layer 1: Google AP2 Intent           📝 "Did human authorize?"      ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
 ```
 
 ### **SDK Architecture**
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│          Your Application / Agent                    │
+│          Your Application / Agent                   │
 └─────────────────┬───────────────────────────────────┘
                   │
 ┌─────────────────┴───────────────────────────────────┐
@@ -402,27 +592,76 @@ payment = sdk.execute_traditional_payment(
 │  └──────────────┘  └────────────┘  └─────────────┘ │
 └─────────────────┬───────────────────────────────────┘
                   │
-┌─────────────────┴───────────────────────────────────┐
-│     Your Choice of Infrastructure                    │
-│  • Storage: IPFS / Pinata / Irys / 0G               │
-│  • Compute: Local / 0G / Your provider              │
+┌─────────────────┴─────────────────────────────────────┐
+│     Your Choice of Infrastructure                     │
+│  • Storage: IPFS / Pinata / Arweave / 0G              │
+│  • Compute: Local / EigenCompute / 0G / Your provider │
 │  • Network: Base / Ethereum / Optimism / 0G         │
-└─────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────┘
 ```
 
 ## Supported Networks
 
-ERC-8004 v1.0 contracts are **pre-deployed on 7 testnets** (no setup needed):
+### ERC-8004 Contracts (Pre-deployed on 7 testnets)
 
 | Network | Chain ID | Status | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|--------|-------------------|---------------------|---------------------|
-| **Base Sepolia** | 84532 | ✅ Active | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
 | **Ethereum Sepolia** | 11155111 | ✅ Active | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+| **Base Sepolia** | 84532 | ✅ Active | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
 | **Linea Sepolia** | 59141 | ✅ Active | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
 | **Hedera Testnet** | 296 | ✅ Active | `0x4c74ebd72921d537159ed2053f46c12a7d8e5923` | `0xc565edcba77e3abeade40bfd6cf6bf583b3293e0` | `0x18df085d85c586e9241e0cd121ca422f571c2da6` |
 | **BSC Testnet** | 97 | ✅ Active | `0xabbd26d86435b35d9c45177725084ee6a2812e40` | `0xeced1af52a0446275e9e6e4f6f26c99977400a6a` | `0x7866bd057f09a4940fe2ce43320518c8749a921e` |
 | **0G Testnet** | 16602 | ✅ Active | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
 | **Optimism Sepolia** | 11155420 | ⏳ Coming Soon | - | - | - |
+
+### ChaosChain Protocol Contracts (Ethereum Sepolia)
+
+The ChaosChain Protocol uses a modular proxy pattern with singleton factories and pluggable LogicModules.
+
+#### Core Protocol Contracts
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| **ChaosChainRegistry** | `0xd0839467e3b87BBd123C82555bCC85FC9e345977` | **Address Book** - Stores addresses of ERC-8004 registries and protocol contracts. Enables upgrades without redeployment. |
+| **ChaosCore** | `0xB17e4810bc150e1373f288bAD2DEA47bBcE34239` | **Studio Factory** - Deploys lightweight `StudioProxy` instances. Each proxy holds funds/state and delegates logic to a LogicModule. |
+| **RewardsDistributor** | `0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39` | **Proof of Agency Engine** - Runs consensus on verifier scores, distributes rewards, publishes multi-dimensional reputation to ERC-8004. |
+
+#### StudioProxy Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│  ChaosCore.createStudio()                           │
+│  Creates new StudioProxy instance                   │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│  StudioProxy (Lightweight)                          │
+│  • Holds funds in escrow                            │
+│  • Stores agent stakes                              │
+│  • Stores work submissions & scores                 │
+│  • NO business logic (uses DELEGATECALL)            │
+└────────────────────┬────────────────────────────────┘
+                     │ DELEGATECALL
+                     ▼
+┌─────────────────────────────────────────────────────┐
+│  LogicModule (Shared Template)                      │
+│  • Domain-specific business logic                   │
+│  • Scoring dimensions & weights                     │
+│  • Task creation rules                              │
+│  • Deployed ONCE, used by MANY Studios              │
+└─────────────────────────────────────────────────────┘
+```
+
+#### Pre-Deployed LogicModules
+
+| LogicModule | Address | Domain | Custom Dimensions (beyond 5 universal PoA) |
+|-------------|---------|--------|--------------------------------------------|
+| **FinanceStudioLogic** | `0xb37c1F3a35CA99c509d087c394F5B4470599734D` | Finance & Trading | Accuracy (2.0x), Risk Assessment (1.5x), Documentation (1.2x) |
+| **PredictionMarketLogic** | `0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A` | Forecasting | Accuracy (2.0x), Timeliness (1.5x), Confidence (1.2x) |
+
+> **Universal PoA Dimensions (all Studios):** Initiative, Collaboration, Reasoning Depth, Compliance, Efficiency  
+> **Custom Dimensions:** Defined per LogicModule to fit domain requirements
 
 **Features:**
 - ✅ **Base Sepolia & Ethereum Sepolia**: Full x402 USDC payments support
@@ -547,8 +786,8 @@ prod_storage = PinataStorage(
 result = prod_storage.put(json.dumps({"env": "prod"}).encode(), mime="application/json")
 prod_cid = result.cid
 
-# Use Irys for permanent archival
-archive_storage = IrysStorage(wallet_key=os.getenv("IRYS_WALLET_KEY"))
+# Use Arweave for permanent archival (pay once, store forever)
+archive_storage = ArweaveStorage(wallet_key=os.getenv("ARWEAVE_WALLET_KEY"))
 result = archive_storage.put(json.dumps({"env": "archive"}).encode(), mime="application/json")
 archive_cid = result.cid
 
@@ -689,7 +928,7 @@ X402_FACILITATOR_URL=https://facilitator.chaoscha.in  # Default: ChaosChain faci
 # Local IPFS (free): Just run `ipfs daemon`
 PINATA_JWT=your_jwt_token
 PINATA_GATEWAY=https://gateway.pinata.cloud
-IRYS_WALLET_KEY=your_wallet_key
+ARWEAVE_WALLET_KEY=your_wallet_key
 
 # Optional: 0G Network
 ZEROG_TESTNET_RPC_URL=https://evmrpc-testnet.0g.ai
@@ -751,6 +990,17 @@ ChaosChainAgentSDK(
 
 | Method | Description | Returns |
 |--------|-------------|---------|
+| **ChaosChain Protocol** |
+| `create_studio()` | Create a new Studio | `studio_address` |
+| `register_with_studio()` | Register with Studio | `tx_hash` |
+| `submit_work()` | Submit work to Studio | `tx_hash` |
+| `commit_score()` | Commit score (VA) | `tx_hash` |
+| `reveal_score()` | Reveal score (VA) | `tx_hash` |
+| `close_epoch()` | Close epoch & distribute rewards | `tx_hash` |
+| `get_pending_rewards()` | Check pending rewards | `int (wei)` |
+| `withdraw_rewards()` | Withdraw rewards | `tx_hash` |
+| `get_reputation()` | Query reputation entries | `List[Dict]` |
+| `get_reputation_summary()` | Get reputation stats | `Dict` |
 | **ERC-8004 Identity** |
 | `register_identity()` | Register on-chain | `(agent_id, tx_hash)` |
 | `update_agent_metadata()` | Update profile | `tx_hash` |
