@@ -65,6 +65,15 @@ from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
 from .x402_payment_manager import X402PaymentManager
 
+# XMTP & Causal Audit (optional - requires xmtp package)
+try:
+    from .xmtp_client import XMTPManager, XMTPMessage
+    from .verifier_agent import VerifierAgent, AuditResult
+    from .studio_manager import StudioManager, Task, WorkerBid
+    _has_xmtp = True
+except ImportError:
+    _has_xmtp = False
+
 # Types and enums
 from .types import (
     NetworkConfig,
@@ -247,3 +256,6 @@ if _has_ap2:
 
 if _has_x402_server:
     __all__.append("X402PaywallServer")
+
+if _has_xmtp:
+    __all__.extend(["XMTPManager", "XMTPMessage", "VerifierAgent", "AuditResult", "StudioManager", "Task", "WorkerBid"])

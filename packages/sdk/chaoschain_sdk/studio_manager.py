@@ -1,60 +1,103 @@
 """
-Studio Manager for ChaosChain Task Assignment
+Studio Manager for Task Assignment and Orchestration.
 
-Implements:
+Implements Studio task workflow:
 - Task broadcasting to registered workers
 - Bid collection from workers
-- Reputation-based worker selection
-- Task assignment and tracking
+- Worker selection (reputation-based)
+- Task assignment
+- Work submission tracking
 
-Protocol Spec: Complete Workflow with Studios
+Usage:
+    ```python
+    from chaoschain_sdk import ChaosChainAgentSDK
+    from chaoschain_sdk.studio_manager import StudioManager
+    
+    # Initialize SDK as studio owner/client
+    sdk = ChaosChainAgentSDK(
+        agent_name="StudioClient",
+        agent_domain="client.example.com",
+        agent_role=AgentRole.CLIENT,
+        network=NetworkConfig.ETHEREUM_SEPOLIA
+    )
+    
+    # Create studio manager
+    manager = StudioManager(sdk)
+    
+    # Get registered workers from StudioProxy
+    studio_address = "0x..."
+    workers = manager.get_registered_workers(studio_address)
+    
+    # Broadcast task
+    task_id = manager.broadcast_task(
+        studio_address=studio_address,
+        task_requirements={
+            "description": "Analyze market data",
+            "budget": 100.0,  # USDC
+            "deadline": datetime.now() + timedelta(hours=24)
+        },
+        registered_workers=workers
+    )
+    
+    # Collect bids (timeout: 5 minutes)
+    bids = manager.collect_bids(task_id, timeout_seconds=300)
+    
+    # Get worker reputations
+    reputation_scores = manager.get_worker_reputations(
+        [bid["worker_address"] for bid in bids]
+    )
+    
+    # Select best worker
+    selected_worker = manager.select_worker(bids, reputation_scores)
+    
+    # Assign task
+    assignment_id = manager.assign_task(
+        task_id=task_id,
+        worker_address=selected_worker,
+        budget=100.0
+    )
+    ```
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
-from datetime import datetime, timezone
-import time
-import logging
 import uuid
+import time
+from rich import print as rprint
+from rich.table import Table
+from rich.console import Console
 
-logger = logging.getLogger(__name__)
+from .types import ChaosChainSDKError
+
+console = Console()
 
 
 @dataclass
 class Task:
-    """Task definition for Studio workflow."""
+    """Task definition."""
     task_id: str
-    studio_id: str
-    client_agent_id: str
+    studio_address: str
     requirements: Dict[str, Any]
-    budget: float
-    deadline: int  # Unix timestamp
     status: str  # broadcasting, assigned, in_progress, completed, failed
-    assigned_worker: Optional[str] = None
-    created_at: int = None
-    
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = int(datetime.now(timezone.utc).timestamp())
+    created_at: datetime
+    assigned_to: Optional[str] = None
+    assigned_at: Optional[datetime] = None
 
 
 @dataclass
 class WorkerBid:
-    """Worker bid for a task."""
+    """Worker bid on a task."""
     bid_id: str
     task_id: str
     worker_address: str
     worker_agent_id: int
     proposed_price: float
-    estimated_time: int  # seconds
+    estimated_time_hours: float
     capabilities: List[str]
     reputation_score: float
-    message_id: str  # XMTP message ID
-    created_at: int = None
-    
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = int(datetime.now(timezone.utc).timestamp())
+    message: str
+    submitted_at: datetime
 
 
 class StudioManager:
@@ -62,10 +105,14 @@ class StudioManager:
     Studio task assignment and orchestration.
     
     Handles:
-    - Task broadcasting to workers
-    - Bid collection from workers
+    - Task broadcasting to registered workers
+    - Bid collection
     - Worker selection (reputation-based)
-    - Task assignment and tracking
+    - Task assignment
+    - Work tracking
+    
+    Worker Selection Algorithm:
+    Score = 0.4 * norm_reputation + 0.3 * norm_price + 0.2 * norm_time + 0.1 * capability_match
     """
     
     def __init__(self, sdk):
@@ -73,437 +120,373 @@ class StudioManager:
         Initialize Studio Manager.
         
         Args:
-            sdk: ChaosChainAgentSDK instance
+            sdk: ChaosChainAgentSDK instance (with XMTP enabled for messaging)
         """
         self.sdk = sdk
-        self.active_tasks = {}
-        self.worker_bids = {}
-        self.completed_tasks = {}
+        self.active_tasks: Dict[str, Task] = {}
+        self.worker_bids: Dict[str, List[WorkerBid]] = {}  # {task_id: [bids]}
         
-        logger.info("✅ Studio Manager initialized")
+        if not self.sdk.xmtp_manager:
+            rprint("[yellow]⚠️  XMTP not available. Task broadcasting will be limited.[/yellow]")
     
-    def create_task(
-        self,
-        studio_id: str,
-        client_agent_id: str,
-        requirements: Dict[str, Any],
-        budget: float,
-        deadline_hours: int = 24
-    ) -> Task:
+    def get_registered_workers(self, studio_address: str) -> List[str]:
         """
-        Create a new task in the Studio.
+        Get all registered workers from StudioProxy.
         
         Args:
-            studio_id: Studio identifier
-            client_agent_id: Client agent ID
-            requirements: Task requirements (description, capabilities, etc.)
-            budget: Task budget in USDC
-            deadline_hours: Deadline in hours from now
+            studio_address: Studio contract address
         
         Returns:
-            Task object
-        
-        Example:
-            ```python
-            task = studio_manager.create_task(
-                studio_id="studio_123",
-                client_agent_id=42,
-                requirements={
-                    "description": "Analyze financial data",
-                    "capabilities": ["data_analysis", "finance"],
-                    "min_reputation": 70
-                },
-                budget=10.0,
-                deadline_hours=24
-            )
-            ```
+            List of worker addresses
         """
-        task_id = f"task_{uuid.uuid4().hex[:8]}"
-        deadline = int(datetime.now(timezone.utc).timestamp()) + (deadline_hours * 3600)
-        
-        task = Task(
-            task_id=task_id,
-            studio_id=studio_id,
-            client_agent_id=client_agent_id,
-            requirements=requirements,
-            budget=budget,
-            deadline=deadline,
-            status="created"
-        )
-        
-        self.active_tasks[task_id] = task
-        logger.info(f"✅ Task created: {task_id} (budget: ${budget}, deadline: {deadline_hours}h)")
-        
-        return task
+        try:
+            # Query StudioProxy for registered workers
+            # This requires reading the contract's state
+            proxy_contract = self.sdk.w3.eth.contract(
+                address=studio_address,
+                abi=self.sdk.chaos_agent._load_abi("StudioProxy")
+            )
+            
+            # Get worker count (if contract has this method)
+            # For now, return empty list - contract needs getter method
+            rprint("[yellow]⚠️  StudioProxy needs getRegisteredWorkers() method[/yellow]")
+            return []
+            
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Failed to fetch registered workers: {e}[/yellow]")
+            return []
     
     def broadcast_task(
         self,
-        task: Task,
-        registered_workers: List[str],
-        timeout_seconds: int = 300
+        studio_address: str,
+        task_requirements: Dict[str, Any],
+        registered_workers: List[str]
     ) -> str:
         """
-        Broadcast task to registered workers.
-        
-        Sends XMTP messages to all registered workers with task details.
+        Broadcast task to registered workers via XMTP.
         
         Args:
-            task: Task object
+            studio_address: Studio contract address
+            task_requirements: Task details (description, budget, deadline, etc.)
             registered_workers: List of registered worker addresses
-            timeout_seconds: Timeout for bid collection
         
         Returns:
             Task ID
         
         Raises:
-            Exception: If XMTP not available
+            ChaosChainSDKError: If XMTP not available
         """
         if not self.sdk.xmtp_manager:
-            raise Exception("XMTP not available for task broadcasting")
+            raise ChaosChainSDKError(
+                "XMTP not available. Install with: pip install xmtp"
+            )
         
-        task.status = "broadcasting"
-        self.active_tasks[task.task_id] = task
+        # Generate task ID
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
         
-        # Broadcast to all workers
-        broadcast_count = 0
+        # Create task
+        task = Task(
+            task_id=task_id,
+            studio_address=studio_address,
+            requirements=task_requirements,
+            status="broadcasting",
+            created_at=datetime.now(timezone.utc)
+        )
+        
+        # Store task
+        self.active_tasks[task_id] = task
+        self.worker_bids[task_id] = []
+        
+        # Broadcast to all workers via XMTP
+        rprint(f"[cyan]📢 Broadcasting task {task_id} to {len(registered_workers)} workers...[/cyan]")
+        
         for worker_address in registered_workers:
             try:
                 message_id = self.sdk.send_message(
                     to_agent=worker_address,
                     message_type="task_broadcast",
                     content={
-                        "task_id": task.task_id,
-                        "studio_id": task.studio_id,
-                        "description": task.requirements.get("description", ""),
-                        "capabilities_required": task.requirements.get("capabilities", []),
-                        "budget": task.budget,
-                        "deadline": task.deadline,
-                        "min_reputation": task.requirements.get("min_reputation", 0)
+                        "task_id": task_id,
+                        "studio_address": studio_address,
+                        **task_requirements
                     }
                 )
-                broadcast_count += 1
-                logger.debug(f"📤 Broadcast to {worker_address}: {message_id}")
+                rprint(f"[green]✅ Sent to {worker_address[:8]}...[/green]")
             except Exception as e:
-                logger.warning(f"⚠️  Failed to broadcast to {worker_address}: {e}")
+                rprint(f"[yellow]⚠️  Failed to send to {worker_address[:8]}...: {e}[/yellow]")
         
-        logger.info(f"✅ Task {task.task_id} broadcast to {broadcast_count} workers")
-        return task.task_id
+        return task_id
     
     def collect_bids(
         self,
         task_id: str,
-        timeout_seconds: int = 300,
-        min_bids: int = 3
+        timeout_seconds: int = 300
     ) -> List[WorkerBid]:
         """
         Collect bids from workers.
         
-        Listens for XMTP messages with type "bid" for the specified task.
+        Args:
+            task_id: Task ID
+            timeout_seconds: Timeout for bid collection (default: 5 minutes)
+        
+        Returns:
+            List of worker bids
+        """
+        if task_id not in self.active_tasks:
+            raise ChaosChainSDKError(f"Task {task_id} not found")
+        
+        rprint(f"[cyan]⏳ Collecting bids for {timeout_seconds}s...[/cyan]")
+        
+        start_time = time.time()
+        
+        # In production, this would use XMTP's streaming API to listen for bid messages
+        # For now, we poll periodically
+        while time.time() - start_time < timeout_seconds:
+            # Check for new messages (bid responses)
+            # This is a simplified implementation
+            # In production, parse incoming XMTP messages for "task_bid" type
+            
+            time.sleep(5)  # Poll every 5 seconds
+            
+            # Check if we have minimum bids
+            bids = self.worker_bids.get(task_id, [])
+            if len(bids) >= 3:
+                rprint(f"[green]✅ Received {len(bids)} bids[/green]")
+                break
+        
+        bids = self.worker_bids.get(task_id, [])
+        
+        if len(bids) == 0:
+            rprint("[yellow]⚠️  No bids received[/yellow]")
+        else:
+            self._display_bids(bids)
+        
+        return bids
+    
+    def submit_bid(
+        self,
+        task_id: str,
+        worker_address: str,
+        worker_agent_id: int,
+        proposed_price: float,
+        estimated_time_hours: float,
+        capabilities: List[str],
+        message: str = ""
+    ) -> str:
+        """
+        Submit a bid for a task (called by worker agent).
         
         Args:
             task_id: Task ID
-            timeout_seconds: Timeout for bid collection
-            min_bids: Minimum number of bids to collect
+            worker_address: Worker's wallet address
+            worker_agent_id: Worker's ERC-8004 agent ID
+            proposed_price: Proposed price in USDC
+            estimated_time_hours: Estimated completion time
+            capabilities: List of relevant capabilities
+            message: Optional message to client
         
         Returns:
-            List of WorkerBid objects
-        
-        Note:
-            In production, this would use XMTP's streaming API for real-time bid collection.
-            For now, it polls conversations periodically.
+            Bid ID
         """
         if task_id not in self.active_tasks:
-            raise ValueError(f"Task {task_id} not found")
+            raise ChaosChainSDKError(f"Task {task_id} not found")
         
-        task = self.active_tasks[task_id]
-        task.status = "collecting_bids"
+        bid = WorkerBid(
+            bid_id=f"bid_{uuid.uuid4().hex[:8]}",
+            task_id=task_id,
+            worker_address=worker_address,
+            worker_agent_id=worker_agent_id,
+            proposed_price=proposed_price,
+            estimated_time_hours=estimated_time_hours,
+            capabilities=capabilities,
+            reputation_score=0.0,  # Will be fetched later
+            message=message,
+            submitted_at=datetime.now(timezone.utc)
+        )
         
-        bids = []
-        start_time = time.time()
+        # Store bid
+        if task_id not in self.worker_bids:
+            self.worker_bids[task_id] = []
         
-        logger.info(f"📥 Collecting bids for task {task_id} (timeout: {timeout_seconds}s, min: {min_bids})")
+        self.worker_bids[task_id].append(bid)
         
-        # Poll for bids
-        while time.time() - start_time < timeout_seconds:
-            # Check all conversations for bid messages
-            if self.sdk.xmtp_manager:
-                try:
-                    conversations = self.sdk.get_all_conversations()
-                    for worker_address in conversations:
-                        messages = self.sdk.get_messages(worker_address)
-                        
-                        # Look for bid messages for this task
-                        for msg in messages:
-                            try:
-                                import json
-                                content = json.loads(msg.get("content", "{}"))
-                                
-                                if (content.get("type") == "bid" and 
-                                    content.get("task_id") == task_id):
-                                    
-                                    # Check if we already have this bid
-                                    if any(b.message_id == msg["id"] for b in bids):
-                                        continue
-                                    
-                                    # Create WorkerBid
-                                    bid = WorkerBid(
-                                        bid_id=f"bid_{uuid.uuid4().hex[:8]}",
-                                        task_id=task_id,
-                                        worker_address=msg["author"],
-                                        worker_agent_id=content.get("worker_agent_id", 0),
-                                        proposed_price=content.get("proposed_price", 0),
-                                        estimated_time=content.get("estimated_time", 0),
-                                        capabilities=content.get("capabilities", []),
-                                        reputation_score=content.get("reputation_score", 0),
-                                        message_id=msg["id"]
-                                    )
-                                    
-                                    bids.append(bid)
-                                    logger.info(f"✅ Bid received from {bid.worker_address}: ${bid.proposed_price}")
-                            except Exception as e:
-                                logger.debug(f"⚠️  Failed to parse message: {e}")
-                                continue
-                    
-                    # Check if we have enough bids
-                    if len(bids) >= min_bids:
-                        logger.info(f"✅ Collected {len(bids)} bids (minimum reached)")
-                        break
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️  Error collecting bids: {e}")
-            
-            # Sleep before next poll
-            time.sleep(5)
+        rprint(f"[green]✅ Bid {bid.bid_id} submitted for task {task_id}[/green]")
         
-        # Store bids
-        self.worker_bids[task_id] = bids
+        return bid.bid_id
+    
+    def get_worker_reputations(self, worker_addresses: List[str]) -> Dict[str, float]:
+        """
+        Get reputation scores for workers from ERC-8004 ReputationRegistry.
         
-        logger.info(f"✅ Bid collection complete: {len(bids)} bids received")
-        return bids
+        Args:
+            worker_addresses: List of worker addresses
+        
+        Returns:
+            {worker_address: reputation_score}
+        """
+        reputation_scores = {}
+        
+        for address in worker_addresses:
+            try:
+                # Query ERC-8004 ReputationRegistry
+                # For now, use a mock score
+                # In production, query contract for latest reputation
+                reputation_scores[address] = 75.0  # Mock score
+                
+            except Exception as e:
+                rprint(f"[yellow]⚠️  Failed to fetch reputation for {address[:8]}...: {e}[/yellow]")
+                reputation_scores[address] = 0.0
+        
+        return reputation_scores
     
     def select_worker(
         self,
-        task_id: str,
-        bids: List[WorkerBid] = None,
-        reputation_weight: float = 0.4,
-        price_weight: float = 0.3,
-        time_weight: float = 0.2,
-        capability_weight: float = 0.1
-    ) -> Optional[WorkerBid]:
+        bids: List[WorkerBid],
+        reputation_scores: Dict[str, float],
+        weights: Optional[Dict[str, float]] = None
+    ) -> str:
         """
         Select best worker based on reputation, price, time, and capabilities.
         
-        Implements reputation-based selection algorithm.
+        Selection Algorithm:
+        Score = w1 * norm_reputation + w2 * norm_price + w3 * norm_time + w4 * capability_match
+        
+        Default weights: {reputation: 0.4, price: 0.3, time: 0.2, capabilities: 0.1}
         
         Args:
-            task_id: Task ID
-            bids: List of bids (if None, uses cached bids)
-            reputation_weight: Weight for reputation score (0-1)
-            price_weight: Weight for price (0-1)
-            time_weight: Weight for estimated time (0-1)
-            capability_weight: Weight for capabilities match (0-1)
+            bids: List of worker bids
+            reputation_scores: Reputation scores for workers
+            weights: Optional custom weights for selection criteria
         
         Returns:
-            Selected WorkerBid or None if no suitable worker
+            Selected worker address
         
-        Algorithm:
-            score = (
-                reputation_weight * norm_reputation +
-                price_weight * norm_price +
-                time_weight * norm_time +
-                capability_weight * norm_capabilities
-            )
+        Raises:
+            ChaosChainSDKError: If no bids provided
         """
-        if bids is None:
-            bids = self.worker_bids.get(task_id, [])
-        
         if not bids:
-            logger.warning(f"⚠️  No bids available for task {task_id}")
-            return None
+            raise ChaosChainSDKError("No bids to select from")
         
-        task = self.active_tasks.get(task_id)
-        if not task:
-            raise ValueError(f"Task {task_id} not found")
+        # Default weights
+        if weights is None:
+            weights = {
+                "reputation": 0.4,
+                "price": 0.3,
+                "time": 0.2,
+                "capabilities": 0.1
+            }
         
         # Normalize values
-        max_reputation = max(b.reputation_score for b in bids) or 100
-        max_price = max(b.proposed_price for b in bids) or task.budget
-        max_time = max(b.estimated_time for b in bids) or 86400  # 24 hours
-        
-        required_capabilities = set(task.requirements.get("capabilities", []))
+        max_price = max(bid.proposed_price for bid in bids)
+        max_time = max(bid.estimated_time_hours for bid in bids)
+        max_reputation = max(reputation_scores.values()) if reputation_scores else 100.0
         
         best_score = -1
-        best_bid = None
+        best_worker = None
         
         for bid in bids:
-            # Check budget constraint
-            if bid.proposed_price > task.budget:
-                logger.debug(f"⚠️  Bid from {bid.worker_address} exceeds budget: ${bid.proposed_price} > ${task.budget}")
-                continue
+            # Get reputation
+            reputation = reputation_scores.get(bid.worker_address, 0.0)
             
-            # Check minimum reputation
-            min_reputation = task.requirements.get("min_reputation", 0)
-            if bid.reputation_score < min_reputation:
-                logger.debug(f"⚠️  Bid from {bid.worker_address} below min reputation: {bid.reputation_score} < {min_reputation}")
-                continue
-            
-            # Normalize scores
-            norm_reputation = bid.reputation_score / max_reputation
-            norm_price = 1 - (bid.proposed_price / max_price)  # Lower price = higher score
-            norm_time = 1 - (bid.estimated_time / max_time)  # Faster = higher score
-            
-            # Capability match
-            worker_capabilities = set(bid.capabilities)
-            capability_match = len(required_capabilities & worker_capabilities) / len(required_capabilities) if required_capabilities else 1.0
+            # Normalize values (0-1 scale)
+            norm_reputation = reputation / max_reputation if max_reputation > 0 else 0
+            norm_price = 1 - (bid.proposed_price / max_price) if max_price > 0 else 1  # Lower price is better
+            norm_time = 1 - (bid.estimated_time_hours / max_time) if max_time > 0 else 1  # Faster is better
+            capability_match = len(bid.capabilities) / 10  # Assume max 10 capabilities
             
             # Weighted score
             score = (
-                reputation_weight * norm_reputation +
-                price_weight * norm_price +
-                time_weight * norm_time +
-                capability_weight * capability_match
+                weights["reputation"] * norm_reputation +
+                weights["price"] * norm_price +
+                weights["time"] * norm_time +
+                weights["capabilities"] * capability_match
             )
             
-            logger.debug(
-                f"Worker {bid.worker_address}: "
-                f"score={score:.3f} "
-                f"(rep={norm_reputation:.2f}, price={norm_price:.2f}, time={norm_time:.2f}, cap={capability_match:.2f})"
-            )
+            rprint(f"[cyan]Worker {bid.worker_address[:8]}...: score={score:.2f} "
+                   f"(rep={norm_reputation:.2f}, price={norm_price:.2f}, "
+                   f"time={norm_time:.2f}, caps={capability_match:.2f})[/cyan]")
             
             if score > best_score:
                 best_score = score
-                best_bid = bid
+                best_worker = bid.worker_address
         
-        if best_bid:
-            logger.info(
-                f"✅ Selected worker {best_bid.worker_address} "
-                f"(score: {best_score:.3f}, price: ${best_bid.proposed_price}, rep: {best_bid.reputation_score})"
-            )
-        else:
-            logger.warning(f"⚠️  No suitable worker found for task {task_id}")
+        rprint(f"[green]✅ Selected worker: {best_worker[:8]}... (score={best_score:.2f})[/green]")
         
-        return best_bid
+        return best_worker
     
     def assign_task(
         self,
         task_id: str,
-        worker_bid: WorkerBid
+        worker_address: str,
+        budget: float
     ) -> str:
         """
         Assign task to selected worker.
         
-        Sends XMTP message to worker with task assignment.
+        Sends assignment message via XMTP and updates task status.
         
         Args:
             task_id: Task ID
-            worker_bid: Selected worker bid
+            worker_address: Selected worker address
+            budget: Task budget in USDC
         
         Returns:
             Assignment message ID
         
         Raises:
-            Exception: If XMTP not available or task not found
+            ChaosChainSDKError: If task not found or XMTP unavailable
         """
         if task_id not in self.active_tasks:
-            raise ValueError(f"Task {task_id} not found")
+            raise ChaosChainSDKError(f"Task {task_id} not found")
         
         if not self.sdk.xmtp_manager:
-            raise Exception("XMTP not available for task assignment")
+            raise ChaosChainSDKError("XMTP not available")
         
+        # Update task status
         task = self.active_tasks[task_id]
         task.status = "assigned"
-        task.assigned_worker = worker_bid.worker_address
+        task.assigned_to = worker_address
+        task.assigned_at = datetime.now(timezone.utc)
         
-        # Send assignment message
+        # Send assignment message via XMTP
         message_id = self.sdk.send_message(
-            to_agent=worker_bid.worker_address,
+            to_agent=worker_address,
             message_type="task_assignment",
             content={
                 "task_id": task_id,
-                "studio_id": task.studio_id,
-                "budget": worker_bid.proposed_price,
-                "deadline": task.deadline,
+                "studio_address": task.studio_address,
+                "budget": budget,
+                "deadline": task.requirements.get("deadline", "").isoformat() if isinstance(task.requirements.get("deadline"), datetime) else task.requirements.get("deadline", ""),
                 "requirements": task.requirements
-            },
-            parent_id=worker_bid.message_id  # Reply to the bid
+            }
         )
         
-        logger.info(f"✅ Task {task_id} assigned to {worker_bid.worker_address} (message: {message_id})")
+        rprint(f"[green]✅ Task {task_id} assigned to {worker_address[:8]}...[/green]")
         
         return message_id
     
-    def get_task_status(self, task_id: str) -> Dict[str, Any]:
-        """
-        Get task status.
+    def _display_bids(self, bids: List[WorkerBid]):
+        """Display bids in a nice table."""
+        if not bids:
+            return
         
-        Args:
-            task_id: Task ID
+        table = Table(title="Worker Bids")
+        table.add_column("Worker", style="cyan")
+        table.add_column("Price (USDC)", justify="right", style="green")
+        table.add_column("Time (hrs)", justify="right", style="yellow")
+        table.add_column("Capabilities", style="magenta")
+        table.add_column("Reputation", justify="right", style="blue")
         
-        Returns:
-            Task status dictionary
-        """
-        if task_id in self.active_tasks:
-            task = self.active_tasks[task_id]
-            return {
-                "task_id": task.task_id,
-                "studio_id": task.studio_id,
-                "status": task.status,
-                "assigned_worker": task.assigned_worker,
-                "budget": task.budget,
-                "deadline": task.deadline,
-                "created_at": task.created_at
-            }
-        elif task_id in self.completed_tasks:
-            task = self.completed_tasks[task_id]
-            return {
-                "task_id": task.task_id,
-                "studio_id": task.studio_id,
-                "status": "completed",
-                "assigned_worker": task.assigned_worker,
-                "budget": task.budget,
-                "created_at": task.created_at
-            }
-        else:
-            return {"error": f"Task {task_id} not found"}
-    
-    def complete_task(self, task_id: str):
-        """
-        Mark task as completed.
+        for bid in bids:
+            worker_short = bid.worker_address[:8] + "..."
+            caps = ", ".join(bid.capabilities[:3]) if bid.capabilities else "N/A"
+            
+            table.add_row(
+                worker_short,
+                f"${bid.proposed_price:.2f}",
+                f"{bid.estimated_time_hours:.1f}",
+                caps,
+                f"{bid.reputation_score:.1f}"
+            )
         
-        Args:
-            task_id: Task ID
-        """
-        if task_id in self.active_tasks:
-            task = self.active_tasks.pop(task_id)
-            task.status = "completed"
-            self.completed_tasks[task_id] = task
-            logger.info(f"✅ Task {task_id} marked as completed")
-        else:
-            logger.warning(f"⚠️  Task {task_id} not found in active tasks")
-    
-    def get_active_tasks(self) -> List[Dict[str, Any]]:
-        """Get all active tasks."""
-        return [
-            {
-                "task_id": task.task_id,
-                "studio_id": task.studio_id,
-                "status": task.status,
-                "assigned_worker": task.assigned_worker,
-                "budget": task.budget,
-                "deadline": task.deadline
-            }
-            for task in self.active_tasks.values()
-        ]
-    
-    def get_completed_tasks(self) -> List[Dict[str, Any]]:
-        """Get all completed tasks."""
-        return [
-            {
-                "task_id": task.task_id,
-                "studio_id": task.studio_id,
-                "assigned_worker": task.assigned_worker,
-                "budget": task.budget
-            }
-            for task in self.completed_tasks.values()
-        ]
-
+        console.print(table)

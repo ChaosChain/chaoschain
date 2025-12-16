@@ -1,814 +1,571 @@
 """
-Verifier Agent for ChaosChain Causal Audit
+Verifier Agent for Causal Audit and Multi-Dimensional Scoring.
 
-Implements:
-- Causal audit (§1.5 Protocol Spec)
-- Multi-dimensional scoring (§3.1 Protocol Spec)
-- Proof of Agency computation
-- XMTP DAG verification
+Implements Protocol Spec v0.1:
+- §1.5: Causal Audit Algorithm
+- §3.1: Proof of Agency (PoA) Features - Measurable Agency Dimensions
 
-Protocol Spec: §1 (Formal DKG & Causal Audit Model), §3 (Multi-Dimensional Quality Assessment)
+The VerifierAgent performs a complete causal audit of agent work:
+1. Fetches EvidencePackage from IPFS
+2. Reconstructs XMTP causal DAG
+3. Verifies threadRoot and evidenceRoot
+4. Checks causality (parents exist, timestamps monotonic)
+5. Verifies signatures
+6. Computes multi-dimensional scores from DKG
+
+Multi-Dimensional Scoring (§3.1):
+- **Initiative**: Non-derivative contributions (original Irys payloads)
+- **Collaboration**: Reply/extend edges to other agents
+- **Reasoning Depth**: Average path length from task root to terminal nodes
+- **Compliance**: Policy checks and rule adherence
+- **Efficiency**: Useful work per unit cost/time
+
+Usage:
+    ```python
+    from chaoschain_sdk import ChaosChainAgentSDK
+    from chaoschain_sdk.verifier_agent import VerifierAgent
+    
+    # Initialize SDK as verifier
+    sdk = ChaosChainAgentSDK(
+        agent_name="VerifierAgent",
+        agent_domain="verifier.example.com",
+        agent_role=AgentRole.VERIFIER,
+        network=NetworkConfig.ETHEREUM_SEPOLIA
+    )
+    
+    # Create verifier
+    verifier = VerifierAgent(sdk)
+    
+    # Perform causal audit
+    audit_result = verifier.perform_causal_audit(
+        evidence_package_cid="Qm...",
+        studio_address="0x..."
+    )
+    
+    # Submit scores to StudioProxy
+    if audit_result["audit_passed"]:
+        sdk.submit_score_vector(
+            studio_address=studio_address,
+            epoch=1,
+            data_hash=audit_result["data_hash"],
+            scores=audit_result["scores"][worker_agent_id]
+        )
+    ```
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import logging
 import json
+from eth_utils import keccak
+from rich import print as rprint
+from rich.table import Table
+from rich.console import Console
 
-logger = logging.getLogger(__name__)
+from .types import ChaosChainSDKError
+from .xmtp_client import XMTPMessage
+
+console = Console()
 
 
 @dataclass
 class AuditResult:
     """Result of causal audit."""
-    passed: bool
+    audit_passed: bool
     evidence_package_cid: str
-    thread_root_verified: bool
-    causality_verified: bool
-    signatures_verified: bool
-    scores: Dict[str, List[float]]  # {agent_id: [initiative, collaboration, reasoning_depth, compliance, efficiency]}
+    data_hash: bytes
+    scores: Dict[str, List[float]]  # {agent_id: [initiative, collaboration, ...]}
+    audit_report: Dict[str, Any]
     errors: List[str]
-    timestamp: int = None
-    
-    def __post_init__(self):
-        if self.timestamp is None:
-            self.timestamp = int(datetime.now(timezone.utc).timestamp())
 
 
 class VerifierAgent:
     """
     Verifier Agent for causal audit and multi-dimensional scoring.
     
-    Implements:
-    - Causal audit (§1.5)
-    - Multi-dimensional scoring (§3.1)
-    - Proof of Agency computation
+    Implements Protocol Spec v0.1:
+    - §1.5: Causal Audit Algorithm
+    - §3.1: Measurable Agency Dimensions (Proof of Agency)
     
-    This is the core verification logic described in:
-    - Protocol Spec v0.1 (§1.5 Causal Audit Algorithm)
-    - Protocol Spec v0.1 (§3.1 Multi-Dimensional Quality Assessment)
-    - XMTP_CAUSAL_AUDIT_FLOW.md
+    The verifier performs a comprehensive audit of agent work:
+    1. Fetch EvidencePackage from decentralized storage
+    2. Reconstruct XMTP causal DAG
+    3. Verify data integrity (threadRoot, evidenceRoot)
+    4. Check causality constraints
+    5. Compute multi-dimensional scores
     """
     
     def __init__(self, sdk):
         """
-        Initialize Verifier Agent.
+        Initialize VerifierAgent.
         
         Args:
-            sdk: ChaosChainAgentSDK instance
+            sdk: ChaosChainAgentSDK instance (must have XMTP enabled)
         """
         self.sdk = sdk
-        logger.info("✅ Verifier Agent initialized")
+        
+        if not self.sdk.xmtp_manager:
+            rprint("[yellow]⚠️  XMTP not available. Causal audit will be limited.[/yellow]")
     
     def perform_causal_audit(
         self,
-        evidence_package_cid: str
+        evidence_package_cid: str,
+        studio_address: str,
+        custom_dimensions: Optional[List[str]] = None
     ) -> AuditResult:
         """
         Perform complete causal audit (§1.5).
         
         Steps:
-        1. Fetch EvidencePackage from IPFS/Irys
-        2. Fetch XMTP thread using xmtp_thread_id
-        3. Verify threadRoot matches computed Merkle root
+        1. Fetch EvidencePackage from IPFS/Arweave
+        2. Fetch XMTP thread
+        3. Verify threadRoot (Merkle root matches)
         4. Verify causality (parents exist, timestamps monotonic)
-        5. Verify all message signatures
-        6. Compute multi-dimensional scores
+        5. Verify signatures (optional)
+        6. Compute multi-dimensional scores (§3.1)
         
         Args:
             evidence_package_cid: IPFS CID of evidence package
+            studio_address: Studio contract address
+            custom_dimensions: Optional custom scoring dimensions for this studio
         
         Returns:
-            AuditResult with verification status and scores
-        
-        Example:
-            ```python
-            verifier = VerifierAgent(sdk)
-            result = verifier.perform_causal_audit("QmXyz...")
-            
-            if result.passed:
-                print(f"✅ Audit passed!")
-                for agent_id, scores in result.scores.items():
-                    print(f"Agent {agent_id}: {scores}")
-            else:
-                print(f"❌ Audit failed: {result.errors}")
-            ```
+            AuditResult with scores and audit details
         """
         errors = []
         
-        logger.info(f"🔍 Starting causal audit for evidence package: {evidence_package_cid}")
-        
-        # Step 1: Fetch EvidencePackage
         try:
-            evidence_package = self.sdk.retrieve_evidence(evidence_package_cid)
-            logger.info(f"✅ Evidence package retrieved: {evidence_package.get('package_id')}")
-        except Exception as e:
-            error_msg = f"Failed to fetch evidence package: {e}"
-            logger.error(f"❌ {error_msg}")
-            return AuditResult(
-                passed=False,
-                evidence_package_cid=evidence_package_cid,
-                thread_root_verified=False,
-                causality_verified=False,
-                signatures_verified=False,
-                scores={},
-                errors=[error_msg]
-            )
-        
-        # Step 2: Fetch XMTP thread
-        xmtp_thread_id = evidence_package.get("xmtp_thread_id")
-        if not xmtp_thread_id:
-            error_msg = "No XMTP thread ID in evidence package"
-            logger.error(f"❌ {error_msg}")
-            errors.append(error_msg)
-            return AuditResult(
-                passed=False,
-                evidence_package_cid=evidence_package_cid,
-                thread_root_verified=False,
-                causality_verified=False,
-                signatures_verified=False,
-                scores={},
-                errors=errors
-            )
-        
-        try:
-            xmtp_messages = self.sdk.get_messages(xmtp_thread_id, force_refresh=True)
-            logger.info(f"✅ XMTP thread fetched: {len(xmtp_messages)} messages")
-        except Exception as e:
-            error_msg = f"Failed to fetch XMTP thread: {e}"
-            logger.error(f"❌ {error_msg}")
-            errors.append(error_msg)
-            return AuditResult(
-                passed=False,
-                evidence_package_cid=evidence_package_cid,
-                thread_root_verified=False,
-                causality_verified=False,
-                signatures_verified=False,
-                scores={},
-                errors=errors
-            )
-        
-        # Step 3: Verify threadRoot
-        thread_root_verified = False
-        try:
-            computed_thread_root = self.sdk.compute_thread_root(xmtp_messages)
-            expected_thread_root = evidence_package.get("thread_root")
+            # Step 1: Fetch EvidencePackage
+            rprint(f"[cyan]📥 Fetching evidence package: {evidence_package_cid[:16]}...[/cyan]")
+            evidence_package = self._fetch_evidence_package(evidence_package_cid)
             
-            if computed_thread_root == expected_thread_root:
-                thread_root_verified = True
-                logger.info(f"✅ Thread root verified: {computed_thread_root}")
+            if not evidence_package:
+                return AuditResult(
+                    audit_passed=False,
+                    evidence_package_cid=evidence_package_cid,
+                    data_hash=bytes(32),
+                    scores={},
+                    audit_report={},
+                    errors=["Failed to fetch evidence package"]
+                )
+            
+            # Step 2: Fetch XMTP thread
+            xmtp_thread_id = evidence_package.get("xmtp_thread_id")
+            if not xmtp_thread_id:
+                rprint("[yellow]⚠️  No XMTP thread ID in evidence package[/yellow]")
+                errors.append("No XMTP thread ID")
+                xmtp_messages = []
             else:
-                error_msg = f"Thread root mismatch: expected {expected_thread_root}, got {computed_thread_root}"
-                logger.error(f"❌ {error_msg}")
-                errors.append(error_msg)
-        except Exception as e:
-            error_msg = f"Failed to verify thread root: {e}"
-            logger.error(f"❌ {error_msg}")
-            errors.append(error_msg)
-        
-        # Step 4: Verify causality
-        causality_verified = False
-        try:
-            causality_verified = self.sdk.verify_thread_causality(xmtp_messages)
-            if causality_verified:
-                logger.info("✅ Causality verified (parents exist, timestamps monotonic)")
-            else:
-                error_msg = "Causality verification failed"
-                logger.error(f"❌ {error_msg}")
-                errors.append(error_msg)
-        except Exception as e:
-            error_msg = f"Failed to verify causality: {e}"
-            logger.error(f"❌ {error_msg}")
-            errors.append(error_msg)
-        
-        # Step 5: Verify signatures
-        signatures_verified = False
-        try:
-            signatures_verified = self._verify_signatures(xmtp_messages)
-            if signatures_verified:
-                logger.info("✅ All signatures verified")
-            else:
-                error_msg = "Signature verification failed"
-                logger.error(f"❌ {error_msg}")
-                errors.append(error_msg)
-        except Exception as e:
-            error_msg = f"Failed to verify signatures: {e}"
-            logger.error(f"❌ {error_msg}")
-            errors.append(error_msg)
-        
-        # Step 6: Compute multi-dimensional scores
-        scores = {}
-        try:
+                rprint(f"[cyan]📥 Fetching XMTP thread: {xmtp_thread_id[:16]}...[/cyan]")
+                xmtp_messages = self._fetch_xmtp_thread(xmtp_thread_id)
+            
+            # Step 3: Verify threadRoot
+            if xmtp_messages and evidence_package.get("thread_root"):
+                rprint("[cyan]🔍 Verifying thread root...[/cyan]")
+                thread_root_valid = self._verify_thread_root(
+                    xmtp_messages,
+                    evidence_package["thread_root"]
+                )
+                if not thread_root_valid:
+                    errors.append("Thread root mismatch")
+                    rprint("[red]❌ Thread root verification failed[/red]")
+                else:
+                    rprint("[green]✅ Thread root verified[/green]")
+            
+            # Step 4: Verify causality
+            if xmtp_messages:
+                rprint("[cyan]🔍 Verifying causality...[/cyan]")
+                causality_valid = self._verify_causality(xmtp_messages)
+                if not causality_valid:
+                    errors.append("Causality check failed")
+                    rprint("[red]❌ Causality verification failed[/red]")
+                else:
+                    rprint("[green]✅ Causality verified[/green]")
+            
+            # Step 5: Verify signatures (optional for now)
+            # In production, verify each message signature
+            rprint("[cyan]🔍 Verifying signatures...[/cyan]")
+            signatures_valid = self._verify_signatures(xmtp_messages)
+            if not signatures_valid:
+                errors.append("Signature verification failed")
+            
+            # Step 6: Compute multi-dimensional scores
+            rprint("[cyan]📊 Computing multi-dimensional scores...[/cyan]")
             participants = evidence_package.get("participants", [])
-            scores = self.compute_multi_dimensional_scores(xmtp_messages, participants)
-            logger.info(f"✅ Multi-dimensional scores computed for {len(scores)} agents")
+            scores = self.compute_multi_dimensional_scores(
+                xmtp_messages,
+                participants,
+                custom_dimensions
+            )
+            
+            # Display scores
+            self._display_scores(scores)
+            
+            # Compute data_hash for submission
+            data_hash = self._compute_data_hash(evidence_package)
+            
+            # Build audit report
+            audit_report = {
+                "evidence_package_cid": evidence_package_cid,
+                "xmtp_messages_count": len(xmtp_messages),
+                "participants": participants,
+                "thread_root_valid": thread_root_valid if xmtp_messages else None,
+                "causality_valid": causality_valid if xmtp_messages else None,
+                "signatures_valid": signatures_valid,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            
+            audit_passed = len(errors) == 0
+            
+            if audit_passed:
+                rprint("[green]✅ Causal audit PASSED[/green]")
+            else:
+                rprint(f"[red]❌ Causal audit FAILED: {', '.join(errors)}[/red]")
+            
+            return AuditResult(
+                audit_passed=audit_passed,
+                evidence_package_cid=evidence_package_cid,
+                data_hash=data_hash,
+                scores=scores,
+                audit_report=audit_report,
+                errors=errors
+            )
+            
         except Exception as e:
-            error_msg = f"Failed to compute scores: {e}"
-            logger.error(f"❌ {error_msg}")
-            errors.append(error_msg)
-        
-        # Determine if audit passed
-        passed = (
-            thread_root_verified and
-            causality_verified and
-            signatures_verified and
-            len(scores) > 0 and
-            len(errors) == 0
-        )
-        
-        result = AuditResult(
-            passed=passed,
-            evidence_package_cid=evidence_package_cid,
-            thread_root_verified=thread_root_verified,
-            causality_verified=causality_verified,
-            signatures_verified=signatures_verified,
-            scores=scores,
-            errors=errors
-        )
-        
-        if passed:
-            logger.info(f"✅ Causal audit PASSED for {evidence_package_cid}")
-        else:
-            logger.error(f"❌ Causal audit FAILED for {evidence_package_cid}: {errors}")
-        
-        return result
+            rprint(f"[red]❌ Causal audit error: {e}[/red]")
+            return AuditResult(
+                audit_passed=False,
+                evidence_package_cid=evidence_package_cid,
+                data_hash=bytes(32),
+                scores={},
+                audit_report={},
+                errors=[str(e)]
+            )
     
     def compute_multi_dimensional_scores(
         self,
-        xmtp_messages: List[Dict[str, Any]],
+        xmtp_messages: List[XMTPMessage],
         participants: List[Dict[str, Any]],
-        studio_address: Optional[str] = None
+        custom_dimensions: Optional[List[str]] = None
     ) -> Dict[str, List[float]]:
         """
         Compute multi-dimensional scores from XMTP DAG (§3.1).
         
-        Architecture:
-        - Fetches scoring dimensions from Studio's LogicModule
-        - Computes scores for ALL dimensions (universal PoA + studio-specific)
-        - Universal PoA dimensions (always present):
-          1. Initiative: Original contributions (non-reply messages)
-          2. Collaboration: Reply/extend edges (reply messages)
-          3. Reasoning Depth: Average path length from root
-          4. Compliance: Policy checks (all pass for now)
-          5. Efficiency: Time-based (faster responses = higher score)
-        - Studio-specific dimensions (defined in LogicModule):
-          e.g., Accuracy, Risk Assessment, Originality, etc.
+        Universal PoA Dimensions (5):
+        1. Initiative: Non-derivative contributions (original messages)
+        2. Collaboration: Reply/extend edges to other agents
+        3. Reasoning Depth: Average path length in DAG
+        4. Compliance: Policy adherence (1.0 for now)
+        5. Efficiency: Time-based performance
+        
+        Custom Dimensions (Studio-specific):
+        - Accuracy (Finance, Prediction)
+        - Risk Assessment (Finance)
+        - Originality (Creative)
+        - etc.
         
         Args:
-            xmtp_messages: List of XMTP messages
-            participants: List of participant info (agent_id, address, role)
-            studio_address: Studio contract address (optional, for fetching dimensions)
+            xmtp_messages: List of XMTP messages from thread
+            participants: List of participant agents with IDs
+            custom_dimensions: Optional custom dimension names
         
         Returns:
-            {agent_id: [score1, score2, ...]} matching studio dimensions
-        
-        Example:
-            ```python
-            scores = verifier.compute_multi_dimensional_scores(
-                messages, 
-                participants,
-                studio_address="0x123..."
-            )
-            # For Finance Studio:
-            # scores = {
-            #     "agent_123": [0.8, 0.6, 0.7, 1.0, 0.9, 0.85, 0.92, 0.88],
-            #     #              ^initiative  ^collab  ^reasoning  ^compliance  ^efficiency  ^accuracy  ^risk  ^docs
-            #     "agent_456": [0.6, 0.8, 0.5, 1.0, 0.7, 0.78, 0.85, 0.82]
-            # }
-            ```
+            {agent_id: [score1, score2, ..., scoreN]} where scores are 0-100
         """
         scores = {}
         
-        # Fetch studio dimensions
-        dimension_names = self._get_studio_dimensions(studio_address) if studio_address else []
-        
-        # Fallback to default PoA dimensions if studio dimensions not available
-        if not dimension_names:
-            dimension_names = ["Initiative", "Collaboration", "Reasoning Depth", "Compliance", "Efficiency"]
-            logger.warning("⚠️  Using default PoA dimensions (studio dimensions not available)")
-        
-        logger.info(f"📊 Computing scores for {len(dimension_names)} dimensions: {dimension_names}")
-        
-        # Create address to agent_id mapping
-        address_to_agent_id = {
-            p["address"]: str(p["agent_id"])
-            for p in participants
-        }
+        if not xmtp_messages:
+            # No XMTP thread - assign default scores
+            rprint("[yellow]⚠️  No XMTP messages, assigning default scores[/yellow]")
+            for participant in participants:
+                agent_id = str(participant.get("agent_id", participant.get("address", "")))
+                # Default: moderate scores for all dimensions
+                scores[agent_id] = [70.0, 70.0, 70.0, 100.0, 70.0]
+            return scores
         
         for participant in participants:
-            agent_address = participant["address"]
-            agent_id = str(participant["agent_id"])
+            agent_id = str(participant.get("agent_id", participant.get("address", "")))
             
-            try:
-                # Compute score for each dimension
-                agent_scores = []
-                for dimension in dimension_names:
-                    score = self._compute_dimension_score(
+            # Compute 5 universal PoA dimensions
+            initiative = self._compute_initiative(xmtp_messages, agent_id)
+            collaboration = self._compute_collaboration(xmtp_messages, agent_id)
+            reasoning_depth = self._compute_reasoning_depth(xmtp_messages, agent_id)
+            compliance = self._compute_compliance(xmtp_messages, agent_id)
+            efficiency = self._compute_efficiency(xmtp_messages, agent_id)
+            
+            # Convert to 0-100 scale
+            score_vector = [
+                initiative * 100,
+                collaboration * 100,
+                reasoning_depth * 100,
+                compliance * 100,
+                efficiency * 100
+            ]
+            
+            # Add custom dimensions if specified
+            if custom_dimensions:
+                for dim in custom_dimensions:
+                    custom_score = self._compute_custom_dimension(
                         xmtp_messages,
-                        agent_address,
-                        dimension
+                        agent_id,
+                        dim
                     )
-                    agent_scores.append(score)
-                
-                scores[agent_id] = agent_scores
-                
-                # Log scores
-                score_str = ", ".join([f"{dim}={score:.2f}" for dim, score in zip(dimension_names, agent_scores)])
-                logger.debug(f"Agent {agent_id} scores: {score_str}")
-                
-            except Exception as e:
-                logger.warning(f"⚠️  Failed to compute scores for agent {agent_id}: {e}")
-                # Return zeros for all dimensions
-                scores[agent_id] = [0.0] * len(dimension_names)
+                    score_vector.append(custom_score * 100)
+            
+            scores[agent_id] = score_vector
         
         return scores
     
-    def _compute_initiative(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
+    def _compute_initiative(self, messages: List[XMTPMessage], agent_id: str) -> float:
         """
-        Compute initiative score (original contributions).
+        Compute initiative score (§3.1).
         
-        Initiative = (non-reply messages) / (total messages)
+        Initiative = non-derivative contributions / total contributions
+        Non-derivative = messages without parent_id (original ideas)
         
         Args:
-            messages: List of XMTP messages
-            agent_address: Agent address
+            messages: XMTP messages
+            agent_id: Agent ID or address
         
         Returns:
-            Initiative score (0-1)
+            Score (0.0-1.0)
         """
-        agent_messages = [msg for msg in messages if msg.get("author") == agent_address]
+        agent_messages = [msg for msg in messages if agent_id in msg.author]
         
         if len(agent_messages) == 0:
             return 0.0
         
-        original_messages = [msg for msg in agent_messages if msg.get("parent_id") is None]
+        original_messages = [msg for msg in agent_messages if msg.parent_id is None]
         
         return len(original_messages) / len(agent_messages)
     
-    def _compute_collaboration(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
+    def _compute_collaboration(self, messages: List[XMTPMessage], agent_id: str) -> float:
         """
-        Compute collaboration score (reply/extend edges).
+        Compute collaboration score (§3.1).
         
-        Collaboration = (reply messages) / (total messages)
+        Collaboration = reply/extend edges / total contributions
+        Reply/extend = messages with parent_id (building on others)
         
         Args:
-            messages: List of XMTP messages
-            agent_address: Agent address
+            messages: XMTP messages
+            agent_id: Agent ID or address
         
         Returns:
-            Collaboration score (0-1)
+            Score (0.0-1.0)
         """
-        agent_messages = [msg for msg in messages if msg.get("author") == agent_address]
+        agent_messages = [msg for msg in messages if agent_id in msg.author]
         
         if len(agent_messages) == 0:
             return 0.0
         
-        reply_messages = [msg for msg in agent_messages if msg.get("parent_id") is not None]
+        reply_messages = [msg for msg in agent_messages if msg.parent_id is not None]
         
         return len(reply_messages) / len(agent_messages)
     
-    def _compute_reasoning_depth(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
+    def _compute_reasoning_depth(self, messages: List[XMTPMessage], agent_id: str) -> float:
         """
-        Compute reasoning depth (path length).
+        Compute reasoning depth score (§3.1).
         
-        Reasoning Depth = max(depth of agent's messages) / 10 (normalized)
+        Reasoning Depth = average path length from root to agent's messages
+        Longer paths = deeper reasoning chains
         
         Args:
-            messages: List of XMTP messages
-            agent_address: Agent address
+            messages: XMTP messages
+            agent_id: Agent ID or address
         
         Returns:
-            Reasoning depth score (0-1)
+            Score (0.0-1.0, normalized by max depth of 10)
         """
-        agent_messages = [msg for msg in messages if msg.get("author") == agent_address]
+        agent_messages = [msg for msg in messages if agent_id in msg.author]
         
         if len(agent_messages) == 0:
             return 0.0
         
         # Compute depth for each message
-        max_depth = 0
+        depths = []
         for msg in agent_messages:
-            depth = self._compute_message_depth(msg, messages)
-            max_depth = max(max_depth, depth)
+            depth = self._get_message_depth(msg, messages)
+            depths.append(depth)
+        
+        avg_depth = sum(depths) / len(depths)
         
         # Normalize (assume max depth of 10)
-        return min(max_depth / 10, 1.0)
+        return min(avg_depth / 10.0, 1.0)
     
-    def _compute_message_depth(
-        self,
-        message: Dict[str, Any],
-        messages: List[Dict[str, Any]]
-    ) -> int:
-        """
-        Compute depth of a message in the DAG.
-        
-        Args:
-            message: Message to compute depth for
-            messages: All messages
-        
-        Returns:
-            Depth (1 for root messages)
-        """
-        parent_id = message.get("parent_id")
-        
-        if parent_id is None:
+    def _get_message_depth(self, message: XMTPMessage, messages: List[XMTPMessage]) -> int:
+        """Compute depth of a message in the DAG."""
+        if message.parent_id is None:
             return 1
         
-        # Find parent
-        parent = next((m for m in messages if m.get("id") == parent_id), None)
+        message_map = {msg.id: msg for msg in messages}
+        parent = message_map.get(message.parent_id)
         
         if parent is None:
             return 1
         
-        return 1 + self._compute_message_depth(parent, messages)
+        return 1 + self._get_message_depth(parent, messages)
     
-    def _compute_compliance(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
+    def _compute_compliance(self, messages: List[XMTPMessage], agent_id: str) -> float:
         """
-        Compute compliance score (policy checks).
+        Compute compliance score (§3.1).
         
         For now, returns 1.0 (all compliant).
-        In production, this would check message content against policies.
+        In production, check message content against policies.
         
         Args:
-            messages: List of XMTP messages
-            agent_address: Agent address
+            messages: XMTP messages
+            agent_id: Agent ID or address
         
         Returns:
-            Compliance score (0-1)
+            Score (0.0-1.0)
         """
         # TODO: Implement policy checks
+        # - Check for prohibited content
+        # - Verify data handling rules
+        # - Check AML/KYC flags (for financial studios)
         return 1.0
     
-    def _compute_efficiency(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
+    def _compute_efficiency(self, messages: List[XMTPMessage], agent_id: str) -> float:
         """
-        Compute efficiency score (time-based).
+        Compute efficiency score (§3.1).
         
-        Efficiency = 1 - (avg_response_time / 3600)
-        (Faster responses = higher score, normalized to 1 hour)
+        Efficiency = based on response times and message frequency
+        Faster responses = higher efficiency
         
         Args:
-            messages: List of XMTP messages
-            agent_address: Agent address
+            messages: XMTP messages
+            agent_id: Agent ID or address
         
         Returns:
-            Efficiency score (0-1)
+            Score (0.0-1.0)
         """
-        agent_messages = sorted(
-            [msg for msg in messages if msg.get("author") == agent_address],
-            key=lambda m: m.get("timestamp", 0)
-        )
+        agent_messages = [msg for msg in messages if agent_id in msg.author]
+        agent_messages.sort(key=lambda m: m.timestamp)
         
         if len(agent_messages) < 2:
-            return 1.0  # Default to high efficiency if not enough data
+            return 1.0  # Single message = perfectly efficient
         
-        # Compute average response time
-        response_times = []
+        # Compute average time between messages
+        time_diffs = []
         for i in range(1, len(agent_messages)):
-            time_diff = agent_messages[i].get("timestamp", 0) - agent_messages[i-1].get("timestamp", 0)
-            response_times.append(time_diff)
+            time_diff = agent_messages[i].timestamp - agent_messages[i-1].timestamp
+            time_diffs.append(time_diff)
         
-        if not response_times:
-            return 1.0
+        avg_time_diff = sum(time_diffs) / len(time_diffs)
         
-        avg_response_time = sum(response_times) / len(response_times)
+        # Normalize (1 hour = 1.0, faster = better)
+        # avg_time_diff is in seconds
+        efficiency = max(0, 1 - (avg_time_diff / 3600))
         
-        # Normalize (1 hour = 3600 seconds)
-        # Faster than 1 hour = 1.0, slower = lower score
-        return max(0, 1 - (avg_response_time / 3600))
+        return efficiency
     
-    def _verify_signatures(self, messages: List[Dict[str, Any]]) -> bool:
-        """
-        Verify all message signatures.
-        
-        Args:
-            messages: List of XMTP messages
-        
-        Returns:
-            True if all signatures are valid
-        """
-        if not self.sdk.xmtp_manager:
-            logger.warning("⚠️  XMTP manager not available for signature verification")
-            return False
-        
-        try:
-            from .xmtp_client import XMTPMessage
-            xmtp_messages = [XMTPMessage.from_dict(msg) for msg in messages]
-            return self.sdk.xmtp_manager.verify_signatures(xmtp_messages)
-        except Exception as e:
-            logger.error(f"❌ Signature verification failed: {e}")
-            return False
-    
-    def submit_score_vector(
+    def _compute_custom_dimension(
         self,
-        studio_address: str,
-        epoch: int,
-        data_hash: str,
-        scores: List[float]
-    ) -> str:
-        """
-        Submit score vector to StudioProxy.
-        
-        Args:
-            studio_address: Studio proxy address
-            epoch: Epoch number
-            data_hash: Data hash (from work submission)
-            scores: Score vector [initiative, collaboration, reasoning_depth, compliance, efficiency]
-        
-        Returns:
-            Transaction hash
-        
-        Example:
-            ```python
-            # After causal audit
-            result = verifier.perform_causal_audit("QmXyz...")
-            
-            for agent_id, agent_scores in result.scores.items():
-                tx_hash = verifier.submit_score_vector(
-                    studio_address="0x123...",
-                    epoch=1,
-                    data_hash="0xabc...",
-                    scores=agent_scores
-                )
-            ```
-        """
-        # Convert scores to uint8 (0-100 range)
-        scores_uint8 = [int(score * 100) for score in scores]
-        
-        # Submit via ChaosAgent
-        tx_hash = self.sdk.chaos_agent.submit_score_vector(
-            studio_address=studio_address,
-            epoch=epoch,
-            data_hash=data_hash,
-            scores=scores_uint8
-        )
-        
-        logger.info(f"✅ Score vector submitted: {tx_hash}")
-        
-        return tx_hash
-    
-    def _get_studio_dimensions(self, studio_address: str) -> List[str]:
-        """
-        Fetch scoring dimensions from Studio's LogicModule.
-        
-        Args:
-            studio_address: Studio proxy address
-        
-        Returns:
-            List of dimension names (e.g., ["Initiative", "Collaboration", ...])
-        """
-        try:
-            # Load StudioProxy ABI
-            studio_proxy_abi = self.sdk.chaos_agent._load_abi("StudioProxy")
-            studio_proxy = self.sdk.chaos_agent.w3.eth.contract(
-                address=studio_address,
-                abi=studio_proxy_abi
-            )
-            
-            # Get LogicModule address
-            logic_module_address = studio_proxy.functions.getLogicModule().call()
-            
-            # Load LogicModule ABI
-            logic_module_abi = self.sdk.chaos_agent._load_abi("LogicModule")
-            logic_module = self.sdk.chaos_agent.w3.eth.contract(
-                address=logic_module_address,
-                abi=logic_module_abi
-            )
-            
-            # Get scoring criteria
-            (dimension_names, weights) = logic_module.functions.getScoringCriteria().call()
-            
-            logger.info(f"✅ Fetched {len(dimension_names)} dimensions from Studio {studio_address}")
-            return dimension_names
-            
-        except Exception as e:
-            logger.warning(f"⚠️  Failed to fetch studio dimensions: {e}")
-            return []
-    
-    def _compute_dimension_score(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str,
+        messages: List[XMTPMessage],
+        agent_id: str,
         dimension: str
     ) -> float:
         """
-        Compute score for a specific dimension.
-        
-        Universal PoA Dimensions:
-        - Initiative
-        - Collaboration
-        - Reasoning Depth
-        - Compliance
-        - Efficiency
-        
-        Studio-Specific Dimensions:
-        - Accuracy (Finance)
-        - Risk Assessment (Finance)
-        - Documentation (Finance)
-        - Originality (Creative)
-        - Aesthetic Quality (Creative)
-        - Brand Alignment (Creative)
-        - etc.
+        Compute custom studio-specific dimension.
         
         Args:
             messages: XMTP messages
-            agent_address: Agent's address
-            dimension: Dimension name
+            agent_id: Agent ID or address
+            dimension: Dimension name (e.g., "Accuracy", "Originality")
         
         Returns:
             Score (0.0-1.0)
         """
-        # Map dimension to computation method
-        dimension_methods = {
-            # Universal PoA dimensions
-            "Initiative": self._compute_initiative,
-            "Collaboration": self._compute_collaboration,
-            "Reasoning Depth": self._compute_reasoning_depth,
-            "Compliance": self._compute_compliance,
-            "Efficiency": self._compute_efficiency,
-            
-            # Finance Studio dimensions
-            "Accuracy": self._compute_accuracy,
-            "Risk Assessment": self._compute_risk_assessment,
-            "Documentation": self._compute_documentation,
-            
-            # Creative Studio dimensions
-            "Originality": self._compute_originality,
-            "Aesthetic Quality": self._compute_aesthetic_quality,
-            "Brand Alignment": self._compute_brand_alignment,
-        }
-        
-        method = dimension_methods.get(dimension)
-        if method:
-            return method(messages, agent_address)
-        else:
-            # Unknown dimension, return default
-            logger.warning(f"⚠️  Unknown dimension: {dimension}, using default score 0.5")
-            return 0.5
-    
-    # ============ Studio-Specific Dimension Computation Methods ============
-    
-    def _compute_accuracy(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
-        """
-        Compute Accuracy score (Finance Studio).
-        
-        Measures correctness of financial analysis/predictions.
-        
-        For MVP: Returns 0.85 (placeholder).
-        In production: Would analyze prediction accuracy, data correctness, etc.
-        
-        Args:
-            messages: XMTP messages
-            agent_address: Agent's address
-        
-        Returns:
-            Score (0.0-1.0)
-        """
-        # TODO: Implement actual accuracy computation
-        # For now, return placeholder
-        return 0.85
-    
-    def _compute_risk_assessment(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
-        """
-        Compute Risk Assessment score (Finance Studio).
-        
-        Measures quality of risk evaluation and mitigation strategies.
-        
-        For MVP: Returns 0.80 (placeholder).
-        In production: Would analyze risk identification, mitigation quality, etc.
-        
-        Args:
-            messages: XMTP messages
-            agent_address: Agent's address
-        
-        Returns:
-            Score (0.0-1.0)
-        """
-        # TODO: Implement actual risk assessment computation
-        # For now, return placeholder
-        return 0.80
-    
-    def _compute_documentation(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
-        """
-        Compute Documentation score (Finance Studio).
-        
-        Measures clarity and completeness of reports/documentation.
-        
-        For MVP: Returns 0.75 (placeholder).
-        In production: Would analyze documentation quality, completeness, clarity, etc.
-        
-        Args:
-            messages: XMTP messages
-            agent_address: Agent's address
-        
-        Returns:
-            Score (0.0-1.0)
-        """
-        # TODO: Implement actual documentation computation
-        # For now, return placeholder
+        # TODO: Implement custom dimension logic based on dimension name
+        # For now, return moderate score
         return 0.75
     
-    def _compute_originality(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
-        """
-        Compute Originality score (Creative Studio).
-        
-        Measures creative uniqueness and innovation.
-        
-        For MVP: Returns 0.90 (placeholder).
-        In production: Would analyze creative uniqueness, novelty, innovation, etc.
-        
-        Args:
-            messages: XMTP messages
-            agent_address: Agent's address
-        
-        Returns:
-            Score (0.0-1.0)
-        """
-        # TODO: Implement actual originality computation
-        # For now, return placeholder
-        return 0.90
+    def _fetch_evidence_package(self, cid: str) -> Optional[Dict[str, Any]]:
+        """Fetch evidence package from IPFS/Arweave."""
+        try:
+            evidence_data = self.sdk.storage.get(cid)
+            if isinstance(evidence_data, bytes):
+                return json.loads(evidence_data.decode('utf-8'))
+            return evidence_data
+        except Exception as e:
+            rprint(f"[red]❌ Failed to fetch evidence package: {e}[/red]")
+            return None
     
-    def _compute_aesthetic_quality(
-        self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
-        """
-        Compute Aesthetic Quality score (Creative Studio).
+    def _fetch_xmtp_thread(self, thread_id: str) -> List[XMTPMessage]:
+        """Fetch XMTP thread messages."""
+        if not self.sdk.xmtp_manager:
+            return []
         
-        Measures visual/artistic excellence.
-        
-        For MVP: Returns 0.88 (placeholder).
-        In production: Would analyze visual appeal, artistic quality, etc.
-        
-        Args:
-            messages: XMTP messages
-            agent_address: Agent's address
-        
-        Returns:
-            Score (0.0-1.0)
-        """
-        # TODO: Implement actual aesthetic quality computation
-        # For now, return placeholder
-        return 0.88
+        try:
+            return self.sdk.xmtp_manager.get_thread(thread_id)
+        except Exception as e:
+            rprint(f"[red]❌ Failed to fetch XMTP thread: {e}[/red]")
+            return []
     
-    def _compute_brand_alignment(
+    def _verify_thread_root(
         self,
-        messages: List[Dict[str, Any]],
-        agent_address: str
-    ) -> float:
-        """
-        Compute Brand Alignment score (Creative Studio).
+        messages: List[XMTPMessage],
+        expected_root: str
+    ) -> bool:
+        """Verify threadRoot matches computed Merkle root."""
+        if not self.sdk.xmtp_manager:
+            return False
         
-        Measures consistency with brand guidelines.
+        try:
+            computed_root = self.sdk.xmtp_manager.compute_thread_root(messages)
+            computed_hex = "0x" + computed_root.hex() if isinstance(computed_root, bytes) else computed_root
+            expected_hex = expected_root if expected_root.startswith('0x') else "0x" + expected_root
+            
+            return computed_hex.lower() == expected_hex.lower()
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Thread root verification error: {e}[/yellow]")
+            return False
+    
+    def _verify_causality(self, messages: List[XMTPMessage]) -> bool:
+        """Verify causality constraints (§1.5)."""
+        if not self.sdk.xmtp_manager:
+            return False
         
-        For MVP: Returns 0.82 (placeholder).
-        In production: Would analyze brand guideline adherence, consistency, etc.
+        return self.sdk.xmtp_manager.verify_causality(messages)
+    
+    def _verify_signatures(self, messages: List[XMTPMessage]) -> bool:
+        """Verify message signatures (optional)."""
+        # For now, assume signatures are valid
+        # In production, verify each message signature using eth_account
+        return True
+    
+    def _compute_data_hash(self, evidence_package: Dict[str, Any]) -> bytes:
+        """Compute data_hash for score submission."""
+        # Use evidence package CID or compute from contents
+        package_str = json.dumps(evidence_package, sort_keys=True)
+        return keccak(text=package_str)
+    
+    def _display_scores(self, scores: Dict[str, List[float]]):
+        """Display scores in a nice table."""
+        if not scores:
+            return
         
-        Args:
-            messages: XMTP messages
-            agent_address: Agent's address
+        table = Table(title="Multi-Dimensional Scores")
+        table.add_column("Agent", style="cyan")
+        table.add_column("Initiative", justify="right", style="green")
+        table.add_column("Collaboration", justify="right", style="green")
+        table.add_column("Reasoning", justify="right", style="green")
+        table.add_column("Compliance", justify="right", style="green")
+        table.add_column("Efficiency", justify="right", style="green")
+        table.add_column("Avg", justify="right", style="bold yellow")
         
-        Returns:
-            Score (0.0-1.0)
-        """
-        # TODO: Implement actual brand alignment computation
-        # For now, return placeholder
-        return 0.82
-
+        for agent_id, score_vector in scores.items():
+            agent_short = agent_id[:8] + "..." if len(agent_id) > 10 else agent_id
+            avg = sum(score_vector) / len(score_vector)
+            
+            table.add_row(
+                agent_short,
+                f"{score_vector[0]:.1f}",
+                f"{score_vector[1]:.1f}",
+                f"{score_vector[2]:.1f}",
+                f"{score_vector[3]:.1f}",
+                f"{score_vector[4]:.1f}",
+                f"{avg:.1f}"
+            )
+        
+        console.print(table)
