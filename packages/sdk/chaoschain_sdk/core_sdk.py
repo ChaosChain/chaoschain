@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone
 from rich import print as rprint
 
+from mandates_core import Mandate
 from .types import (
     AgentRole, 
     NetworkConfig, 
@@ -41,6 +42,7 @@ from .process_integrity import ProcessIntegrityVerifier
 from .chaos_agent import ChaosAgent
 from .google_ap2_integration import GoogleAP2Integration, GoogleAP2IntegrationResult
 from .a2a_x402_extension import A2AX402Extension
+from .mandate_manager import MandateManager
 
 
 class ChaosChainAgentSDK:
@@ -155,6 +157,7 @@ class ChaosChainAgentSDK:
         
         # Initialize core components
         self._initialize_wallet_manager(wallet_file)
+        self._initialize_mandate_manager()
         self._initialize_storage_manager(enable_storage, storage_jwt, storage_gateway, storage_provider)
         self._initialize_x402_payment_manager(enable_payments)  # x402 is now primary
         self._initialize_payment_manager(enable_payments)  # Keep for backward compatibility
@@ -184,6 +187,7 @@ class ChaosChainAgentSDK:
                 "storage": hasattr(self, 'storage_manager') and self.storage_manager is not None,
                 "ap2_integration": hasattr(self, 'google_ap2') and self.google_ap2 is not None,
                 "x402_extension": hasattr(self, 'a2a_x402') and self.a2a_x402 is not None,
+                "mandates": hasattr(self, 'mandate_manager') and self.mandate_manager is not None,
             },
             "x402_enabled": hasattr(self, 'x402_payment_manager') and self.x402_payment_manager is not None,
             "payment_methods": self.get_supported_payment_methods() if hasattr(self, 'payment_manager') and self.payment_manager else [],
@@ -201,6 +205,17 @@ class ChaosChainAgentSDK:
             self.wallet_manager.create_or_load_wallet(self.agent_name)
         except Exception as e:
             raise ChaosChainSDKError(f"Failed to initialize wallet manager: {str(e)}")
+    
+    def _initialize_mandate_manager(self):
+        """Initialize mandates-core helper."""
+        try:
+            self.mandate_manager = MandateManager(
+                agent_name=self.agent_name,
+                wallet_manager=self.wallet_manager
+            )
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Mandates integration not available: {e}[/yellow]")
+            self.mandate_manager = None
     
     def _initialize_storage_manager(self, enabled: bool, jwt: str = None, gateway: str = None, custom_provider: Any = None):
         """Initialize pluggable storage management with optional custom provider."""
@@ -438,6 +453,62 @@ class ChaosChainAgentSDK:
             registration_tx="registered",  # Would get from chain in production
             network=self.network
         )
+    
+    # === MANDATES (ERC-8004) ===
+    
+    def build_mandate_core(
+        self,
+        kind: str,
+        payload: Dict[str, Any],
+        base_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build a mandate `core` payload using the mandate-specs registry.
+        """
+        if not self.mandate_manager:
+            raise ChaosChainSDKError("Mandates integration not available")
+        return self.mandate_manager.build_core(kind=kind, payload=payload, base_url=base_url)
+    
+    def create_mandate(
+        self,
+        *,
+        intent: str,
+        core: Dict[str, Any],
+        deadline: str,
+        client: str,
+        server: Optional[str] = None,
+        version: str = "0.1.0",
+        mandate_id: Optional[str] = None,
+        created_at: Optional[str] = None,
+    ) -> Mandate:
+        """
+        Create a new mandate for deterministic agent agreements.
+        
+        Args:
+            intent: Natural-language description of the agreement
+            core: Core payload built via `build_mandate_core`
+            deadline: ISO timestamp mandate expiry
+            client: CAIP-10 or plain address for the client
+            server: CAIP-10 or plain address for the server (defaults to this agent)
+            version: Mandate version string
+            mandate_id: Optional custom mandate id
+            created_at: Optional ISO timestamp (defaults to now)
+        """
+        if not self.mandate_manager:
+            raise ChaosChainSDKError("Mandates integration not available")
+        
+        return self.mandate_manager.create_mandate(
+            intent=intent,
+            core=core,
+            deadline=deadline,
+            client=client,
+            server=server,
+            version=version,
+            mandate_id=mandate_id,
+            created_at=created_at,
+        )
+    
+    
     
     # === PROCESS INTEGRITY ===
     

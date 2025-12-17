@@ -64,6 +64,8 @@ from .core_sdk import ChaosChainAgentSDK
 from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
 from .x402_payment_manager import X402PaymentManager
+from .mandate_manager import MandateManager
+from mandates_core import Mandate
 
 # Types and enums
 from .types import (
@@ -208,6 +210,8 @@ __all__ = [
     "ChaosAgent",
     "WalletManager",
     "X402PaymentManager",
+    "MandateManager",
+    "Mandate",
     
     # Types
     "NetworkConfig",

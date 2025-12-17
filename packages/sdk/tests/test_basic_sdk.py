@@ -6,8 +6,8 @@ without requiring network connections or external services.
 """
 
 import pytest
-import asyncio
 from unittest.mock import Mock, patch
+from eth_account import Account
 
 from chaoschain_sdk import (
     ChaosChainAgentSDK,
@@ -35,10 +35,13 @@ class TestSDKImports:
         assert ChaosChainSDKError is not None
     
     def test_enum_values(self):
-        """Test that enums have expected values."""
-        assert AgentRole.SERVER.value == "server"
-        assert AgentRole.VALIDATOR.value == "validator"
+        """Test that enums have expected values (including legacy aliases)."""
+        assert AgentRole.WORKER.value == "worker"
+        assert AgentRole.VERIFIER.value == "verifier"
         assert AgentRole.CLIENT.value == "client"
+        # Legacy aliases map to the worker/verifier values
+        assert AgentRole.SERVER.value == AgentRole.WORKER.value
+        assert AgentRole.VALIDATOR.value == AgentRole.VERIFIER.value
         
         assert NetworkConfig.BASE_SEPOLIA.value == "base-sepolia"
         assert NetworkConfig.ETHEREUM_SEPOLIA.value == "ethereum-sepolia"
@@ -48,8 +51,7 @@ class TestSDKInitialization:
     """Test SDK initialization without network connections."""
     
     @patch('chaoschain_sdk.core_sdk.WalletManager')
-    @patch('chaoschain_sdk.core_sdk.StorageManager')
-    def test_sdk_init_minimal(self, mock_storage, mock_wallet):
+    def test_sdk_init_minimal(self, mock_wallet):
         """Test SDK initialization with mocked dependencies."""
         # Mock wallet manager
         mock_wallet_instance = Mock()
@@ -58,10 +60,6 @@ class TestSDKInitialization:
         mock_wallet_instance.is_connected = True
         mock_wallet_instance.w3 = Mock()
         mock_wallet.return_value = mock_wallet_instance
-        
-        # Mock storage manager
-        mock_storage_instance = Mock()
-        mock_storage.return_value = mock_storage_instance
         
         # Mock ChaosAgent to avoid contract loading
         with patch('chaoschain_sdk.core_sdk.ChaosAgent') as mock_chaos_agent:
@@ -87,10 +85,12 @@ class TestSDKInitialization:
     
     def test_agent_role_enum(self):
         """Test AgentRole enum functionality."""
-        assert len(list(AgentRole)) == 3
-        assert AgentRole.SERVER in AgentRole
-        assert AgentRole.VALIDATOR in AgentRole
-        assert AgentRole.CLIENT in AgentRole
+        roles = list(AgentRole)
+        assert len(roles) == 4  # Includes WORKER/VERIFIER/CLIENT/ORCHESTRATOR
+        assert AgentRole.WORKER in roles
+        assert AgentRole.VERIFIER in roles
+        assert AgentRole.CLIENT in roles
+        assert AgentRole.ORCHESTRATOR in roles
     
     def test_network_config_enum(self):
         """Test NetworkConfig enum functionality."""
@@ -116,7 +116,7 @@ class TestSDKTypes:
     
     def test_integrity_proof_dataclass(self):
         """Test IntegrityProof dataclass."""
-        from chaoschain_sdk import IntegrityProof
+        from chaoschain_sdk.types import IntegrityProof
         from datetime import datetime
         
         proof = IntegrityProof(
@@ -148,16 +148,72 @@ class TestSDKExceptions:
     def test_exception_inheritance(self):
         """Test that all SDK exceptions inherit from base."""
         from chaoschain_sdk import (
-            AgentRegistrationError,
             PaymentError,
             StorageError,
-            IntegrityVerificationError
+            NetworkError,
+            ContractError,
+            ValidationError,
         )
         
-        assert issubclass(AgentRegistrationError, ChaosChainSDKError)
         assert issubclass(PaymentError, ChaosChainSDKError)
         assert issubclass(StorageError, ChaosChainSDKError)
-        assert issubclass(IntegrityVerificationError, ChaosChainSDKError)
+        assert issubclass(NetworkError, ChaosChainSDKError)
+        assert issubclass(ContractError, ChaosChainSDKError)
+        assert issubclass(ValidationError, ChaosChainSDKError)
+
+
+class TestMandatesIntegration:
+    """Test mandates-core integration surfaces."""
+
+    def test_mandate_signing_mutates_dict_and_verifies(self):
+        """Ensure SDK mandate helpers mutate dicts and verify signatures."""
+        # Mock wallet manager with deterministic chain id and account
+        wallet = Mock()
+        wallet.chain_id = 1
+        server_account = Account.create()
+        wallet.create_or_load_wallet.return_value = server_account
+        wallet.get_wallet_address.return_value = server_account.address
+        wallet.is_connected = True
+        wallet.w3 = Mock()
+
+        with patch('chaoschain_sdk.core_sdk.WalletManager', return_value=wallet):
+            with patch('chaoschain_sdk.core_sdk.ChaosAgent') as mock_agent:
+                mock_agent.return_value = Mock(get_agent_id=Mock(return_value=None))
+
+                sdk = ChaosChainAgentSDK(
+                    agent_name="ServerAgent",
+                    agent_domain="server.example.com",
+                    agent_role=AgentRole.WORKER,
+                    network=NetworkConfig.BASE_SEPOLIA,
+                    enable_process_integrity=False,
+                    enable_payments=False,
+                    enable_storage=False,
+                    enable_ap2=False,
+                )
+
+        client_account = Account.create()
+        client_caip10 = f"eip155:{wallet.chain_id}:{client_account.address}"
+
+        mandate = sdk.create_mandate(
+            intent="Test deterministic mandate",
+            core={"kind": "test@1", "payload": {"foo": "bar"}},
+            deadline="2025-12-31T00:00:00Z",
+            client=client_caip10,
+        )
+
+        mandate_dict = mandate.to_dict()
+
+        # Sign as server (default wallet) and client (explicit key)
+        sdk.sign_mandate_as_server(mandate_dict)
+        sdk.sign_mandate_as_client(mandate_dict, client_account.key.hex())
+
+        signatures = mandate_dict.get("signatures", {})
+        assert "serverSig" in signatures
+        assert "clientSig" in signatures
+
+        verification = sdk.verify_mandate(mandate_dict)
+        assert verification["all_ok"] is True
+        assert verification["mandate_hash"] == mandate.compute_mandate_hash()
 
 
 if __name__ == "__main__":
