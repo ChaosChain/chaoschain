@@ -508,7 +508,35 @@ class ChaosChainAgentSDK:
             created_at=created_at,
         )
     
+    def sign_mandate_as_server(
+        self,
+        mandate: Mandate | Dict[str, Any],
+        private_key: Optional[str] = None,
+    ):
+        """
+        Sign a mandate as the server (defaults to this agent's wallet key).
+        """
+        if not self.mandate_manager:
+            raise ChaosChainSDKError("Mandates integration not available")
+        return self.mandate_manager.sign_as_server(mandate, private_key=private_key)
     
+    def sign_mandate_as_client(
+        self,
+        mandate: Mandate | Dict[str, Any],
+        private_key: str,
+    ):
+        """
+        Sign a mandate as the client.
+        """
+        if not self.mandate_manager:
+            raise ChaosChainSDKError("Mandates integration not available")
+        return self.mandate_manager.sign_as_client(mandate, private_key=private_key)
+    
+    def verify_mandate(self, mandate: Mandate | Dict[str, Any]) -> Dict[str, Any]:
+        """Verify both client and server signatures on a mandate."""
+        if not self.mandate_manager:
+            raise ChaosChainSDKError("Mandates integration not available")
+        return self.mandate_manager.verify(mandate)
     
     # === PROCESS INTEGRITY ===
     
