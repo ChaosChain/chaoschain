@@ -1,5 +1,5 @@
 """
-Studio Manager for Task Assignment and Orchestration.
+Studio Manager for ChaosChain Task Assignment and Orchestration.
 
 Implements Studio task workflow:
 - Task broadcasting to registered workers

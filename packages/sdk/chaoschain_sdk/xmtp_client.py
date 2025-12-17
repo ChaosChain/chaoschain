@@ -1,5 +1,5 @@
 """
-XMTP Client Integration for ChaosChain Protocol.
+XMTP Client for ChaosChain Agent Communication
 
 Implements agent-to-agent communication with causal DAG construction
 as specified in Protocol Spec v0.1 (§1 - Formal DKG & Causal Audit Model).

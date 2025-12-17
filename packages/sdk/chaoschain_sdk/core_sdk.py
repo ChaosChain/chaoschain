@@ -1269,14 +1269,41 @@ class ChaosChainAgentSDK:
         """
         import uuid
         
-        # Compute thread_root if XMTP thread provided
+        # Compute thread_root and build DKG if XMTP thread provided
         thread_root = "0x" + "0" * 64
+        dkg_export = None
+        
         if xmtp_thread_id and self.xmtp_manager:
             try:
                 messages = self.xmtp_manager.get_thread(xmtp_thread_id)
-                thread_root = self.xmtp_manager.compute_thread_root(messages)
+                
+                # Build artifacts map for DKG
+                artifacts_map = {}
+                if artifacts:
+                    for artifact in artifacts:
+                        msg_id = artifact.get("message_id", artifact.get("xmtp_msg_id"))
+                        cid = artifact.get("cid", artifact.get("ipfs_cid"))
+                        if msg_id and cid:
+                            if msg_id not in artifacts_map:
+                                artifacts_map[msg_id] = []
+                            artifacts_map[msg_id].append(cid)
+                
+                # Build DKG from XMTP thread
+                from .dkg import DKG
+                dkg = DKG.from_xmtp_thread(messages, artifacts_map)
+                
+                # Compute thread root from DKG
+                thread_root = dkg.compute_thread_root()
+                
+                # Export DKG for verifiers
+                dkg_export = dkg.to_dict()
+                
+                rprint(f"[green]✅ DKG exported: {len(dkg.nodes)} nodes, {len(dkg.agents)} agents[/green]")
+                
             except Exception as e:
-                rprint(f"[yellow]⚠️  Failed to compute thread root: {e}[/yellow]")
+                rprint(f"[yellow]⚠️  Failed to build DKG: {e}[/yellow]")
+                import traceback
+                traceback.print_exc()
         
         # Compute evidence_root from artifacts
         evidence_root = "0x" + "0" * 64
@@ -1312,6 +1339,8 @@ class ChaosChainAgentSDK:
                 "thread_root": package.thread_root,
                 "evidence_root": package.evidence_root,
                 "participants": package.participants,
+                "dkg_export": dkg_export,  # Full DKG for verifiers!
+                "artifacts": artifacts or [],
                 "agent_identity": {
                     "agent_id": package.agent_identity.agent_id,
                     "agent_name": package.agent_identity.agent_name,

@@ -68,6 +68,7 @@ from .x402_payment_manager import X402PaymentManager
 # XMTP & Causal Audit (optional - requires xmtp package)
 try:
     from .xmtp_client import XMTPManager, XMTPMessage
+    from .dkg import DKG, DKGNode
     from .verifier_agent import VerifierAgent, AuditResult
     from .studio_manager import StudioManager, Task, WorkerBid
     _has_xmtp = True
@@ -258,4 +259,4 @@ if _has_x402_server:
     __all__.append("X402PaywallServer")
 
 if _has_xmtp:
-    __all__.extend(["XMTPManager", "XMTPMessage", "VerifierAgent", "AuditResult", "StudioManager", "Task", "WorkerBid"])
+    __all__.extend(["XMTPManager", "XMTPMessage", "DKG", "DKGNode", "VerifierAgent", "AuditResult", "StudioManager", "Task", "WorkerBid"])

@@ -5,50 +5,46 @@ Implements Protocol Spec v0.1:
 - §1.5: Causal Audit Algorithm
 - §3.1: Proof of Agency (PoA) Features - Measurable Agency Dimensions
 
-The VerifierAgent performs a complete causal audit of agent work:
+The VerifierAgent performs a complete causal audit using the DKG:
 1. Fetches EvidencePackage from IPFS
-2. Reconstructs XMTP causal DAG
+2. Reconstructs DKG from XMTP thread + artifacts
 3. Verifies threadRoot and evidenceRoot
-4. Checks causality (parents exist, timestamps monotonic)
+4. Checks causality (parents exist, timestamps monotonic, no cycles)
 5. Verifies signatures
-6. Computes multi-dimensional scores from DKG
+6. Traces causal chains (A→B→C value attribution)
+7. Computes multi-dimensional scores using graph analysis
 
 Multi-Dimensional Scoring (§3.1):
-- **Initiative**: Non-derivative contributions (original Irys payloads)
-- **Collaboration**: Reply/extend edges to other agents
-- **Reasoning Depth**: Average path length from task root to terminal nodes
+- **Initiative**: Original contributions (root nodes, new artifacts)
+- **Collaboration**: Building on others' work (causal chains)
+- **Reasoning Depth**: Path length and critical nodes
 - **Compliance**: Policy checks and rule adherence
-- **Efficiency**: Useful work per unit cost/time
+- **Efficiency**: Time and resource usage
+
+Studio-Specific Dimensions:
+- **Originality** (Creative studios): Novelty of contributions
+- **Risk Assessment** (Finance studios): Risk management quality
+- **Accuracy** (Prediction studios): Prediction accuracy
 
 Usage:
     ```python
-    from chaoschain_sdk import ChaosChainAgentSDK
-    from chaoschain_sdk.verifier_agent import VerifierAgent
+    from chaoschain_sdk import VerifierAgent
     
-    # Initialize SDK as verifier
-    sdk = ChaosChainAgentSDK(
-        agent_name="VerifierAgent",
-        agent_domain="verifier.example.com",
-        agent_role=AgentRole.VERIFIER,
-        network=NetworkConfig.ETHEREUM_SEPOLIA
-    )
-    
-    # Create verifier
     verifier = VerifierAgent(sdk)
     
-    # Perform causal audit
+    # Perform causal audit with DKG analysis
     audit_result = verifier.perform_causal_audit(
         evidence_package_cid="Qm...",
         studio_address="0x..."
     )
     
     # Submit scores to StudioProxy
-    if audit_result["audit_passed"]:
-        sdk.submit_score_vector(
+    if audit_result.audit_passed:
+        verifier.submit_score_vector(
             studio_address=studio_address,
             epoch=1,
-            data_hash=audit_result["data_hash"],
-            scores=audit_result["scores"][worker_agent_id]
+            data_hash=audit_result.data_hash,
+            scores=audit_result.scores[worker_id]
         )
     ```
 """
@@ -58,41 +54,46 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from eth_utils import keccak
+from eth_account.messages import encode_defunct
 from rich import print as rprint
 from rich.table import Table
 from rich.console import Console
 
-from .types import ChaosChainSDKError
+from .exceptions import ChaosChainSDKError
 from .xmtp_client import XMTPMessage
+from .dkg import DKG, DKGNode
 
 console = Console()
 
 
 @dataclass
 class AuditResult:
-    """Result of causal audit."""
+    """Result of causal audit with DKG analysis."""
     audit_passed: bool
     evidence_package_cid: str
     data_hash: bytes
-    scores: Dict[str, List[float]]  # {agent_id: [initiative, collaboration, ...]}
+    scores: Dict[str, List[float]]  # {agent_id: [scores...]}
+    contribution_weights: Dict[str, float]  # {agent_id: weight} (for multi-agent attribution)
+    dkg: Optional[DKG]  # The reconstructed DKG
     audit_report: Dict[str, Any]
     errors: List[str]
 
 
 class VerifierAgent:
     """
-    Verifier Agent for causal audit and multi-dimensional scoring.
+    Verifier Agent for causal audit using DKG analysis.
     
     Implements Protocol Spec v0.1:
-    - §1.5: Causal Audit Algorithm
-    - §3.1: Measurable Agency Dimensions (Proof of Agency)
+    - §1.5: Causal Audit Algorithm (with DKG)
+    - §3.1: Measurable Agency Dimensions (from DKG analysis)
+    - §4.2: Multi-Agent Attribution (contribution weights)
     
-    The verifier performs a comprehensive audit of agent work:
-    1. Fetch EvidencePackage from decentralized storage
-    2. Reconstruct XMTP causal DAG
-    3. Verify data integrity (threadRoot, evidenceRoot)
-    4. Check causality constraints
-    5. Compute multi-dimensional scores
+    The verifier performs deep causal analysis:
+    1. Reconstruct DKG from XMTP + artifacts
+    2. Trace causal chains (who enabled what)
+    3. Identify critical nodes (key contributions)
+    4. Compute fair contribution weights
+    5. Score agents based on DKG metrics
     """
     
     def __init__(self, sdk):
@@ -100,7 +101,7 @@ class VerifierAgent:
         Initialize VerifierAgent.
         
         Args:
-            sdk: ChaosChainAgentSDK instance (must have XMTP enabled)
+            sdk: ChaosChainAgentSDK instance
         """
         self.sdk = sdk
         
@@ -114,23 +115,25 @@ class VerifierAgent:
         custom_dimensions: Optional[List[str]] = None
     ) -> AuditResult:
         """
-        Perform complete causal audit (§1.5).
+        Perform complete causal audit with DKG analysis (§1.5).
         
         Steps:
-        1. Fetch EvidencePackage from IPFS/Arweave
-        2. Fetch XMTP thread
-        3. Verify threadRoot (Merkle root matches)
-        4. Verify causality (parents exist, timestamps monotonic)
-        5. Verify signatures (optional)
-        6. Compute multi-dimensional scores (§3.1)
+        1. Fetch EvidencePackage
+        2. Reconstruct DKG from XMTP thread + artifacts
+        3. Verify threadRoot (matches computed root)
+        4. Verify causality (no cycles, timestamps monotonic)
+        5. Verify signatures
+        6. Trace causal chains & find critical nodes
+        7. Compute contribution weights (§4.2)
+        8. Compute multi-dimensional scores (§3.1)
         
         Args:
             evidence_package_cid: IPFS CID of evidence package
             studio_address: Studio contract address
-            custom_dimensions: Optional custom scoring dimensions for this studio
+            custom_dimensions: Optional studio-specific dimensions
         
         Returns:
-            AuditResult with scores and audit details
+            AuditResult with DKG, scores, and contribution weights
         """
         errors = []
         
@@ -145,153 +148,200 @@ class VerifierAgent:
                     evidence_package_cid=evidence_package_cid,
                     data_hash=bytes(32),
                     scores={},
+                    contribution_weights={},
+                    dkg=None,
                     audit_report={},
                     errors=["Failed to fetch evidence package"]
                 )
             
-            # Step 2: Fetch XMTP thread
+            # Step 2: Reconstruct DKG from XMTP thread
             xmtp_thread_id = evidence_package.get("xmtp_thread_id")
-            if not xmtp_thread_id:
-                rprint("[yellow]⚠️  No XMTP thread ID in evidence package[/yellow]")
-                errors.append("No XMTP thread ID")
-                xmtp_messages = []
-            else:
-                rprint(f"[cyan]📥 Fetching XMTP thread: {xmtp_thread_id[:16]}...[/cyan]")
+            dkg = None
+            
+            if xmtp_thread_id and self.sdk.xmtp_manager:
+                rprint(f"[cyan]🔗 Reconstructing DKG from XMTP thread...[/cyan]")
                 xmtp_messages = self._fetch_xmtp_thread(xmtp_thread_id)
-            
-            # Step 3: Verify threadRoot
-            if xmtp_messages and evidence_package.get("thread_root"):
+                
+                # Get artifacts mapping
+                artifacts_map = self._build_artifacts_map(evidence_package)
+                
+                # Build DKG
+                dkg = DKG.from_xmtp_thread(xmtp_messages, artifacts_map)
+                
+                rprint(f"[green]✅ DKG reconstructed: {len(dkg.nodes)} nodes, {len(dkg.agents)} agents[/green]")
+                
+                # Step 3: Verify threadRoot
                 rprint("[cyan]🔍 Verifying thread root...[/cyan]")
-                thread_root_valid = self._verify_thread_root(
-                    xmtp_messages,
-                    evidence_package["thread_root"]
-                )
-                if not thread_root_valid:
-                    errors.append("Thread root mismatch")
-                    rprint("[red]❌ Thread root verification failed[/red]")
-                else:
-                    rprint("[green]✅ Thread root verified[/green]")
-            
-            # Step 4: Verify causality
-            if xmtp_messages:
-                rprint("[cyan]🔍 Verifying causality...[/cyan]")
-                causality_valid = self._verify_causality(xmtp_messages)
+                computed_root = dkg.compute_thread_root()
+                expected_root = evidence_package.get("thread_root", "")
+                
+                if expected_root:
+                    expected_hex = expected_root if expected_root.startswith('0x') else "0x" + expected_root
+                    computed_hex = "0x" + computed_root.hex()
+                    
+                    if computed_hex.lower() != expected_hex.lower():
+                        errors.append("Thread root mismatch")
+                        rprint("[red]❌ Thread root verification failed[/red]")
+                    else:
+                        rprint("[green]✅ Thread root verified[/green]")
+                
+                # Step 4: Verify causality
+                rprint("[cyan]🔍 Verifying causality (DKG)...[/cyan]")
+                causality_valid, causality_errors = dkg.verify_causality()
+                
                 if not causality_valid:
-                    errors.append("Causality check failed")
-                    rprint("[red]❌ Causality verification failed[/red]")
+                    errors.extend(causality_errors)
+                    rprint(f"[red]❌ Causality verification failed: {len(causality_errors)} errors[/red]")
                 else:
-                    rprint("[green]✅ Causality verified[/green]")
+                    rprint("[green]✅ Causality verified (no cycles, timestamps monotonic)[/green]")
+                
+                # Step 5: Verify signatures
+                rprint("[cyan]🔍 Verifying signatures...[/cyan]")
+                signatures_valid, sig_errors = self._verify_signatures(dkg)
+                
+                if not signatures_valid:
+                    errors.extend(sig_errors)
+                    rprint(f"[yellow]⚠️  Signature verification: {len(sig_errors)} errors[/yellow]")
+                else:
+                    rprint("[green]✅ Signatures verified[/green]")
+                
+                # Step 6: Trace causal chains & find critical nodes
+                rprint("[cyan]🔗 Analyzing causal chains...[/cyan]")
+                critical_nodes = dkg.find_critical_nodes()
+                rprint(f"[cyan]  Found {len(critical_nodes)} critical nodes[/cyan]")
+                
+                # Step 7: Compute contribution weights (§4.2)
+                rprint("[cyan]⚖️  Computing contribution weights...[/cyan]")
+                contribution_weights = dkg.compute_contribution_weights(method="betweenness")
+                
+                self._display_contribution_weights(contribution_weights)
+                
+            else:
+                rprint("[yellow]⚠️  No XMTP thread, using basic scoring[/yellow]")
+                contribution_weights = {}
             
-            # Step 5: Verify signatures (optional for now)
-            # In production, verify each message signature
-            rprint("[cyan]🔍 Verifying signatures...[/cyan]")
-            signatures_valid = self._verify_signatures(xmtp_messages)
-            if not signatures_valid:
-                errors.append("Signature verification failed")
-            
-            # Step 6: Compute multi-dimensional scores
+            # Step 8: Compute multi-dimensional scores (§3.1)
             rprint("[cyan]📊 Computing multi-dimensional scores...[/cyan]")
             participants = evidence_package.get("participants", [])
+            
             scores = self.compute_multi_dimensional_scores(
-                xmtp_messages,
-                participants,
-                custom_dimensions
+                dkg=dkg,
+                participants=participants,
+                studio_address=studio_address,
+                custom_dimensions=custom_dimensions
             )
             
             # Display scores
             self._display_scores(scores)
             
-            # Compute data_hash for submission
+            # Compute data_hash
             data_hash = self._compute_data_hash(evidence_package)
             
             # Build audit report
             audit_report = {
                 "evidence_package_cid": evidence_package_cid,
-                "xmtp_messages_count": len(xmtp_messages),
+                "dkg_nodes": len(dkg.nodes) if dkg else 0,
+                "dkg_agents": len(dkg.agents) if dkg else 0,
+                "critical_nodes": len(critical_nodes) if dkg else 0,
                 "participants": participants,
-                "thread_root_valid": thread_root_valid if xmtp_messages else None,
-                "causality_valid": causality_valid if xmtp_messages else None,
-                "signatures_valid": signatures_valid,
+                "contribution_weights": contribution_weights,
+                "causality_valid": causality_valid if dkg else None,
+                "signatures_valid": signatures_valid if dkg else None,
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
             audit_passed = len(errors) == 0
             
             if audit_passed:
-                rprint("[green]✅ Causal audit PASSED[/green]")
+                rprint("[green]✅ Causal audit PASSED (with DKG analysis)[/green]")
             else:
-                rprint(f"[red]❌ Causal audit FAILED: {', '.join(errors)}[/red]")
+                rprint(f"[red]❌ Causal audit FAILED: {', '.join(errors[:3])}...[/red]")
             
             return AuditResult(
                 audit_passed=audit_passed,
                 evidence_package_cid=evidence_package_cid,
                 data_hash=data_hash,
                 scores=scores,
+                contribution_weights=contribution_weights,
+                dkg=dkg,
                 audit_report=audit_report,
                 errors=errors
             )
             
         except Exception as e:
             rprint(f"[red]❌ Causal audit error: {e}[/red]")
+            import traceback
+            traceback.print_exc()
+            
             return AuditResult(
                 audit_passed=False,
                 evidence_package_cid=evidence_package_cid,
                 data_hash=bytes(32),
                 scores={},
+                contribution_weights={},
+                dkg=None,
                 audit_report={},
                 errors=[str(e)]
             )
     
     def compute_multi_dimensional_scores(
         self,
-        xmtp_messages: List[XMTPMessage],
+        dkg: Optional[DKG],
         participants: List[Dict[str, Any]],
+        studio_address: str,
         custom_dimensions: Optional[List[str]] = None
     ) -> Dict[str, List[float]]:
         """
-        Compute multi-dimensional scores from XMTP DAG (§3.1).
+        Compute multi-dimensional scores using DKG analysis (§3.1).
         
         Universal PoA Dimensions (5):
-        1. Initiative: Non-derivative contributions (original messages)
-        2. Collaboration: Reply/extend edges to other agents
-        3. Reasoning Depth: Average path length in DAG
-        4. Compliance: Policy adherence (1.0 for now)
-        5. Efficiency: Time-based performance
+        1. Initiative: Root nodes + original artifacts
+        2. Collaboration: Building on others' work (causal chains)
+        3. Reasoning Depth: Path length + critical nodes
+        4. Compliance: Policy adherence
+        5. Efficiency: Time and resource usage
         
-        Custom Dimensions (Studio-specific):
-        - Accuracy (Finance, Prediction)
-        - Risk Assessment (Finance)
-        - Originality (Creative)
-        - etc.
+        Studio-Specific Dimensions:
+        - Get from studio config or use custom_dimensions
         
         Args:
-            xmtp_messages: List of XMTP messages from thread
-            participants: List of participant agents with IDs
+            dkg: Reconstructed DKG (None if no XMTP thread)
+            participants: List of participant agents
+            studio_address: Studio contract address
             custom_dimensions: Optional custom dimension names
         
         Returns:
-            {agent_id: [score1, score2, ..., scoreN]} where scores are 0-100
+            {agent_id: [score1, score2, ..., scoreN]} (0-100 scale)
         """
         scores = {}
         
-        if not xmtp_messages:
-            # No XMTP thread - assign default scores
-            rprint("[yellow]⚠️  No XMTP messages, assigning default scores[/yellow]")
+        # Get studio-specific dimensions
+        studio_dimensions = self._get_studio_dimensions(studio_address)
+        if custom_dimensions:
+            studio_dimensions.extend(custom_dimensions)
+        
+        if not dkg:
+            # No DKG - assign default scores
+            rprint("[yellow]⚠️  No DKG, assigning default scores[/yellow]")
             for participant in participants:
                 agent_id = str(participant.get("agent_id", participant.get("address", "")))
                 # Default: moderate scores for all dimensions
-                scores[agent_id] = [70.0, 70.0, 70.0, 100.0, 70.0]
+                base_scores = [70.0, 70.0, 70.0, 100.0, 70.0]
+                studio_scores = [70.0] * len(studio_dimensions)
+                scores[agent_id] = base_scores + studio_scores
             return scores
         
+        # Compute scores from DKG
         for participant in participants:
             agent_id = str(participant.get("agent_id", participant.get("address", "")))
+            agent_address = participant.get("address", agent_id)
             
-            # Compute 5 universal PoA dimensions
-            initiative = self._compute_initiative(xmtp_messages, agent_id)
-            collaboration = self._compute_collaboration(xmtp_messages, agent_id)
-            reasoning_depth = self._compute_reasoning_depth(xmtp_messages, agent_id)
-            compliance = self._compute_compliance(xmtp_messages, agent_id)
-            efficiency = self._compute_efficiency(xmtp_messages, agent_id)
+            # Universal PoA dimensions (using DKG)
+            initiative = self._compute_initiative_dkg(dkg, agent_address)
+            collaboration = self._compute_collaboration_dkg(dkg, agent_address)
+            reasoning_depth = self._compute_reasoning_depth_dkg(dkg, agent_address)
+            compliance = self._compute_compliance(dkg, agent_address)
+            efficiency = self._compute_efficiency_dkg(dkg, agent_address)
             
             # Convert to 0-100 scale
             score_vector = [
@@ -302,183 +352,382 @@ class VerifierAgent:
                 efficiency * 100
             ]
             
-            # Add custom dimensions if specified
-            if custom_dimensions:
-                for dim in custom_dimensions:
-                    custom_score = self._compute_custom_dimension(
-                        xmtp_messages,
-                        agent_id,
-                        dim
-                    )
-                    score_vector.append(custom_score * 100)
+            # Studio-specific dimensions
+            for dim in studio_dimensions:
+                studio_score = self._compute_studio_dimension(dkg, agent_address, dim)
+                score_vector.append(studio_score * 100)
             
             scores[agent_id] = score_vector
         
         return scores
     
-    def _compute_initiative(self, messages: List[XMTPMessage], agent_id: str) -> float:
+    def _compute_initiative_dkg(self, dkg: DKG, agent_address: str) -> float:
         """
-        Compute initiative score (§3.1).
+        Compute initiative using DKG analysis (§3.1).
         
-        Initiative = non-derivative contributions / total contributions
-        Non-derivative = messages without parent_id (original ideas)
+        Initiative = fraction of root nodes + new artifacts
+        High initiative = agent started new work threads
         
         Args:
-            messages: XMTP messages
-            agent_id: Agent ID or address
+            dkg: DKG instance
+            agent_address: Agent address
         
         Returns:
             Score (0.0-1.0)
         """
-        agent_messages = [msg for msg in messages if agent_id in msg.author]
+        agent_nodes = dkg.get_agent_nodes(agent_address)
         
-        if len(agent_messages) == 0:
+        if len(agent_nodes) == 0:
             return 0.0
         
-        original_messages = [msg for msg in agent_messages if msg.parent_id is None]
+        # Count root nodes (no parents) - PRIMARY indicator of initiative
+        root_nodes = [node for node in agent_nodes if not node.parents]
         
-        return len(original_messages) / len(agent_messages)
+        # Count unique artifacts - SECONDARY indicator
+        unique_artifacts = set()
+        for node in agent_nodes:
+            unique_artifacts.update(node.artifact_ids)
+        
+        # Initiative = 70% root nodes + 30% artifacts
+        # This prevents agents with no roots from getting high initiative just for having artifacts
+        root_score = len(root_nodes) / len(agent_nodes)
+        artifact_score = min(len(unique_artifacts) / len(agent_nodes), 1.0)
+        
+        initiative = (0.7 * root_score) + (0.3 * artifact_score)
+        
+        return min(initiative, 1.0)
     
-    def _compute_collaboration(self, messages: List[XMTPMessage], agent_id: str) -> float:
+    def _compute_collaboration_dkg(self, dkg: DKG, agent_address: str) -> float:
         """
-        Compute collaboration score (§3.1).
+        Compute collaboration using DKG analysis (§3.1).
         
-        Collaboration = reply/extend edges / total contributions
-        Reply/extend = messages with parent_id (building on others)
+        Collaboration = fraction of nodes that build on others' work
+        High collaboration = agent's work enabled by and enables others
         
         Args:
-            messages: XMTP messages
-            agent_id: Agent ID or address
+            dkg: DKG instance
+            agent_address: Agent address
         
         Returns:
             Score (0.0-1.0)
         """
-        agent_messages = [msg for msg in messages if agent_id in msg.author]
+        agent_nodes = dkg.get_agent_nodes(agent_address)
         
-        if len(agent_messages) == 0:
+        if len(agent_nodes) == 0:
             return 0.0
         
-        reply_messages = [msg for msg in agent_messages if msg.parent_id is not None]
+        # Count nodes with parents (building on others)
+        collab_nodes = [node for node in agent_nodes if node.parents]
         
-        return len(reply_messages) / len(agent_messages)
+        return len(collab_nodes) / len(agent_nodes)
     
-    def _compute_reasoning_depth(self, messages: List[XMTPMessage], agent_id: str) -> float:
+    def _compute_reasoning_depth_dkg(self, dkg: DKG, agent_address: str) -> float:
         """
-        Compute reasoning depth score (§3.1).
+        Compute reasoning depth using DKG analysis (§3.1).
         
-        Reasoning Depth = average path length from root to agent's messages
-        Longer paths = deeper reasoning chains
+        Reasoning Depth = average depth + critical node bonus
+        High reasoning = agent's work is deep in causal chains + critical
         
         Args:
-            messages: XMTP messages
-            agent_id: Agent ID or address
+            dkg: DKG instance
+            agent_address: Agent address
         
         Returns:
-            Score (0.0-1.0, normalized by max depth of 10)
+            Score (0.0-1.0)
         """
-        agent_messages = [msg for msg in messages if agent_id in msg.author]
+        agent_nodes = dkg.get_agent_nodes(agent_address)
         
-        if len(agent_messages) == 0:
+        if len(agent_nodes) == 0:
             return 0.0
         
-        # Compute depth for each message
+        # Compute average depth of agent's nodes
         depths = []
-        for msg in agent_messages:
-            depth = self._get_message_depth(msg, messages)
+        for node in agent_nodes:
+            depth = self._get_node_depth(dkg, node.xmtp_msg_id)
             depths.append(depth)
         
         avg_depth = sum(depths) / len(depths)
         
-        # Normalize (assume max depth of 10)
-        return min(avg_depth / 10.0, 1.0)
+        # Check if agent has critical nodes
+        critical_nodes = dkg.find_critical_nodes()
+        critical_node_ids = [n.xmtp_msg_id for n in critical_nodes]
+        agent_critical = len([n for n in agent_nodes if n.xmtp_msg_id in critical_node_ids])
+        
+        # Score = avg_depth/10 + critical_bonus
+        depth_score = min(avg_depth / 10, 0.7)  # Max 0.7 from depth
+        critical_bonus = min(agent_critical / len(agent_nodes), 0.3)  # Max 0.3 from critical nodes
+        
+        return depth_score + critical_bonus
     
-    def _get_message_depth(self, message: XMTPMessage, messages: List[XMTPMessage]) -> int:
-        """Compute depth of a message in the DAG."""
-        if message.parent_id is None:
+    def _get_node_depth(self, dkg: DKG, node_id: str) -> int:
+        """Get depth of node (distance from nearest root)."""
+        if node_id in dkg.roots:
             return 1
         
-        message_map = {msg.id: msg for msg in messages}
-        parent = message_map.get(message.parent_id)
-        
-        if parent is None:
+        node = dkg.nodes.get(node_id)
+        if not node or not node.parents:
             return 1
         
-        return 1 + self._get_message_depth(parent, messages)
+        # Depth = 1 + max(parent depths)
+        parent_depths = [self._get_node_depth(dkg, p) for p in node.parents]
+        return 1 + max(parent_depths)
     
-    def _compute_compliance(self, messages: List[XMTPMessage], agent_id: str) -> float:
+    def _compute_efficiency_dkg(self, dkg: DKG, agent_address: str) -> float:
         """
-        Compute compliance score (§3.1).
+        Compute efficiency using DKG analysis (§3.1).
         
-        For now, returns 1.0 (all compliant).
-        In production, check message content against policies.
+        Efficiency = output/time ratio
+        High efficiency = many quality nodes in short time
         
         Args:
-            messages: XMTP messages
-            agent_id: Agent ID or address
+            dkg: DKG instance
+            agent_address: Agent address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        agent_nodes = dkg.get_agent_nodes(agent_address)
+        agent_nodes_sorted = sorted(agent_nodes, key=lambda n: n.ts)
+        
+        if len(agent_nodes_sorted) < 2:
+            return 1.0  # Perfect efficiency for single node
+        
+        # Compute time span
+        time_span = agent_nodes_sorted[-1].ts - agent_nodes_sorted[0].ts
+        
+        if time_span == 0:
+            return 1.0
+        
+        # Nodes per hour
+        nodes_per_hour = len(agent_nodes) / (time_span / 3600)
+        
+        # Normalize (assume 1 quality node/hour = perfect)
+        return min(nodes_per_hour, 1.0)
+    
+    def _compute_compliance(self, dkg: DKG, agent_address: str) -> float:
+        """
+        Compute compliance (§3.1).
+        
+        For now returns 1.0. In production:
+        - Check message content against policies
+        - Verify data handling rules
+        - Check AML/KYC flags (for finance studios)
+        
+        Args:
+            dkg: DKG instance
+            agent_address: Agent address
         
         Returns:
             Score (0.0-1.0)
         """
         # TODO: Implement policy checks
-        # - Check for prohibited content
-        # - Verify data handling rules
-        # - Check AML/KYC flags (for financial studios)
         return 1.0
     
-    def _compute_efficiency(self, messages: List[XMTPMessage], agent_id: str) -> float:
+    def _get_studio_dimensions(self, studio_address: str) -> List[str]:
         """
-        Compute efficiency score (§3.1).
+        Get studio-specific custom dimensions.
         
-        Efficiency = based on response times and message frequency
-        Faster responses = higher efficiency
+        Query StudioProxy for custom scoring dimensions.
         
         Args:
-            messages: XMTP messages
-            agent_id: Agent ID or address
+            studio_address: Studio contract address
         
         Returns:
-            Score (0.0-1.0)
+            List of dimension names
         """
-        agent_messages = [msg for msg in messages if agent_id in msg.author]
-        agent_messages.sort(key=lambda m: m.timestamp)
-        
-        if len(agent_messages) < 2:
-            return 1.0  # Single message = perfectly efficient
-        
-        # Compute average time between messages
-        time_diffs = []
-        for i in range(1, len(agent_messages)):
-            time_diff = agent_messages[i].timestamp - agent_messages[i-1].timestamp
-            time_diffs.append(time_diff)
-        
-        avg_time_diff = sum(time_diffs) / len(time_diffs)
-        
-        # Normalize (1 hour = 1.0, faster = better)
-        # avg_time_diff is in seconds
-        efficiency = max(0, 1 - (avg_time_diff / 3600))
-        
-        return efficiency
+        # TODO: Query StudioProxy for custom dimensions
+        # For now, return empty (only universal dimensions)
+        return []
     
-    def _compute_custom_dimension(
+    def _compute_studio_dimension(
         self,
-        messages: List[XMTPMessage],
-        agent_id: str,
+        dkg: DKG,
+        agent_address: str,
         dimension: str
     ) -> float:
         """
-        Compute custom studio-specific dimension.
+        Compute studio-specific dimension.
+        
+        Dispatch to appropriate scorer based on dimension name.
         
         Args:
-            messages: XMTP messages
-            agent_id: Agent ID or address
-            dimension: Dimension name (e.g., "Accuracy", "Originality")
+            dkg: DKG instance
+            agent_address: Agent address
+            dimension: Dimension name
         
         Returns:
             Score (0.0-1.0)
         """
-        # TODO: Implement custom dimension logic based on dimension name
+        dimension_lower = dimension.lower()
+        
+        if "original" in dimension_lower:
+            return self._compute_originality(dkg, agent_address)
+        elif "risk" in dimension_lower:
+            return self._compute_risk_assessment(dkg, agent_address)
+        elif "accura" in dimension_lower:
+            return self._compute_accuracy(dkg, agent_address)
+        else:
+            # Default moderate score
+            return 0.75
+    
+    def _compute_originality(self, dkg: DKG, agent_address: str) -> float:
+        """
+        Compute originality (for creative studios).
+        
+        Originality = novelty of contributions
+        - Root nodes (starting new threads)
+        - Unique artifact types
+        - Low similarity to others' work
+        
+        Args:
+            dkg: DKG instance
+            agent_address: Agent address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        agent_nodes = dkg.get_agent_nodes(agent_address)
+        
+        if not agent_nodes:
+            return 0.0
+        
+        # Count root nodes (original ideas)
+        root_count = len([n for n in agent_nodes if not n.parents])
+        
+        # Count unique artifacts
+        artifact_types = set()
+        for node in agent_nodes:
+            artifact_types.update(node.artifact_ids)
+        
+        # Score = (roots + unique_artifacts) / nodes
+        originality = (root_count + len(artifact_types)) / (len(agent_nodes) + 1)
+        
+        return min(originality, 1.0)
+    
+    def _compute_risk_assessment(self, dkg: DKG, agent_address: str) -> float:
+        """
+        Compute risk assessment quality (for finance studios).
+        
+        Risk Assessment = quality of risk management
+        - Mentions of risk factors
+        - Conservative vs aggressive strategy
+        - Hedging and mitigation
+        
+        Args:
+            dkg: DKG instance
+            agent_address: Agent address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        agent_nodes = dkg.get_agent_nodes(agent_address)
+        
+        if not agent_nodes:
+            return 0.0
+        
+        # Count unique artifact types (more types = more original)
+        artifact_types = set()
+        for node in agent_nodes:
+            artifact_types.update(node.artifact_ids)
+        
+        # Score = mentions / nodes (normalized)
+        score = min(risk_mentions / len(agent_nodes), 1.0)
+        
+        return score
+    
+    def _compute_accuracy(self, dkg: DKG, agent_address: str) -> float:
+        """
+        Compute prediction accuracy (for prediction studios).
+        
+        Accuracy = correctness of predictions
+        - Compare predictions to outcomes
+        - Historical accuracy
+        - Confidence calibration
+        
+        Args:
+            dkg: DKG instance
+            agent_address: Agent address
+        
+        Returns:
+            Score (0.0-1.0)
+        """
+        # TODO: Implement prediction accuracy computation
+        # Requires comparing predictions to actual outcomes
         # For now, return moderate score
         return 0.75
+    
+    def _verify_signatures(self, dkg: DKG) -> Tuple[bool, List[str]]:
+        """
+        Verify signatures for all DKG nodes.
+        
+        Each node should have a valid signature from its author.
+        
+        Args:
+            dkg: DKG instance
+        
+        Returns:
+            (all_valid, errors)
+        """
+        errors = []
+        
+        for node_id, node in dkg.nodes.items():
+            # Skip if no signature
+            if not node.sig or len(node.sig) == 0:
+                continue
+            
+            try:
+                # Verify signature
+                message_hash = node.compute_canonical_hash()
+                message = encode_defunct(message_hash)
+                
+                # Recover signer
+                from eth_account import Account
+                recovered_address = Account.recover_message(message, signature=node.sig)
+                
+                # Check if signer matches author
+                if recovered_address.lower() != node.author.lower():
+                    errors.append(f"Node {node_id}: signature mismatch (expected {node.author}, got {recovered_address})")
+                
+            except Exception as e:
+                errors.append(f"Node {node_id}: signature verification failed ({e})")
+        
+        return len(errors) == 0, errors
+    
+    def submit_score_vector(
+        self,
+        studio_address: str,
+        epoch: int,
+        data_hash: bytes,
+        scores: List[float]
+    ) -> str:
+        """
+        Submit score vector to StudioProxy.
+        
+        Args:
+            studio_address: Studio contract address
+            epoch: Epoch number
+            data_hash: Data hash from evidence package
+            scores: Score vector [initiative, collaboration, ...]
+        
+        Returns:
+            Transaction hash
+        """
+        rprint(f"[cyan]📤 Submitting score vector to studio {studio_address[:8]}...[/cyan]")
+        
+        # Convert scores to uint8 (0-100)
+        scores_uint8 = [int(min(max(s, 0), 100)) for s in scores]
+        
+        # Call StudioProxy.submitScoreVector()
+        tx_hash = self.sdk.submit_score_vector(
+            studio_address=studio_address,
+            epoch=epoch,
+            data_hash=data_hash,
+            scores=scores_uint8
+        )
+        
+        rprint(f"[green]✅ Score vector submitted: {tx_hash[:16]}...[/green]")
+        
+        return tx_hash
     
     def _fetch_evidence_package(self, cid: str) -> Optional[Dict[str, Any]]:
         """Fetch evidence package from IPFS/Arweave."""
@@ -502,50 +751,36 @@ class VerifierAgent:
             rprint(f"[red]❌ Failed to fetch XMTP thread: {e}[/red]")
             return []
     
-    def _verify_thread_root(
-        self,
-        messages: List[XMTPMessage],
-        expected_root: str
-    ) -> bool:
-        """Verify threadRoot matches computed Merkle root."""
-        if not self.sdk.xmtp_manager:
-            return False
+    def _build_artifacts_map(self, evidence_package: Dict[str, Any]) -> Dict[str, List[str]]:
+        """Build mapping of {message_id: [artifact_cids]} from evidence package."""
+        artifacts_map = {}
         
-        try:
-            computed_root = self.sdk.xmtp_manager.compute_thread_root(messages)
-            computed_hex = "0x" + computed_root.hex() if isinstance(computed_root, bytes) else computed_root
-            expected_hex = expected_root if expected_root.startswith('0x') else "0x" + expected_root
+        # Extract artifacts from evidence package
+        artifacts = evidence_package.get("artifacts", [])
+        
+        # Group by message_id if available
+        for artifact in artifacts:
+            msg_id = artifact.get("message_id", artifact.get("xmtp_msg_id"))
+            cid = artifact.get("cid", artifact.get("ipfs_cid"))
             
-            return computed_hex.lower() == expected_hex.lower()
-        except Exception as e:
-            rprint(f"[yellow]⚠️  Thread root verification error: {e}[/yellow]")
-            return False
-    
-    def _verify_causality(self, messages: List[XMTPMessage]) -> bool:
-        """Verify causality constraints (§1.5)."""
-        if not self.sdk.xmtp_manager:
-            return False
+            if msg_id and cid:
+                if msg_id not in artifacts_map:
+                    artifacts_map[msg_id] = []
+                artifacts_map[msg_id].append(cid)
         
-        return self.sdk.xmtp_manager.verify_causality(messages)
-    
-    def _verify_signatures(self, messages: List[XMTPMessage]) -> bool:
-        """Verify message signatures (optional)."""
-        # For now, assume signatures are valid
-        # In production, verify each message signature using eth_account
-        return True
+        return artifacts_map
     
     def _compute_data_hash(self, evidence_package: Dict[str, Any]) -> bytes:
         """Compute data_hash for score submission."""
-        # Use evidence package CID or compute from contents
         package_str = json.dumps(evidence_package, sort_keys=True)
         return keccak(text=package_str)
     
     def _display_scores(self, scores: Dict[str, List[float]]):
-        """Display scores in a nice table."""
+        """Display scores in a table."""
         if not scores:
             return
         
-        table = Table(title="Multi-Dimensional Scores")
+        table = Table(title="Multi-Dimensional Scores (DKG Analysis)")
         table.add_column("Agent", style="cyan")
         table.add_column("Initiative", justify="right", style="green")
         table.add_column("Collaboration", justify="right", style="green")
@@ -556,7 +791,7 @@ class VerifierAgent:
         
         for agent_id, score_vector in scores.items():
             agent_short = agent_id[:8] + "..." if len(agent_id) > 10 else agent_id
-            avg = sum(score_vector) / len(score_vector)
+            avg = sum(score_vector[:5]) / 5  # Average of universal dimensions
             
             table.add_row(
                 agent_short,
@@ -566,6 +801,28 @@ class VerifierAgent:
                 f"{score_vector[3]:.1f}",
                 f"{score_vector[4]:.1f}",
                 f"{avg:.1f}"
+            )
+        
+        console.print(table)
+    
+    def _display_contribution_weights(self, weights: Dict[str, float]):
+        """Display contribution weights."""
+        if not weights:
+            return
+        
+        table = Table(title="Contribution Weights (Multi-Agent Attribution)")
+        table.add_column("Agent", style="cyan")
+        table.add_column("Weight", justify="right", style="yellow")
+        table.add_column("Percentage", justify="right", style="green")
+        
+        for agent_id, weight in sorted(weights.items(), key=lambda x: x[1], reverse=True):
+            agent_short = agent_id[:8] + "..." if len(agent_id) > 10 else agent_id
+            percentage = weight * 100
+            
+            table.add_row(
+                agent_short,
+                f"{weight:.4f}",
+                f"{percentage:.1f}%"
             )
         
         console.print(table)
