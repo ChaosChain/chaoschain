@@ -64,6 +64,16 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     /// @dev Work submissions (dataHash => submitter)
     mapping(bytes32 => address) private _workSubmissions;
     
+    /// @dev Multi-agent participants (dataHash => participant addresses)
+    mapping(bytes32 => address[]) private _workParticipants;
+    
+    /// @dev Contribution weights per participant (dataHash => participant => weight in basis points)
+    /// Sum of all weights must equal 10000 (100%)
+    mapping(bytes32 => mapping(address => uint16)) private _contributionWeights;
+    
+    /// @dev Evidence package CID (dataHash => IPFS/Arweave CID)
+    mapping(bytes32 => string) private _evidenceCIDs;
+    
     /// @dev Score vectors (dataHash => validator => scoreVector)
     mapping(bytes32 => mapping(address => bytes)) private _scoreVectors;
     
@@ -93,6 +103,27 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     
     /// @dev FeedbackAuth signatures: dataHash => workerAddress => feedbackAuth
     mapping(bytes32 => mapping(address => bytes)) private _feedbackAuths;
+    
+    // ============ Custom Dimensions (Protocol Spec §3.1, §4.1) ============
+    
+    /// @dev Precision for fixed-point math (6 decimals)
+    uint256 private constant PRECISION = 1e6;
+    
+    /// @dev Number of universal PoA dimensions (§3.1 - ALWAYS from DKG)
+    /// [Initiative, Collaboration, Reasoning Depth, Compliance, Efficiency]
+    uint8 public constant UNIVERSAL_DIMENSIONS = 5;
+    
+    /// @dev Studio-specific custom dimension names (§3.1 studio-specific)
+    string[] private _customDimensionNames;
+    
+    /// @dev Studio-specific custom dimension weights (ρ_d from §4.1)
+    /// Must sum to PRECISION when normalized
+    mapping(string => uint256) private _customDimensionWeights;
+    
+    /// @dev Universal vs Custom weight split (§4.1)
+    /// Default: 70% universal (DKG-based), 30% custom (studio-specific)
+    uint256 private _universalWeight = 700000;  // 70%
+    uint256 private _customWeight = 300000;     // 30%
     
     /// @dev Agent role enum (aligned with SDK: SERVER=WORKER, VALIDATOR=VERIFIER, CLIENT=CLIENT)
     enum AgentRole {
@@ -149,6 +180,20 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         uint256 reward,
         string description
     );
+    
+    /**
+     * @dev Emitted when custom dimensions are configured (Protocol Spec §3.1, §4.1)
+     * @param dimensionNames Array of custom dimension names
+     * @param dimensionWeights Array of weights (sum to PRECISION)
+     */
+    event CustomDimensionsSet(string[] dimensionNames, uint256[] dimensionWeights);
+    
+    /**
+     * @dev Emitted when universal/custom weight split is updated (Protocol Spec §4.1)
+     * @param universalWeight Weight for universal PoA dimensions (DKG-based)
+     * @param customWeight Weight for custom studio dimensions
+     */
+    event WeightSplitUpdated(uint256 universalWeight, uint256 customWeight);
     
     /**
      * @dev Emitted when a task is completed
@@ -239,21 +284,103 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         bytes32 evidenceRoot,
         bytes calldata feedbackAuth
     ) external override {
+        // Call internal multi-agent version with single participant
+        address[] memory participants = new address[](1);
+        participants[0] = msg.sender;
+        
+        uint16[] memory weights = new uint16[](1);
+        weights[0] = 10000; // 100% contribution
+        
+        _submitWorkInternal(dataHash, threadRoot, evidenceRoot, feedbackAuth, participants, weights, "");
+    }
+    
+    /**
+     * @notice Submit work with multi-agent attribution (Protocol Spec §4.2)
+     * @param dataHash The work data hash
+     * @param threadRoot The XMTP thread root
+     * @param evidenceRoot The evidence Merkle root
+     * @param feedbackAuth The feedback authorization signature
+     * @param participants Array of participant addresses (from DKG analysis)
+     * @param contributionWeights Array of contribution weights in basis points (sum = 10000)
+     * @param evidenceCID IPFS/Arweave CID of evidence package
+     */
+    function submitWorkMultiAgent(
+        bytes32 dataHash,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
+        bytes calldata feedbackAuth,
+        address[] calldata participants,
+        uint16[] calldata contributionWeights,
+        string calldata evidenceCID
+    ) external {
+        _submitWorkInternal(dataHash, threadRoot, evidenceRoot, feedbackAuth, participants, contributionWeights, evidenceCID);
+    }
+    
+    /**
+     * @dev Internal work submission with multi-agent support
+     */
+    function _submitWorkInternal(
+        bytes32 dataHash,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
+        bytes calldata feedbackAuth,
+        address[] memory participants,
+        uint16[] memory contributionWeights,
+        string memory evidenceCID
+    ) internal {
         require(dataHash != bytes32(0), "Invalid dataHash");
         require(threadRoot != bytes32(0), "Invalid threadRoot");
         require(evidenceRoot != bytes32(0), "Invalid evidenceRoot");
         require(_workSubmissions[dataHash] == address(0), "Work already submitted");
         require(feedbackAuth.length >= 65, "Invalid feedbackAuth"); // ECDSA signature is 65 bytes
+        require(participants.length > 0, "No participants");
+        require(participants.length == contributionWeights.length, "Length mismatch");
         
-        // Verify agent is registered with worker role
-        uint256 agentId = _agentIds[msg.sender];
-        require(agentId != 0, "Agent not registered with Studio");
-        require(hasWorkerRole(_agentRoles[agentId]), "Not a worker agent");
+        // Verify submitter is in participants list
+        bool isParticipant = false;
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (participants[i] == msg.sender) {
+                isParticipant = true;
+                break;
+            }
+        }
+        require(isParticipant, "Submitter not in participants");
         
+        // Verify all participants are registered workers
+        uint256 submitterAgentId = 0;
+        for (uint256 i = 0; i < participants.length; i++) {
+            uint256 agentId = _agentIds[participants[i]];
+            require(agentId != 0, "Participant not registered");
+            require(hasWorkerRole(_agentRoles[agentId]), "Participant not a worker");
+            
+            if (participants[i] == msg.sender) {
+                submitterAgentId = agentId;
+            }
+        }
+        
+        // Verify contribution weights sum to 10000 (100%)
+        uint256 totalWeight = 0;
+        for (uint256 i = 0; i < contributionWeights.length; i++) {
+            totalWeight += contributionWeights[i];
+        }
+        require(totalWeight == 10000, "Weights must sum to 10000");
+        
+        // Store work submission
         _workSubmissions[dataHash] = msg.sender;
         _feedbackAuths[dataHash][msg.sender] = feedbackAuth;
         
-        emit WorkSubmitted(agentId, dataHash, threadRoot, evidenceRoot, block.timestamp);
+        // Store participants and weights
+        _workParticipants[dataHash] = participants;
+        for (uint256 i = 0; i < participants.length; i++) {
+            _contributionWeights[dataHash][participants[i]] = contributionWeights[i];
+        }
+        
+        // Store evidence CID if provided
+        if (bytes(evidenceCID).length > 0) {
+            _evidenceCIDs[dataHash] = evidenceCID;
+        }
+        
+        emit WorkSubmitted(submitterAgentId, dataHash, threadRoot, evidenceRoot, block.timestamp);
     }
     
     /// @inheritdoc IStudioProxy
@@ -405,6 +532,48 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
      */
     function getRewardsDistributor() external view returns (address distributor) {
         return _rewardsDistributor;
+    }
+    
+    /**
+     * @notice Get participants for a work submission (Protocol Spec §4.2)
+     * @param dataHash The work hash
+     * @return participants Array of participant addresses
+     */
+    function getWorkParticipants(bytes32 dataHash) external view returns (address[] memory participants) {
+        return _workParticipants[dataHash];
+    }
+    
+    /**
+     * @notice Get contribution weight for a participant (Protocol Spec §4.2)
+     * @param dataHash The work hash
+     * @param participant The participant address
+     * @return weight Contribution weight in basis points (0-10000)
+     */
+    function getContributionWeight(bytes32 dataHash, address participant) external view returns (uint16 weight) {
+        return _contributionWeights[dataHash][participant];
+    }
+    
+    /**
+     * @notice Get all contribution weights for a work submission
+     * @param dataHash The work hash
+     * @return weights Array of contribution weights in basis points
+     */
+    function getContributionWeights(bytes32 dataHash) external view returns (uint16[] memory weights) {
+        address[] memory participants = _workParticipants[dataHash];
+        weights = new uint16[](participants.length);
+        for (uint256 i = 0; i < participants.length; i++) {
+            weights[i] = _contributionWeights[dataHash][participants[i]];
+        }
+        return weights;
+    }
+    
+    /**
+     * @notice Get evidence package CID
+     * @param dataHash The work hash
+     * @return evidenceCID IPFS/Arweave CID
+     */
+    function getEvidenceCID(bytes32 dataHash) external view returns (string memory evidenceCID) {
+        return _evidenceCIDs[dataHash];
     }
     
     /**
@@ -936,6 +1105,81 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
             case 0 { revert(0, returndatasize()) }
             default { return(0, returndatasize()) }
         }
+    }
+    
+    // ============ Custom Dimension Management (Protocol Spec §3.1, §4.1) ============
+    
+    /**
+     * @notice Set custom studio-specific dimensions
+     * @dev Per Protocol Spec §3.1: Studios can add custom dimensions beyond the 5 universal PoA dimensions
+     * @param dimensionNames Array of dimension names (e.g., ["risk_assessment", "accuracy"])
+     * @param dimensionWeights Array of weights (must sum to PRECISION = 1e6)
+     */
+    function setCustomDimensions(
+        string[] calldata dimensionNames,
+        uint256[] calldata dimensionWeights
+    ) external {
+        require(msg.sender == _chaosCore, "Only ChaosCore");
+        require(dimensionNames.length == dimensionWeights.length, "Length mismatch");
+        
+        // Validate weights sum to PRECISION
+        uint256 sum = 0;
+        for (uint256 i = 0; i < dimensionWeights.length; i++) {
+            sum += dimensionWeights[i];
+        }
+        require(sum == PRECISION, "Weights must sum to PRECISION");
+        
+        // Clear old dimensions
+        for (uint256 i = 0; i < _customDimensionNames.length; i++) {
+            delete _customDimensionWeights[_customDimensionNames[i]];
+        }
+        delete _customDimensionNames;
+        
+        // Set new dimensions
+        for (uint256 i = 0; i < dimensionNames.length; i++) {
+            _customDimensionNames.push(dimensionNames[i]);
+            _customDimensionWeights[dimensionNames[i]] = dimensionWeights[i];
+        }
+        
+        emit CustomDimensionsSet(dimensionNames, dimensionWeights);
+    }
+    
+    /**
+     * @notice Set universal vs custom weight split
+     * @dev Per Protocol Spec §4.1: q = w_u × (Σ universal / 5) + w_c × (Σ ρ_d × custom_d)
+     * @param universal_ Weight for universal PoA dimensions (DKG-based)
+     * @param custom_ Weight for custom studio dimensions
+     */
+    function setWeightSplit(uint256 universal_, uint256 custom_) external {
+        require(msg.sender == _chaosCore, "Only ChaosCore");
+        require(universal_ + custom_ == PRECISION, "Must sum to PRECISION");
+        _universalWeight = universal_;
+        _customWeight = custom_;
+        emit WeightSplitUpdated(universal_, custom_);
+    }
+    
+    /**
+     * @notice Get custom dimension configuration
+     * @return names Array of dimension names
+     * @return weights Array of dimension weights
+     * @return universalWeight Weight for universal dimensions
+     * @return customWeight Weight for custom dimensions
+     */
+    function getCustomDimensionConfig() external view returns (
+        string[] memory names,
+        uint256[] memory weights,
+        uint256 universalWeight,
+        uint256 customWeight
+    ) {
+        names = new string[](_customDimensionNames.length);
+        weights = new uint256[](_customDimensionNames.length);
+        
+        for (uint256 i = 0; i < _customDimensionNames.length; i++) {
+            names[i] = _customDimensionNames[i];
+            weights[i] = _customDimensionWeights[_customDimensionNames[i]];
+        }
+        
+        return (names, weights, _universalWeight, _customWeight);
     }
     
     /**

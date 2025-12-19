@@ -68,7 +68,7 @@ from rich import print as rprint
 from rich.table import Table
 from rich.console import Console
 
-from .types import ChaosChainSDKError
+from .exceptions import ChaosChainSDKError
 
 console = Console()
 

@@ -129,12 +129,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             // Run consensus
             uint8[] memory consensusScores = this.calculateConsensus(dataHash, scoreVectors);
             
-            // Calculate quality scalar (average of consensus scores)
-            uint256 qualitySum = 0;
-            for (uint256 k = 0; k < consensusScores.length; k++) {
-                qualitySum += consensusScores[k];
-            }
-            uint256 qualityScalar = qualitySum / consensusScores.length; // 0-100
+            // Calculate quality scalar using Protocol Spec §4.1 (NOT simple average!)
+            // Combines universal PoA dimensions (FROM DKG) + custom studio dimensions
+            uint256 qualityScalar = _calculateQualityScalar(studio, consensusScores);
             
             // Calculate rewards based on ACTUAL studio escrow balance
             // This allows studios to operate with any budget amount
@@ -164,34 +161,20 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             
             uint256 workerReward = qualityReward + poaReward;
             
-            // Release funds to worker
-            if (workerReward > 0) {
-                studioProxy.releaseFunds(worker, workerReward, dataHash);
-                totalWorkerRewards += workerReward;
-            }
+            // Distribute worker rewards (single or multi-agent)
+            totalWorkerRewards += _distributeWorkerRewards(
+                studio,
+                studioProxy,
+                dataHash,
+                worker,
+                workerReward,
+                consensusScores
+            );
             
             // Pay Studio Orchestrator fee
             // In production, orchestrator address would come from Studio config
             // For MVP, orchestrator fee stays in Studio (can be withdrawn by owner)
             // TODO: Add orchestrator address to Studio config
-            
-            // Publish WA reputation to Reputation Registry (§4.1 protocol_spec_v0.1.md)
-            // Get worker agent ID from StudioProxy
-            uint256 workerAgentId = studioProxy.getAgentId(worker);
-            if (workerAgentId != 0) {
-                // Note: In production, feedbackUri would be fetched from evidence package
-                // For MVP, we pass empty strings (SDK handles feedback creation)
-                
-                // Pass the full consensus score vector for multi-dimensional reputation
-                _publishWorkerReputation(
-                    studio,           // Studio proxy address
-                    workerAgentId, 
-                    consensusScores,  // Full 5-dimensional consensus scores
-                    dataHash,
-                    "",               // feedbackUri (would come from SDK/evidence package)
-                    bytes32(0)        // feedbackHash
-                );
-            }
             
             // Calculate validator rewards based on accuracy
             // validatorPool already calculated above (10% of totalBudget)
@@ -219,6 +202,77 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         
         emit EpochClosed(studio, epoch, totalWorkerRewards, totalValidatorRewards);
+    }
+    
+    /**
+     * @notice Calculate quality scalar per Protocol Spec §4.1
+     * @dev Combines universal PoA dimensions (FROM DKG) + custom studio dimensions
+     * 
+     * Formula:
+     *   q = w_u × (Σ universal_scores / 5) + w_c × (Σ ρ_d × custom_scores_d)
+     * 
+     * Where:
+     *   - w_u: Universal weight (e.g., 70%) - for DKG-based dimensions
+     *   - w_c: Custom weight (e.g., 30%) - for studio-specific dimensions
+     *   - ρ_d: Studio-defined weights for custom dimensions (sum to 1.0)
+     * 
+     * Universal PoA Dimensions (ALWAYS from DKG causal analysis, §3.1):
+     *   1. Initiative: Root nodes in DKG
+     *   2. Collaboration: Parent references in DKG
+     *   3. Reasoning Depth: Path length in DKG
+     *   4. Compliance: Policy checks
+     *   5. Efficiency: Time/cost metrics
+     * 
+     * @param studio StudioProxy address
+     * @param consensusScores Array of consensus scores (universal + custom)
+     * @return qualityScalar Final quality scalar (0-100)
+     */
+    function _calculateQualityScalar(
+        address studio,
+        uint8[] memory consensusScores
+    ) private view returns (uint256) {
+        StudioProxy studioProxy = StudioProxy(payable(studio));
+        
+        // Get studio configuration
+        (
+            string[] memory customDimNames,
+            uint256[] memory customDimWeights,
+            uint256 universalWeight,
+            uint256 customWeight
+        ) = studioProxy.getCustomDimensionConfig();
+        
+        // Validate score vector length
+        uint8 expectedLength = studioProxy.UNIVERSAL_DIMENSIONS() + uint8(customDimNames.length);
+        require(consensusScores.length == expectedLength, "Invalid score vector length");
+        
+        // 1. Compute universal PoA component (§3.1)
+        // These 5 dimensions are ALWAYS computed from DKG causal analysis
+        uint256 universalSum = 0;
+        for (uint256 i = 0; i < studioProxy.UNIVERSAL_DIMENSIONS(); i++) {
+            universalSum += consensusScores[i];
+        }
+        uint256 universalAvg = universalSum / studioProxy.UNIVERSAL_DIMENSIONS();
+        
+        // 2. Compute custom studio component (§3.1 studio-specific)
+        // These are weighted according to studio preferences
+        uint256 customWeightedSum = 0;
+        if (customDimNames.length > 0) {
+            for (uint256 i = 0; i < customDimNames.length; i++) {
+                uint8 customScore = consensusScores[studioProxy.UNIVERSAL_DIMENSIONS() + i];
+                uint256 weight = customDimWeights[i];
+                // Weighted sum: Σ (ρ_d × c_d)
+                customWeightedSum += (weight * customScore); // Both in fixed-point
+            }
+            // Normalize: customWeightedSum is in range [0, PRECISION * 100]
+            // We want it in range [0, 100]
+            customWeightedSum = customWeightedSum / PRECISION;
+        }
+        
+        // 3. Combine components (§4.1)
+        // q = w_u × universal_avg + w_c × custom_component
+        uint256 qualityScalar = (universalWeight * universalAvg + customWeight * customWeightedSum) / PRECISION;
+        
+        return qualityScalar; // Returns 0-100
     }
     
     /// @inheritdoc IRewardsDistributor
@@ -462,6 +516,105 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
      * @param feedbackUri IPFS/Irys URI containing IntegrityProof + PaymentProof + XMTP thread
      * @param feedbackHash Hash of feedback content
      */
+    /**
+     * @dev Distribute worker rewards (single or multi-agent)
+     * @return totalDistributed Total amount distributed
+     */
+    function _distributeWorkerRewards(
+        address studio,
+        StudioProxy studioProxy,
+        bytes32 dataHash,
+        address fallbackWorker,
+        uint256 totalReward,
+        uint8[] memory consensusScores
+    ) internal returns (uint256 totalDistributed) {
+        // Check if multi-agent work (Protocol Spec §4.2)
+        address[] memory participants = studioProxy.getWorkParticipants(dataHash);
+        
+        if (participants.length > 1) {
+            // Multi-agent work: Distribute using contribution weights FROM DKG
+            uint16[] memory weights = studioProxy.getContributionWeights(dataHash);
+            string memory evidenceCID = studioProxy.getEvidenceCID(dataHash);
+            
+            // Distribute rewards proportionally
+            for (uint256 i = 0; i < participants.length; i++) {
+                // Calculate participant's share: reward × (weight / 10000)
+                uint256 participantReward = (totalReward * weights[i]) / 10000;
+                
+                if (participantReward > 0) {
+                    studioProxy.releaseFunds(participants[i], participantReward, dataHash);
+                    totalDistributed += participantReward;
+                }
+                
+                // Publish reputation for each participant
+                uint256 agentId = studioProxy.getAgentId(participants[i]);
+                if (agentId != 0) {
+                    string memory feedbackUri = bytes(evidenceCID).length > 0 
+                        ? string(abi.encodePacked("ipfs://", evidenceCID))
+                        : "";
+                    bytes32 feedbackHash = bytes(evidenceCID).length > 0
+                        ? keccak256(abi.encodePacked(evidenceCID))
+                        : bytes32(0);
+                    
+                    _publishWorkerReputation(
+                        studio,
+                        agentId,
+                        consensusScores,
+                        dataHash,
+                        feedbackUri,
+                        feedbackHash
+                    );
+                }
+            }
+        } else if (participants.length == 1) {
+            // Single-agent work
+            if (totalReward > 0) {
+                studioProxy.releaseFunds(participants[0], totalReward, dataHash);
+                totalDistributed += totalReward;
+            }
+            
+            uint256 agentId = studioProxy.getAgentId(participants[0]);
+            if (agentId != 0) {
+                string memory evidenceCID = studioProxy.getEvidenceCID(dataHash);
+                string memory feedbackUri = bytes(evidenceCID).length > 0 
+                    ? string(abi.encodePacked("ipfs://", evidenceCID))
+                    : "";
+                bytes32 feedbackHash = bytes(evidenceCID).length > 0
+                    ? keccak256(abi.encodePacked(evidenceCID))
+                    : bytes32(0);
+                
+                _publishWorkerReputation(
+                    studio,
+                    agentId,
+                    consensusScores,
+                    dataHash,
+                    feedbackUri,
+                    feedbackHash
+                );
+            }
+        } else {
+            // Fallback: Use original worker address (backward compatibility)
+            if (totalReward > 0) {
+                studioProxy.releaseFunds(fallbackWorker, totalReward, dataHash);
+                totalDistributed += totalReward;
+            }
+            
+            uint256 agentId = studioProxy.getAgentId(fallbackWorker);
+            if (agentId != 0) {
+                _publishWorkerReputation(
+                    studio,
+                    agentId,
+                    consensusScores,
+                    dataHash,
+                    "",
+                    bytes32(0)
+                );
+            }
+        }
+        
+        return totalDistributed;
+    }
+    
     function _publishWorkerReputation(
         address studioProxy,
         uint256 workerAgentId,

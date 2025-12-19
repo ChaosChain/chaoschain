@@ -440,11 +440,12 @@ class DKG:
                     for agent_id in agents_in_path:
                         agent_path_counts[agent_id] += 1
         
-        # Normalize
+        # Normalize to sum to 1.0
         agent_weights = {}
-        if total_paths > 0:
+        total_count = sum(agent_path_counts.values())
+        if total_count > 0:
             for agent_id, count in agent_path_counts.items():
-                agent_weights[agent_id] = count / total_paths
+                agent_weights[agent_id] = count / total_count
         
         return agent_weights
     
