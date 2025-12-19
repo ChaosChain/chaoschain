@@ -729,6 +729,64 @@ class VerifierAgent:
         
         return tx_hash
     
+    def submit_score_vectors_per_worker(
+        self,
+        studio_address: str,
+        epoch: int,
+        data_hash: bytes,
+        scores_per_worker: Dict[str, List[float]]
+    ) -> List[str]:
+        """
+        Submit score vectors FOR EACH WORKER in multi-agent tasks (§3.1, §4.2).
+        
+        This is the CORRECT method for multi-agent work:
+        - Each validator evaluates each worker FROM DKG causal analysis
+        - Submits separate score vector for each worker
+        - Contract calculates per-worker consensus
+        - Each worker gets THEIR OWN reputation scores
+        
+        Args:
+            studio_address: Studio contract address
+            epoch: Epoch number
+            data_hash: Data hash from evidence package
+            scores_per_worker: Dict of {worker_address: [scores]}
+        
+        Returns:
+            List of transaction hashes (one per worker)
+            
+        Example:
+            >>> scores = {
+            ...     "0xAlice": [65, 50, 45, 100, 100],  # Alice's scores FROM DKG
+            ...     "0xBob": [70, 80, 60, 100, 95],     # Bob's scores FROM DKG
+            ...     "0xCarol": [60, 40, 85, 100, 90]    # Carol's scores FROM DKG
+            ... }
+            >>> tx_hashes = verifier.submit_score_vectors_per_worker(studio, epoch, data_hash, scores)
+        """
+        rprint(f"[cyan]📤 Submitting per-worker score vectors to studio {studio_address[:8]}...[/cyan]")
+        
+        tx_hashes = []
+        
+        for worker_address, scores in scores_per_worker.items():
+            rprint(f"[cyan]  Worker {worker_address[:8]}...: {scores}[/cyan]")
+            
+            # Convert scores to uint8 (0-100)
+            scores_uint8 = [int(min(max(s, 0), 100)) for s in scores]
+            
+            # Call StudioProxy.submitScoreVectorForWorker()
+            tx_hash = self.sdk.submit_score_vector_for_worker(
+                studio_address=studio_address,
+                data_hash=data_hash,
+                worker_address=worker_address,
+                scores=scores_uint8
+            )
+            
+            tx_hashes.append(tx_hash)
+            rprint(f"[green]  ✅ Score vector submitted for worker {worker_address[:8]}...: {tx_hash[:16]}...[/green]")
+        
+        rprint(f"[green]✅ All per-worker score vectors submitted ({len(tx_hashes)} workers)[/green]")
+        
+        return tx_hashes
+    
     def _fetch_evidence_package(self, cid: str) -> Optional[Dict[str, Any]]:
         """Fetch evidence package from IPFS/Arweave."""
         try:

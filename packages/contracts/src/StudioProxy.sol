@@ -75,7 +75,15 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     mapping(bytes32 => string) private _evidenceCIDs;
     
     /// @dev Score vectors (dataHash => validator => scoreVector)
+    /// For backward compatibility (single-agent or legacy multi-agent)
     mapping(bytes32 => mapping(address => bytes)) private _scoreVectors;
+    
+    /// @dev Per-worker score vectors (dataHash => validator => worker => scoreVector)
+    /// For multi-agent tasks: Each validator submits scores for EACH worker
+    mapping(bytes32 => mapping(address => mapping(address => bytes))) private _scoreVectorsPerWorker;
+    
+    /// @dev Track which validators have submitted scores for a work
+    mapping(bytes32 => address[]) private _validators;
     
     /// @dev Total escrow in the Studio
     uint256 private _totalEscrow;
@@ -194,6 +202,22 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
      * @param customWeight Weight for custom studio dimensions
      */
     event WeightSplitUpdated(uint256 universalWeight, uint256 customWeight);
+    
+    /**
+     * @dev Emitted when a score vector is submitted for a specific worker (multi-agent)
+     * @param validatorAgentId ID of the validator agent
+     * @param dataHash Work hash
+     * @param worker Worker address being scored
+     * @param scoreVector Score vector for this worker
+     * @param timestamp Submission timestamp
+     */
+    event ScoreVectorSubmittedForWorker(
+        uint256 indexed validatorAgentId,
+        bytes32 indexed dataHash,
+        address indexed worker,
+        bytes scoreVector,
+        uint256 timestamp
+    );
     
     /**
      * @dev Emitted when a task is completed
@@ -397,7 +421,66 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         _scoreVectors[dataHash][msg.sender] = scoreVector;
         _scoreNonces[msg.sender][dataHash]++;
         
+        // Track validator
+        _addValidator(dataHash, msg.sender);
+        
         emit ScoreVectorSubmitted(agentId, dataHash, scoreVector, block.timestamp);
+    }
+    
+    /**
+     * @notice Submit score vector for a specific worker (multi-agent tasks)
+     * @dev For multi-agent tasks, verifiers submit scores FOR EACH WORKER separately
+     * @param dataHash The work hash
+     * @param worker The worker address being scored
+     * @param scoreVector The score vector for this worker
+     */
+    function submitScoreVectorForWorker(
+        bytes32 dataHash,
+        address worker,
+        bytes calldata scoreVector
+    ) external {
+        require(dataHash != bytes32(0), "Invalid dataHash");
+        require(_workSubmissions[dataHash] != address(0), "Work not found");
+        require(worker != address(0), "Invalid worker");
+        require(scoreVector.length > 0, "Empty score vector");
+        
+        // Verify agent is registered with verifier role
+        uint256 agentId = _agentIds[msg.sender];
+        require(agentId != 0, "Agent not registered with Studio");
+        require(hasVerifierRole(_agentRoles[agentId]), "Not a verifier agent");
+        
+        // Verify worker is a participant
+        address[] memory participants = _workParticipants[dataHash];
+        bool isParticipant = false;
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (participants[i] == worker) {
+                isParticipant = true;
+                break;
+            }
+        }
+        require(isParticipant, "Worker not a participant");
+        
+        // Store score vector for this worker
+        _scoreVectorsPerWorker[dataHash][msg.sender][worker] = scoreVector;
+        _scoreNonces[msg.sender][dataHash]++;
+        
+        // Track validator
+        _addValidator(dataHash, msg.sender);
+        
+        emit ScoreVectorSubmittedForWorker(agentId, dataHash, worker, scoreVector, block.timestamp);
+    }
+    
+    /**
+     * @dev Add validator to tracking list (avoid duplicates)
+     */
+    function _addValidator(bytes32 dataHash, address validator) internal {
+        address[] storage validators = _validators[dataHash];
+        for (uint256 i = 0; i < validators.length; i++) {
+            if (validators[i] == validator) {
+                return; // Already tracked
+            }
+        }
+        validators.push(validator);
     }
     
     /**
@@ -1180,6 +1263,40 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         }
         
         return (names, weights, _universalWeight, _customWeight);
+    }
+    
+    /**
+     * @notice Get score vectors for a specific worker from all validators
+     * @dev Used by RewardsDistributor to calculate per-worker consensus
+     * @param dataHash The work hash
+     * @param worker The worker address
+     * @return validators Array of validator addresses
+     * @return scoreVectors Array of score vectors for this worker
+     */
+    function getScoreVectorsForWorker(
+        bytes32 dataHash,
+        address worker
+    ) external view returns (
+        address[] memory validators,
+        bytes[] memory scoreVectors
+    ) {
+        validators = _validators[dataHash];
+        scoreVectors = new bytes[](validators.length);
+        
+        for (uint256 i = 0; i < validators.length; i++) {
+            scoreVectors[i] = _scoreVectorsPerWorker[dataHash][validators[i]][worker];
+        }
+        
+        return (validators, scoreVectors);
+    }
+    
+    /**
+     * @notice Get all validators who submitted scores for this work
+     * @param dataHash The work hash
+     * @return validators Array of validator addresses
+     */
+    function getValidators(bytes32 dataHash) external view returns (address[] memory validators) {
+        return _validators[dataHash];
     }
     
     /**

@@ -2152,6 +2152,76 @@ class ChaosChainAgentSDK:
             score_vector=score_vector
         )
     
+    def submit_score_vector_for_worker(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        worker_address: str,
+        scores: List[int]
+    ) -> str:
+        """
+        Submit score vector for a SPECIFIC WORKER in multi-agent tasks (§3.1, §4.2).
+        
+        This is the CORRECT method for multi-agent work reputation:
+        - Each verifier evaluates EACH WORKER from DKG causal analysis
+        - Submits separate score vector for each worker
+        - Contract calculates per-worker consensus
+        - Each worker gets THEIR OWN reputation scores
+        
+        Why this matters:
+        - Alice (research) gets different scores than Bob (dev) than Carol (QA)
+        - Reputation reflects individual contribution, not team average
+        - Enables fair agent selection based on actual performance
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: DataHash of the work being scored (bytes32)
+            worker_address: Address of the worker being scored
+            scores: Multi-dimensional scores for THIS worker [0-100 each]
+                   e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If submission fails
+            
+        Example:
+            ```python
+            # After DKG causal audit, score each worker separately
+            
+            # Alice's scores FROM DKG (high initiative = root node)
+            sdk.submit_score_vector_for_worker(
+                studio_address="0x67b...",
+                data_hash=work_hash,
+                worker_address="0xAlice...",
+                scores=[85, 60, 70, 95, 80]  # High initiative
+            )
+            
+            # Bob's scores FROM DKG (high collaboration = central node)
+            sdk.submit_score_vector_for_worker(
+                studio_address="0x67b...",
+                data_hash=work_hash,
+                worker_address="0xBob...",
+                scores=[65, 90, 75, 95, 85]  # High collaboration
+            )
+            
+            # Carol's scores FROM DKG (high reasoning = deep path)
+            sdk.submit_score_vector_for_worker(
+                studio_address="0x67b...",
+                data_hash=work_hash,
+                worker_address="0xCarol...",
+                scores=[55, 70, 95, 95, 88]  # High reasoning depth
+            )
+            ```
+        """
+        return self.chaos_agent.submit_score_vector_for_worker(
+            studio_address=studio_address,
+            data_hash=data_hash,
+            worker_address=worker_address,
+            score_vector=scores
+        )
+    
     def close_epoch(
         self,
         studio_address: str,

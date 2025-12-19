@@ -2,9 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/access/Ownable.sol";
-import {StudioProxy} from "./StudioProxy.sol";
 import {IChaosCore} from "./interfaces/IChaosCore.sol";
 import {IChaosChainRegistry} from "./interfaces/IChaosChainRegistry.sol";
+import {StudioProxyFactory} from "./StudioProxyFactory.sol";
+
+interface IStudioProxy {
+    function upgradeLogicModule(address newLogicModule) external;
+}
 
 /**
  * @title ChaosCore
@@ -32,6 +36,9 @@ contract ChaosCore is Ownable, IChaosCore {
     /// @dev ChaosChainRegistry address
     IChaosChainRegistry public immutable registry;
     
+    /// @dev StudioProxyFactory for deploying proxies
+    StudioProxyFactory public immutable factory;
+    
     /// @dev Studio counter
     uint256 private _studioCounter;
     
@@ -53,12 +60,15 @@ contract ChaosCore is Ownable, IChaosCore {
     // ============ Constructor ============
     
     /**
-     * @dev Initialize ChaosCore with registry
+     * @dev Initialize ChaosCore with registry and factory
      * @param registry_ The ChaosChainRegistry address
+     * @param factory_ The StudioProxyFactory address
      */
-    constructor(address registry_) Ownable(msg.sender) {
+    constructor(address registry_, address factory_) Ownable(msg.sender) {
         require(registry_ != address(0), "Invalid registry");
+        require(factory_ != address(0), "Invalid factory");
         registry = IChaosChainRegistry(registry_);
+        factory = StudioProxyFactory(factory_);
     }
     
     // ============ Core Functions ============
@@ -78,13 +88,13 @@ contract ChaosCore is Ownable, IChaosCore {
         // Increment studio counter
         studioId = ++_studioCounter;
         
-        // Deploy new StudioProxy
-        proxy = address(new StudioProxy(
+        // Deploy new StudioProxy via factory
+        proxy = factory.deployStudioProxy(
             address(this),
             address(registry),
             logicModule,
             rewardsDistributor
-        ));
+        );
         
         // Store studio configuration
         _studios[studioId] = StudioConfig({
@@ -190,7 +200,7 @@ contract ChaosCore is Ownable, IChaosCore {
         studio.logicModule = newLogicModule;
         
         // Upgrade proxy
-        StudioProxy(payable(studio.proxy)).upgradeLogicModule(newLogicModule);
+        IStudioProxy(studio.proxy).upgradeLogicModule(newLogicModule);
     }
 }
 

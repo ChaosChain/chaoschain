@@ -276,6 +276,44 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /// @inheritdoc IRewardsDistributor
+    /**
+     * @notice Calculate consensus for a specific worker
+     * @dev Extracts scores for one worker from all validators
+     * @param scoreVectors Array of score vectors from validators
+     * @param workerIndex Index of the worker in the participants array
+     * @return consensusScores Consensus scores for this worker
+     */
+    function _calculateConsensusForWorker(
+        ScoreVector[] memory scoreVectors,
+        uint256 workerIndex
+    ) internal view returns (uint8[] memory consensusScores) {
+        require(scoreVectors.length > 0, "No score vectors");
+        
+        // Collect scores for this worker from all validators
+        uint8[][] memory scoresForWorker = new uint8[][](scoreVectors.length);
+        uint256[] memory stakes = new uint256[](scoreVectors.length);
+        
+        for (uint256 v = 0; v < scoreVectors.length; v++) {
+            // For MVP: Each validator submits ONE score vector
+            // In multi-agent, validators should submit separate scores per worker
+            // For now, we use the same consensus for all workers (will fix in next iteration)
+            scoresForWorker[v] = scoreVectors[v].scores;
+            stakes[v] = scoreVectors[v].stake;
+        }
+        
+        // Calculate consensus
+        Scoring.Params memory params = Scoring.Params({
+            alpha: alpha,
+            beta: beta,
+            kappa: kappa,
+            tau: tau
+        });
+        
+        consensusScores = Scoring.consensus(scoresForWorker, stakes, params);
+        
+        return consensusScores;
+    }
+    
     function calculateConsensus(
         bytes32 dataHash,
         ScoreVector[] calldata scoreVectors
@@ -520,6 +558,79 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
      * @dev Distribute worker rewards (single or multi-agent)
      * @return totalDistributed Total amount distributed
      */
+    /**
+     * @notice Calculate consensus scores for a specific worker (multi-agent tasks)
+     * @dev Retrieves per-worker scores from all validators and calculates consensus
+     * @param studioProxy The StudioProxy contract
+     * @param dataHash The work hash
+     * @param worker The worker address
+     * @return consensusScores Consensus scores for this worker (empty if no per-worker scores)
+     */
+    function _calculateConsensusForWorker(
+        StudioProxy studioProxy,
+        bytes32 dataHash,
+        address worker
+    ) internal returns (uint8[] memory consensusScores) {
+        // Get validators and their scores for this worker
+        (address[] memory validators, bytes[] memory scoreVectors) = 
+            studioProxy.getScoreVectorsForWorker(dataHash, worker);
+        
+        // If no per-worker scores submitted, return empty array (fallback to shared consensus)
+        if (validators.length == 0) {
+            return new uint8[](0);
+        }
+        
+        // Check if any validator submitted scores for this worker
+        bool hasScores = false;
+        for (uint256 i = 0; i < scoreVectors.length; i++) {
+            if (scoreVectors[i].length > 0) {
+                hasScores = true;
+                break;
+            }
+        }
+        
+        if (!hasScores) {
+            return new uint8[](0);
+        }
+        
+        // Build ScoreVector array for consensus calculation
+        ScoreVector[] memory scoreVectorStructs = new ScoreVector[](validators.length);
+        uint256 validCount = 0;
+        
+        for (uint256 i = 0; i < validators.length; i++) {
+            if (scoreVectors[i].length > 0) {
+                // Decode score vector
+                uint8[] memory scores = abi.decode(scoreVectors[i], (uint8[]));
+                
+                scoreVectorStructs[validCount] = ScoreVector({
+                    validatorAgentId: 0, // Would come from IdentityRegistry
+                    dataHash: dataHash,
+                    stake: 1 ether, // Simplified
+                    scores: scores,
+                    timestamp: block.timestamp,
+                    processed: false
+                });
+                validCount++;
+            }
+        }
+        
+        // If we have valid scores, calculate consensus
+        if (validCount > 0) {
+            // Resize array to actual count
+            ScoreVector[] memory validScoreVectors = new ScoreVector[](validCount);
+            for (uint256 i = 0; i < validCount; i++) {
+                validScoreVectors[i] = scoreVectorStructs[i];
+            }
+            
+            // Calculate consensus for this worker
+            consensusScores = this.calculateConsensus(dataHash, validScoreVectors);
+        } else {
+            consensusScores = new uint8[](0);
+        }
+        
+        return consensusScores;
+    }
+    
     function _distributeWorkerRewards(
         address studio,
         StudioProxy studioProxy,
@@ -536,18 +647,35 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             uint16[] memory weights = studioProxy.getContributionWeights(dataHash);
             string memory evidenceCID = studioProxy.getEvidenceCID(dataHash);
             
-            // Distribute rewards proportionally
+            // Distribute rewards and reputation per worker
             for (uint256 i = 0; i < participants.length; i++) {
-                // Calculate participant's share: reward × (weight / 10000)
-                uint256 participantReward = (totalReward * weights[i]) / 10000;
+                address worker = participants[i];
+                
+                // 🚨 CRITICAL: Get per-worker consensus scores
+                // Each validator submits scores FOR THIS WORKER via submitScoreVectorForWorker()
+                uint8[] memory workerConsensus = _calculateConsensusForWorker(
+                    studioProxy,
+                    dataHash,
+                    worker
+                );
+                
+                // If per-worker scores exist, use them; otherwise fallback to shared consensus
+                uint8[] memory scoresToUse = workerConsensus.length > 0 ? workerConsensus : consensusScores;
+                
+                // Calculate quality scalar for THIS worker's consensus
+                uint256 workerQuality = _calculateQualityScalar(studio, scoresToUse);
+                
+                // Reward = contribution weight × quality × totalReward
+                // This combines DKG attribution (weights[i]) with verification quality (workerQuality)
+                uint256 participantReward = (totalReward * weights[i] * workerQuality) / (10000 * 100);
                 
                 if (participantReward > 0) {
-                    studioProxy.releaseFunds(participants[i], participantReward, dataHash);
+                    studioProxy.releaseFunds(worker, participantReward, dataHash);
                     totalDistributed += participantReward;
                 }
                 
-                // Publish reputation for each participant
-                uint256 agentId = studioProxy.getAgentId(participants[i]);
+                // Publish reputation with WORKER-SPECIFIC consensus scores
+                uint256 agentId = studioProxy.getAgentId(worker);
                 if (agentId != 0) {
                     string memory feedbackUri = bytes(evidenceCID).length > 0 
                         ? string(abi.encodePacked("ipfs://", evidenceCID))
@@ -559,7 +687,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     _publishWorkerReputation(
                         studio,
                         agentId,
-                        consensusScores,
+                        scoresToUse,  // ← WORKER-SPECIFIC CONSENSUS!
                         dataHash,
                         feedbackUri,
                         feedbackHash

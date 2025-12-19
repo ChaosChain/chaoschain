@@ -6,6 +6,7 @@ import {ChaosChainRegistry} from "../src/ChaosChainRegistry.sol";
 import {ChaosCore} from "../src/ChaosCore.sol";
 import {IChaosCore} from "../src/interfaces/IChaosCore.sol";
 import {StudioProxy} from "../src/StudioProxy.sol";
+import {StudioProxyFactory} from "../src/StudioProxyFactory.sol";
 import {RewardsDistributor} from "../src/RewardsDistributor.sol";
 import {IRewardsDistributor} from "../src/interfaces/IRewardsDistributor.sol";
 import {PredictionMarketLogic} from "../src/logic/PredictionMarketLogic.sol";
@@ -144,8 +145,11 @@ contract ChaosChainCoreTest is Test {
         // Deploy RewardsDistributor
         rewardsDistributor = new RewardsDistributor(address(registry));
         
+        // Deploy StudioProxyFactory
+        StudioProxyFactory factory = new StudioProxyFactory();
+        
         // Deploy ChaosCore
-        chaosCore = new ChaosCore(address(registry));
+        chaosCore = new ChaosCore(address(registry), address(factory));
         
         // Deploy PredictionMarketLogic
         predictionLogic = new PredictionMarketLogic();

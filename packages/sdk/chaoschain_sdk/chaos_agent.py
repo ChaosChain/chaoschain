@@ -86,18 +86,20 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
+                # ERC-8004 Registries (deployed by Nethermind)
                 'identity_registry': '0x8004a6090Cd10A7288092483047B097295Fb8847',
                 'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts V3 (deployed Dec 9, 2024 - FeedbackAuth support)
-                'chaos_registry': '0xd0839467e3b87BBd123C82555bCC85FC9e345977',
-                'chaos_core': '0xB17e4810bc150e1373f288bAD2DEA47bBcE34239',
-                'rewards_distributor': '0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39',
+                # ChaosChain Protocol MVP v0.1 (deployed Dec 19, 2025)
+                # Features: Per-worker consensus, Multi-agent attribution, DKG-based scoring
+                'chaos_registry': '0xB5Dba66ae57479190A7723518f8cA7ea8c40de53',
+                'chaos_core': '0x24d24786bfBfA66401A7296a81A4f5FD8ab0ad70',
+                'rewards_distributor': '0x6Cb0952B720672afC4bD62B696Ef77DFdE832A08',
+                'studio_factory': '0x1aaF9d492ad4D0ADeEe3Ff097941bc662373F908',
                 # LogicModules
-                'finance_logic': '0xb37c1F3a35CA99c509d087c394F5B4470599734D',
-                'prediction_logic': '0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A'
+                'prediction_logic': '0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -1841,6 +1843,130 @@ class ChaosAgent:
             
         except Exception as e:
             raise ContractError(f"Failed to submit score vector: {str(e)}")
+    
+    def submit_score_vector_for_worker(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        worker_address: str,
+        score_vector: List[int]
+    ) -> TransactionHash:
+        """
+        Submit score vector for a SPECIFIC WORKER in multi-agent tasks (§3.1, §4.2).
+        
+        This is the CORRECT method for multi-agent work:
+        - Each verifier evaluates EACH WORKER from DKG causal analysis
+        - Submits separate score vector for each worker
+        - Contract calculates per-worker consensus
+        - Each worker gets THEIR OWN reputation scores
+        
+        Args:
+            studio_address: The StudioProxy contract address
+            data_hash: The work hash (bytes32) being scored
+            worker_address: The worker being scored
+            score_vector: Multi-dimensional score vector for THIS worker (list of uint8 scores 0-100)
+                         e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+        
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If score submission fails
+            
+        Example:
+            ```python
+            # Verifier submits scores for Alice FROM DKG analysis
+            scores_alice = [85, 60, 70, 95, 80]  # High initiative (root node)
+            tx_hash = agent.submit_score_vector_for_worker(
+                studio_address="0x123...",
+                data_hash=work_data_hash,
+                worker_address="0xAlice...",
+                score_vector=scores_alice
+            )
+            
+            # Verifier submits scores for Bob FROM DKG analysis
+            scores_bob = [65, 90, 75, 95, 85]  # High collaboration (central node)
+            tx_hash = agent.submit_score_vector_for_worker(
+                studio_address="0x123...",
+                data_hash=work_data_hash,
+                worker_address="0xBob...",
+                score_vector=scores_bob
+            )
+            ```
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum addresses
+            studio_address = self.w3.to_checksum_address(studio_address)
+            worker_address = self.w3.to_checksum_address(worker_address)
+            
+            # StudioProxy ABI for submitScoreVectorForWorker
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "worker", "type": "address"},
+                        {"name": "scoreVector", "type": "bytes"}
+                    ],
+                    "name": "submitScoreVectorForWorker",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            studio_proxy = self.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Encode score vector as ABI-encoded bytes
+            from eth_abi import encode
+            
+            # Ensure we have exactly 5 scores (pad with 0 if needed)
+            scores_padded = (score_vector + [0, 0, 0, 0, 0])[:5]
+            
+            # ABI encode as 5 uint8s - this produces 160 bytes
+            score_bytes = encode(['uint8', 'uint8', 'uint8', 'uint8', 'uint8'], scores_padded)
+            
+            rprint(f"[cyan]📊 Submitting per-worker score vector to Studio {studio_address[:10]}...[/cyan]")
+            rprint(f"   Worker: {worker_address[:10]}...")
+            rprint(f"   Data Hash: {data_hash.hex()[:16]}...")
+            rprint(f"   Scores: {score_vector}")
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # Build transaction
+            tx = studio_proxy.functions.submitScoreVectorForWorker(
+                data_hash,
+                worker_address,
+                score_bytes
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.w3.eth.get_transaction_count(account.address),
+                'gas': 250000,  # Slightly more gas for per-worker submission
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.w3.eth.account.sign_transaction(tx, account.key)
+            raw_transaction = getattr(signed_tx, 'raw_transaction', getattr(signed_tx, 'rawTransaction', None))
+            tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
+            
+            # Wait for confirmation
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Per-worker score submission transaction failed")
+            
+            tx_hash_hex = tx_hash.hex()
+            rprint(f"[green]✅ Per-worker score vector submitted for {worker_address[:10]}...: {tx_hash_hex[:10]}...[/green]")
+            
+            return tx_hash_hex
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit per-worker score vector: {str(e)}")
     
     def _generate_feedback_auth(
         self,
