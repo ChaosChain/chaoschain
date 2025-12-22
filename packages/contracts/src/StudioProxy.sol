@@ -239,6 +239,14 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         string feedbackUri
     );
     
+    /**
+     * @dev Emitted when a participant registers their feedbackAuth
+     */
+    event FeedbackAuthRegistered(
+        bytes32 indexed dataHash,
+        address indexed participant
+    );
+    
     // ============ Modifiers ============
     
     /**
@@ -315,15 +323,19 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         uint16[] memory weights = new uint16[](1);
         weights[0] = 10000; // 100% contribution
         
-        _submitWorkInternal(dataHash, threadRoot, evidenceRoot, feedbackAuth, participants, weights, "");
+        bytes[] memory feedbackAuths = new bytes[](1);
+        feedbackAuths[0] = feedbackAuth;
+        
+        _submitWorkInternalWithAuths(dataHash, threadRoot, evidenceRoot, feedbackAuths, participants, weights, "");
     }
     
     /**
      * @notice Submit work with multi-agent attribution (Protocol Spec §4.2)
+     * @dev DEPRECATED: Use submitWorkMultiAgentWithAuths for proper reputation publishing
      * @param dataHash The work data hash
      * @param threadRoot The XMTP thread root
      * @param evidenceRoot The evidence Merkle root
-     * @param feedbackAuth The feedback authorization signature
+     * @param feedbackAuth The feedback authorization signature (submitter only)
      * @param participants Array of participant addresses (from DKG analysis)
      * @param contributionWeights Array of contribution weights in basis points (sum = 10000)
      * @param evidenceCID IPFS/Arweave CID of evidence package
@@ -337,17 +349,49 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         uint16[] calldata contributionWeights,
         string calldata evidenceCID
     ) external {
-        _submitWorkInternal(dataHash, threadRoot, evidenceRoot, feedbackAuth, participants, contributionWeights, evidenceCID);
+        // Convert single feedbackAuth to array (only submitter gets reputation)
+        bytes[] memory feedbackAuths = new bytes[](participants.length);
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (participants[i] == msg.sender) {
+                feedbackAuths[i] = feedbackAuth;
+            } else {
+                feedbackAuths[i] = new bytes(0); // Empty for non-submitters
+            }
+        }
+        _submitWorkInternalWithAuths(dataHash, threadRoot, evidenceRoot, feedbackAuths, participants, contributionWeights, evidenceCID);
     }
     
     /**
-     * @dev Internal work submission with multi-agent support
+     * @notice Submit work with multi-agent attribution and ALL participants' feedbackAuths
+     * @dev This is the PROPER method - ALL participants can receive reputation
+     * @param dataHash The work data hash
+     * @param threadRoot The XMTP thread root
+     * @param evidenceRoot The evidence Merkle root
+     * @param feedbackAuths Array of feedback authorization signatures (one per participant)
+     * @param participants Array of participant addresses (from DKG analysis)
+     * @param contributionWeights Array of contribution weights in basis points (sum = 10000)
+     * @param evidenceCID IPFS/Arweave CID of evidence package
      */
-    function _submitWorkInternal(
+    function submitWorkMultiAgentWithAuths(
         bytes32 dataHash,
         bytes32 threadRoot,
         bytes32 evidenceRoot,
-        bytes calldata feedbackAuth,
+        bytes[] calldata feedbackAuths,
+        address[] calldata participants,
+        uint16[] calldata contributionWeights,
+        string calldata evidenceCID
+    ) external {
+        _submitWorkInternalWithAuths(dataHash, threadRoot, evidenceRoot, feedbackAuths, participants, contributionWeights, evidenceCID);
+    }
+    
+    /**
+     * @dev Internal work submission with multi-agent support and per-participant feedbackAuths
+     */
+    function _submitWorkInternalWithAuths(
+        bytes32 dataHash,
+        bytes32 threadRoot,
+        bytes32 evidenceRoot,
+        bytes[] memory feedbackAuths,
         address[] memory participants,
         uint16[] memory contributionWeights,
         string memory evidenceCID
@@ -356,9 +400,9 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         require(threadRoot != bytes32(0), "Invalid threadRoot");
         require(evidenceRoot != bytes32(0), "Invalid evidenceRoot");
         require(_workSubmissions[dataHash] == address(0), "Work already submitted");
-        require(feedbackAuth.length >= 65, "Invalid feedbackAuth"); // ECDSA signature is 65 bytes
         require(participants.length > 0, "No participants");
         require(participants.length == contributionWeights.length, "Length mismatch");
+        require(participants.length == feedbackAuths.length, "FeedbackAuths length mismatch");
         
         // Verify submitter is in participants list
         bool isParticipant = false;
@@ -391,7 +435,13 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         
         // Store work submission
         _workSubmissions[dataHash] = msg.sender;
-        _feedbackAuths[dataHash][msg.sender] = feedbackAuth;
+        
+        // Store feedbackAuth for EACH participant (crucial for reputation publishing!)
+        for (uint256 i = 0; i < participants.length; i++) {
+            if (feedbackAuths[i].length >= 65) {
+                _feedbackAuths[dataHash][participants[i]] = feedbackAuths[i];
+            }
+        }
         
         // Store participants and weights
         _workParticipants[dataHash] = participants;
@@ -578,6 +628,31 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
      */
     function getTotalEscrow() external view returns (uint256 total) {
         return _totalEscrow;
+    }
+    
+    /**
+     * @notice Register feedbackAuth for a multi-agent work submission
+     * @dev Allows participants to register their feedbackAuth AFTER work is submitted
+     * This enables proper reputation publishing for ALL participants in multi-agent work.
+     * 
+     * Flow:
+     * 1. Alice submits multi-agent work (her feedbackAuth is stored)
+     * 2. Dave calls registerFeedbackAuth(dataHash, daveFeedbackAuth)
+     * 3. Eve calls registerFeedbackAuth(dataHash, eveFeedbackAuth)
+     * 4. Epoch closes → ALL participants receive reputation!
+     * 
+     * @param dataHash The work dataHash
+     * @param feedbackAuth The signed feedbackAuth (65 bytes ECDSA signature)
+     */
+    function registerFeedbackAuth(bytes32 dataHash, bytes calldata feedbackAuth) external {
+        require(_workSubmissions[dataHash] != address(0), "Work not found");
+        require(_contributionWeights[dataHash][msg.sender] > 0, "Not a participant");
+        require(feedbackAuth.length >= 65, "Invalid feedbackAuth");
+        require(_feedbackAuths[dataHash][msg.sender].length == 0, "FeedbackAuth already registered");
+        
+        _feedbackAuths[dataHash][msg.sender] = feedbackAuth;
+        
+        emit FeedbackAuthRegistered(dataHash, msg.sender);
     }
     
     /**

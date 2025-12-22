@@ -1683,7 +1683,7 @@ class ChaosChainAgentSDK:
         thread_root: bytes,
         evidence_root: bytes,
         participants: List[str],
-        contribution_weights: Dict[str, float],
+        contribution_weights,  # Can be Dict[str, float] or List[int] or List[float]
         evidence_cid: str = ""
     ) -> str:
         """
@@ -1698,9 +1698,14 @@ class ChaosChainAgentSDK:
             thread_root: VLC/Merkle root of XMTP thread (bytes32)
             evidence_root: Merkle root of artifacts (bytes32)
             participants: List of participant addresses (in order)
-            contribution_weights: Dict of {address: weight} where weights sum to 1.0
-                                  Example: {"0xAlice": 0.45, "0xBob": 0.35, "0xCarol": 0.20}
-                                  These come FROM DKG.compute_contribution_weights()!
+            contribution_weights: Contribution weights in one of these formats:
+                - Dict[str, float]: {address: weight} where weights sum to 1.0
+                  Example: {"0xAlice": 0.45, "0xBob": 0.35, "0xCarol": 0.20}
+                - List[float]: weights in same order as participants, sum to 1.0
+                  Example: [0.45, 0.35, 0.20]
+                - List[int]: basis points in same order as participants, sum to 10000
+                  Example: [4500, 3500, 2000]
+                These come FROM DKG.compute_contribution_weights()!
             evidence_cid: IPFS/Arweave CID of evidence package (optional)
             
         Returns:
@@ -1729,24 +1734,49 @@ class ChaosChainAgentSDK:
         try:
             from rich import print as rprint
             
-            # Validate weights sum to 1.0
-            total_weight = sum(contribution_weights.values())
-            if abs(total_weight - 1.0) > 1e-6:
-                raise ValueError(f"Contribution weights must sum to 1.0, got {total_weight}")
+            # Normalize contribution_weights to basis points (0-10000)
+            # Handle different input formats: Dict, List[float], List[int]
+            weights_bp = []
             
-            # Validate participants match weights
-            for p in participants:
-                if p not in contribution_weights:
-                    raise ValueError(f"No contribution weight for participant {p}")
+            if isinstance(contribution_weights, dict):
+                # Dict format: {address: float_weight}
+                total_weight = sum(contribution_weights.values())
+                if abs(total_weight - 1.0) > 1e-6:
+                    raise ValueError(f"Dict contribution weights must sum to 1.0, got {total_weight}")
+                
+                # Validate participants match weights
+                for p in participants:
+                    if p not in contribution_weights:
+                        raise ValueError(f"No contribution weight for participant {p}")
+                
+                # Convert to basis points
+                weights_bp = [int(contribution_weights[p] * 10000) for p in participants]
+                
+            elif isinstance(contribution_weights, list):
+                if len(contribution_weights) != len(participants):
+                    raise ValueError(f"Weights list length ({len(contribution_weights)}) must match participants ({len(participants)})")
+                
+                # Check if list contains floats (0-1) or ints (basis points)
+                total = sum(contribution_weights)
+                
+                if total <= 1.1:  # Float weights (0-1 range)
+                    if abs(total - 1.0) > 1e-6:
+                        raise ValueError(f"Float contribution weights must sum to 1.0, got {total}")
+                    weights_bp = [int(w * 10000) for w in contribution_weights]
+                else:  # Basis points (0-10000 range)
+                    if total != 10000:
+                        rprint(f"[yellow]⚠️  Basis point weights sum to {total}, expected 10000. Auto-normalizing...[/yellow]")
+                        weights_bp = [int(w * 10000 / total) for w in contribution_weights]
+                    else:
+                        weights_bp = [int(w) for w in contribution_weights]
+            else:
+                raise ValueError(f"contribution_weights must be dict or list, got {type(contribution_weights)}")
             
             # Checksum addresses
             studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
             participants_checksummed = [
                 self.chaos_agent.w3.to_checksum_address(p) for p in participants
             ]
-            
-            # Convert weights to basis points (0-10000)
-            weights_bp = [int(contribution_weights[p] * 10000) for p in participants]
             
             # Verify sum is 10000 (handling rounding)
             weights_sum = sum(weights_bp)
@@ -1841,6 +1871,118 @@ class ChaosChainAgentSDK:
             
         except Exception as e:
             raise ContractError(f"Failed to submit multi-agent work: {str(e)}")
+    
+    def register_feedback_auth(
+        self,
+        studio_address: str,
+        data_hash: bytes
+    ) -> str:
+        """
+        Register feedbackAuth for a multi-agent work submission.
+        
+        This allows participants (who didn't submit the work) to register their
+        feedbackAuth so they can receive reputation when the epoch closes.
+        
+        Flow:
+        1. Alice submits multi-agent work (her feedbackAuth is stored)
+        2. Dave calls register_feedback_auth(data_hash) → Dave can receive reputation
+        3. Eve calls register_feedback_auth(data_hash) → Eve can receive reputation
+        4. Epoch closes → ALL participants receive reputation!
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: The work dataHash (bytes32)
+            
+        Returns:
+            Transaction hash
+            
+        Example:
+            # After Alice submits multi-agent work including Dave:
+            tx = dave_sdk.register_feedback_auth(
+                studio_address="0x...",
+                data_hash=data_hash  # From Alice's submission
+            )
+            print(f"Dave registered feedbackAuth: {tx}")
+            
+        Raises:
+            ContractError: If not a participant or already registered
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum addresses
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # Get agent ID
+            agent_id = self.chaos_agent.get_agent_id()
+            if not agent_id or agent_id == 0:
+                raise ContractError("Agent not registered. Call register_agent() first.")
+            
+            # Generate feedbackAuth signature
+            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
+            if not rewards_distributor:
+                raise ContractError("RewardsDistributor address not configured")
+            
+            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature for multi-agent work...")
+            feedback_auth = self.chaos_agent._generate_feedback_auth(
+                agent_id,
+                rewards_distributor
+            )
+            
+            # StudioProxy ABI for registerFeedbackAuth
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "feedbackAuth", "type": "bytes"}
+                    ],
+                    "name": "registerFeedbackAuth",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Registering feedbackAuth for work {data_hash.hex()[:16]}...")
+            
+            # Build transaction
+            tx = studio.functions.registerFeedbackAuth(
+                data_hash,
+                feedback_auth
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 500000,  # Higher gas for feedbackAuth storage
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()[:16]}...")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("FeedbackAuth registration failed")
+            
+            rprint(f"[green]✓[/green] FeedbackAuth registered successfully!")
+            rprint(f"[green]  You will now receive reputation when epoch closes![/green]")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to register feedbackAuth: {str(e)}")
     
     def submit_work_from_audit(
         self,

@@ -88,120 +88,250 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         for (uint256 i = 0; i < workHashes.length; i++) {
             bytes32 dataHash = workHashes[i];
             
-            // Get work submitter
-            address worker = studioProxy.getWorkSubmitter(dataHash);
-            require(worker != address(0), "Work not found");
+            // Get all participants (multi-agent support, Protocol Spec §4.2)
+            address[] memory participants = studioProxy.getWorkParticipants(dataHash);
+            require(participants.length > 0, "No participants");
             
-            // Collect score vectors from validators
+            // Get validators who scored this work
             address[] memory validators = _workValidators[dataHash];
             require(validators.length > 0, "No validators");
             
-            ScoreVector[] memory scoreVectors = new ScoreVector[](validators.length);
-            for (uint256 j = 0; j < validators.length; j++) {
-                bytes memory scoreData = studioProxy.getScoreVector(dataHash, validators[j]);
-                require(scoreData.length > 0, "Missing score");
-                
-                // Decode score vector - handle variable length
-                uint8[] memory scores;
-                
-                // Try to decode as tuple of 5 uint8s (our test format)
-                if (scoreData.length >= 160) { // 5 * 32 bytes
-                    scores = new uint8[](5);
-                    (scores[0], scores[1], scores[2], scores[3], scores[4]) = abi.decode(
-                        scoreData,
-                        (uint8, uint8, uint8, uint8, uint8)
-                    );
-                } else {
-                    // Fallback: try dynamic array decode
-                    scores = abi.decode(scoreData, (uint8[]));
-                }
-                
-                scoreVectors[j] = ScoreVector({
-                    validatorAgentId: 0, // Would come from IdentityRegistry
-                    dataHash: dataHash,
-                    stake: 1 ether, // Simplified - would come from validator stakes
-                    scores: scores,
-                    timestamp: block.timestamp,
-                    processed: false
-                });
-            }
-            
-            // Run consensus
-            uint8[] memory consensusScores = this.calculateConsensus(dataHash, scoreVectors);
-            
-            // Calculate quality scalar using Protocol Spec §4.1 (NOT simple average!)
-            // Combines universal PoA dimensions (FROM DKG) + custom studio dimensions
-            uint256 qualityScalar = _calculateQualityScalar(studio, consensusScores);
-            
-            // Calculate rewards based on ACTUAL studio escrow balance
-            // This allows studios to operate with any budget amount
+            // Get total budget for this work
             uint256 totalBudget = studioProxy.getTotalEscrow();
             if (totalBudget == 0) {
-                // If no escrow, skip reward distribution but still record consensus
                 emit EpochClosed(studio, epoch, 0, 0);
                 continue;
             }
             
-            // Studio Orchestrator fee (5% of total budget)
+            // Budget allocation (Protocol Spec §4)
             uint256 orchestratorFee = (totalBudget * 5) / 100;
-            
-            // Validator pool (10% of total budget)
             uint256 validatorPool = (totalBudget * 10) / 100;
-            
-            // Worker reward pool (85% of total budget)
             uint256 workerPool = totalBudget - orchestratorFee - validatorPool;
             
-            // Calculate worker reward (quality-based + PoA-based)
-            // Quality-based component (70% of worker pool)
-            uint256 qualityReward = (workerPool * qualityScalar * 70) / 10000;
+            // ═══════════════════════════════════════════════════════════════════
+            // PER-WORKER CONSENSUS (Protocol Spec §2.1-2.2, §4.2)
+            // Each worker gets individual consensus scores and reputation!
+            // ═══════════════════════════════════════════════════════════════════
             
-            // PoA-based component (30% of worker pool)
-            // In production, PoA scores would come from XMTP DAG analysis
-            uint256 poaReward = (workerPool * 30) / 100;
+            ScoreVector[] memory allValidatorScores = new ScoreVector[](validators.length);
+            uint8[] memory overallConsensusScores;  // For validator accuracy calc
             
-            uint256 workerReward = qualityReward + poaReward;
+            for (uint256 p = 0; p < participants.length; p++) {
+                address worker = participants[p];
+                
+                // Get contribution weight for this worker (from DKG analysis)
+                uint16 contributionWeight = studioProxy.getContributionWeight(dataHash, worker);
+                
+                // Collect per-worker scores from all validators
+                ScoreVector[] memory workerScoreVectors = new ScoreVector[](validators.length);
+                uint256 validScores = 0;
+                
+                for (uint256 j = 0; j < validators.length; j++) {
+                    // NEW: Get PER-WORKER scores (not per-dataHash)
+                    (address[] memory scoreValidators, bytes[] memory scoreData) = 
+                        studioProxy.getScoreVectorsForWorker(dataHash, worker);
+                    
+                    // Find this validator's score for this worker
+                    bytes memory validatorScore;
+                    for (uint256 k = 0; k < scoreValidators.length; k++) {
+                        if (scoreValidators[k] == validators[j]) {
+                            validatorScore = scoreData[k];
+                            break;
+                        }
+                    }
+                    
+                    // Skip if no score from this validator for this worker
+                    if (validatorScore.length == 0) continue;
+                    
+                    // Decode score vector
+                    uint8[] memory scores = _decodeScoreVector(validatorScore);
+                    
+                    workerScoreVectors[validScores] = ScoreVector({
+                        validatorAgentId: 0,
+                        dataHash: dataHash,
+                        stake: 1 ether,
+                        scores: scores,
+                        timestamp: block.timestamp,
+                        processed: false
+                    });
+                    validScores++;
+                    
+                    // Also track for validator accuracy (first worker only to avoid duplication)
+                    if (p == 0) {
+                        allValidatorScores[j] = workerScoreVectors[validScores - 1];
+                    }
+                }
+                
+                // Require at least 1 validator scored this worker
+                require(validScores > 0, "No scores for worker");
+                
+                // Resize array to actual count
+                ScoreVector[] memory finalWorkerScores = new ScoreVector[](validScores);
+                for (uint256 vs = 0; vs < validScores; vs++) {
+                    finalWorkerScores[vs] = workerScoreVectors[vs];
+                }
+                
+                // Calculate consensus for THIS worker (Protocol Spec §2.2)
+                uint8[] memory workerConsensus = this.calculateConsensus(dataHash, finalWorkerScores);
+                
+                // Save for validator accuracy (use first worker's consensus)
+                if (p == 0) {
+                    overallConsensusScores = workerConsensus;
+                }
+                
+                // Calculate quality scalar for this worker (Protocol Spec §4.1)
+                uint256 workerQuality = _calculateQualityScalar(studio, workerConsensus);
+                
+                // Calculate this worker's share of rewards (Protocol Spec §4.2)
+                // payout = quality × contribution_weight × worker_pool
+                uint256 workerShare = (workerPool * contributionWeight * workerQuality) / (10000 * 100);
+                
+                // Transfer reward to worker
+                if (workerShare > 0) {
+                    studioProxy.releaseFunds(worker, workerShare, dataHash);
+                    totalWorkerRewards += workerShare;
+                }
+                
+                // Publish PER-WORKER reputation to ERC-8004 (Protocol Spec §5)
+                _publishWorkerReputation(
+                    studio,
+                    studioProxy,
+                    dataHash,
+                    worker,
+                    workerConsensus
+                );
+                
+                // Store per-worker consensus
+                bytes32 workerDataHash = keccak256(abi.encodePacked(dataHash, worker));
+                _consensusResults[workerDataHash] = ConsensusResult({
+                    dataHash: workerDataHash,
+                    consensusScores: workerConsensus,
+                    totalStake: validators.length * 1 ether,
+                    validatorCount: validators.length,
+                    timestamp: block.timestamp,
+                    finalized: true
+                });
+            }
             
-            // Distribute worker rewards (single or multi-agent)
-            totalWorkerRewards += _distributeWorkerRewards(
-                studio,
-                studioProxy,
-                dataHash,
-                worker,
-                workerReward,
-                consensusScores
-            );
+            // Distribute validator rewards based on accuracy (Protocol Spec §4.3)
+            if (overallConsensusScores.length > 0) {
+                totalValidatorRewards += _distributeValidatorRewards(
+                    studioProxy,
+                    dataHash,
+                    allValidatorScores,
+                    overallConsensusScores,
+                    validators,
+                    validatorPool
+                );
+            }
             
-            // Pay Studio Orchestrator fee
-            // In production, orchestrator address would come from Studio config
-            // For MVP, orchestrator fee stays in Studio (can be withdrawn by owner)
-            // TODO: Add orchestrator address to Studio config
-            
-            // Calculate validator rewards based on accuracy
-            // validatorPool already calculated above (10% of totalBudget)
-            totalValidatorRewards += _distributeValidatorRewards(
-                studioProxy,
-                dataHash,
-                scoreVectors,
-                consensusScores,
-                validators,
-                validatorPool
-            );
-            
-            // Store consensus result
-            _consensusResults[dataHash] = ConsensusResult({
-                dataHash: dataHash,
-                consensusScores: consensusScores,
-                totalStake: validators.length * 1 ether,
-                validatorCount: validators.length,
-                timestamp: block.timestamp,
-                finalized: true
-            });
-            
-            // Publish to ValidationRegistry
-            _publishToValidationRegistry(dataHash, consensusScores);
+            // Publish work-level validation to ValidationRegistry
+            if (overallConsensusScores.length > 0) {
+                _publishToValidationRegistry(dataHash, overallConsensusScores);
+            }
         }
         
         emit EpochClosed(studio, epoch, totalWorkerRewards, totalValidatorRewards);
+    }
+    
+    /**
+     * @dev Decode score vector from bytes
+     * @param scoreData Raw score data
+     * @return scores Decoded uint8 array
+     */
+    function _decodeScoreVector(bytes memory scoreData) private pure returns (uint8[] memory scores) {
+        // Try to decode as tuple of 5 uint8s (our standard format)
+        if (scoreData.length >= 160) { // 5 * 32 bytes
+            scores = new uint8[](5);
+            (scores[0], scores[1], scores[2], scores[3], scores[4]) = abi.decode(
+                scoreData,
+                (uint8, uint8, uint8, uint8, uint8)
+            );
+        } else {
+            // Fallback: try dynamic array decode
+            scores = abi.decode(scoreData, (uint8[]));
+        }
+        return scores;
+    }
+    
+    /**
+     * @dev Publish per-worker reputation to ERC-8004 ReputationRegistry
+     * @param studio StudioProxy address
+     * @param studioProxy StudioProxy contract
+     * @param dataHash Work hash
+     * @param worker Worker address
+     * @param consensusScores Per-worker consensus scores
+     */
+    function _publishWorkerReputation(
+        address studio,
+        StudioProxy studioProxy,
+        bytes32 dataHash,
+        address worker,
+        uint8[] memory consensusScores
+    ) private {
+        // Get worker's agent ID from StudioProxy (registered when they joined)
+        uint256 agentId = studioProxy.getAgentId(worker);
+        if (agentId == 0) return;
+        
+        // Get reputation registry
+        address reputationRegistryAddr = registry.getReputationRegistry();
+        if (reputationRegistryAddr == address(0)) return;
+        
+        IERC8004Reputation reputationRegistry = IERC8004Reputation(reputationRegistryAddr);
+        
+        // Get feedbackAuth from StudioProxy (keyed by dataHash + worker)
+        bytes memory feedbackAuth = studioProxy.getFeedbackAuth(dataHash, worker);
+        if (feedbackAuth.length < 65) return;
+        
+        // Check if feedbackAuth is valid (not all zeros)
+        bool isValid = false;
+        for (uint256 i = 0; i < 65; i++) {
+            if (feedbackAuth[i] != 0) {
+                isValid = true;
+                break;
+            }
+        }
+        if (!isValid) return;
+        
+        // Dimension names for reputation tags
+        string[5] memory dimensionNames = ["Initiative", "Collaboration", "Reasoning", "Compliance", "Efficiency"];
+        
+        // Publish each dimension as separate reputation entry
+        for (uint256 i = 0; i < 5 && i < consensusScores.length; i++) {
+            bytes32 tag1 = bytes32(bytes(dimensionNames[i]));
+            bytes32 tag2 = bytes32(uint256(uint160(studio))); // Studio address as tag2
+            
+            // Create feedbackHash from consensus data
+            bytes32 feedbackHash = keccak256(abi.encodePacked(
+                dataHash,
+                worker,
+                dimensionNames[i],
+                consensusScores[i]
+            ));
+            
+            try reputationRegistry.giveFeedback(
+                agentId,
+                consensusScores[i],
+                tag1,
+                tag2,
+                string(abi.encodePacked("chaoschain://", _toHexString(dataHash))),
+                feedbackHash,
+                feedbackAuth
+            ) {} catch {}
+        }
+    }
+    
+    /**
+     * @dev Convert bytes32 to hex string
+     */
+    function _toHexString(bytes32 data) private pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory str = new bytes(64);
+        for (uint256 i = 0; i < 32; i++) {
+            str[i * 2] = alphabet[uint8(data[i] >> 4)];
+            str[1 + i * 2] = alphabet[uint8(data[i] & 0x0f)];
+        }
+        return string(str);
     }
     
     /**

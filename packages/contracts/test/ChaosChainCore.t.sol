@@ -714,28 +714,30 @@ contract ChaosChainCoreTest is Test {
         registerAgentWithStudio(proxy, validator2, validator2AgentId, StudioProxy.AgentRole.VERIFIER, 1 ether);
         registerAgentWithStudio(proxy, validator3, validator3AgentId, StudioProxy.AgentRole.VERIFIER, 1 ether);
         
-        // Submit score vectors from multiple validators
+        // Submit per-worker score vectors from multiple validators (Protocol Spec §2.1)
         bytes memory scoreVector1 = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
         bytes memory scoreVector2 = abi.encode(uint8(82), uint8(87), uint8(82), uint8(76), uint8(85));
         bytes memory scoreVector3 = abi.encode(uint8(88), uint8(92), uint8(78), uint8(77), uint8(90));
         
+        // Each validator scores EACH worker (per-worker consensus!)
         vm.prank(validator1);
-        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector1);
+        StudioProxy(payable(proxy)).submitScoreVectorForWorker(dataHash, workerAgent, scoreVector1);
         rewardsDistributor.registerValidator(dataHash, validator1);
         
         vm.prank(validator2);
-        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector2);
+        StudioProxy(payable(proxy)).submitScoreVectorForWorker(dataHash, workerAgent, scoreVector2);
         rewardsDistributor.registerValidator(dataHash, validator2);
         
         vm.prank(validator3);
-        StudioProxy(payable(proxy)).submitScoreVector(dataHash, scoreVector3);
+        StudioProxy(payable(proxy)).submitScoreVectorForWorker(dataHash, workerAgent, scoreVector3);
         rewardsDistributor.registerValidator(dataHash, validator3);
         
         // Close epoch
         rewardsDistributor.closeEpoch(proxy, epoch);
         
-        // Verify consensus result was stored
-        IRewardsDistributor.ConsensusResult memory result = rewardsDistributor.getConsensusResult(dataHash);
+        // Verify per-worker consensus result was stored (key = keccak256(dataHash, worker))
+        bytes32 workerDataHash = keccak256(abi.encodePacked(dataHash, workerAgent));
+        IRewardsDistributor.ConsensusResult memory result = rewardsDistributor.getConsensusResult(workerDataHash);
         assertTrue(result.finalized);
         assertEq(result.validatorCount, 3);
         assertGt(result.consensusScores.length, 0);

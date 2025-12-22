@@ -92,14 +92,15 @@ class ChaosAgent:
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol MVP v0.1 (deployed Dec 19, 2025)
+                # ChaosChain Protocol MVP v0.4.3 (deployed Dec 20, 2025)
                 # Features: Per-worker consensus, Multi-agent attribution, DKG-based scoring
+                # NEW: registerFeedbackAuth() for multi-agent reputation publishing
                 'chaos_registry': '0xB5Dba66ae57479190A7723518f8cA7ea8c40de53',
-                'chaos_core': '0x24d24786bfBfA66401A7296a81A4f5FD8ab0ad70',
-                'rewards_distributor': '0x6Cb0952B720672afC4bD62B696Ef77DFdE832A08',
-                'studio_factory': '0x1aaF9d492ad4D0ADeEe3Ff097941bc662373F908',
+                'chaos_core': '0x6660e8EF6baaAf847519dFd693D0033605b825f5',
+                'rewards_distributor': '0xA050527d38Fae9467730412d941560c8706F060A',
+                'studio_factory': '0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d',
                 # LogicModules
-                'prediction_logic': '0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C'
+                'finance_logic': '0x2049f335A812b68aC488d4b687C3B701BF845f5b'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -856,17 +857,31 @@ class ChaosAgent:
             
             raise AgentRegistrationError(f"Failed to register {self.agent_domain}: {error_msg}")
     
-    def get_agent_id(self) -> Optional[AgentID]:
+    def get_agent_id(self, use_cache: bool = True) -> Optional[AgentID]:
         """
-        Get the agent's on-chain ID (ERC-8004 v1.0).
+        Get the agent's on-chain ID (ERC-8004 v1.0) with optional local caching.
         
         v1.0: Agents are ERC-721 NFTs. Check if this wallet owns any agent tokens.
+        
+        Caching: When a wallet has many NFTs, iteration is slow. The SDK now caches
+        agent IDs in a local file (chaoschain_agent_ids.json) for fast lookup.
+        
+        Args:
+            use_cache: If True, check local cache first (default: True)
         
         Returns:
             Agent ID if registered, None otherwise
         """
         if self.agent_id:
             return self.agent_id
+        
+        # Check local cache first (fast!)
+        if use_cache:
+            cached_id = self._load_agent_id_from_cache()
+            if cached_id:
+                self.agent_id = cached_id
+                rprint(f"[dim]📦 Using cached agent ID: {cached_id}[/dim]")
+                return self.agent_id
         
         try:
             # v1.0: Use balanceOf to check if wallet owns any tokens
@@ -880,6 +895,7 @@ class ChaosAgent:
                 # ERC-721 Enumerable extension
                 agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(self.address, 0).call()
                 self.agent_id = agent_id
+                self._save_agent_id_to_cache(agent_id)  # Cache it!
                 return self.agent_id
             except:
                 # If enumerable not available, try totalSupply and iterate
@@ -892,6 +908,7 @@ class ChaosAgent:
                             owner = self.identity_registry.functions.ownerOf(potential_id).call()
                             if owner.lower() == self.address.lower():
                                 self.agent_id = potential_id
+                                self._save_agent_id_to_cache(potential_id)  # Cache it!
                                 return self.agent_id
                         except:
                             continue
@@ -902,6 +919,7 @@ class ChaosAgent:
                             owner = self.identity_registry.functions.ownerOf(potential_id).call()
                             if owner.lower() == self.address.lower():
                                 self.agent_id = potential_id
+                                self._save_agent_id_to_cache(potential_id)  # Cache it!
                                 return self.agent_id
                         except:
                             continue
@@ -912,6 +930,100 @@ class ChaosAgent:
             rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
         
         return None
+    
+    def _get_cache_file_path(self) -> str:
+        """Get the path to the agent ID cache file."""
+        import os
+        return os.path.join(os.getcwd(), "chaoschain_agent_ids.json")
+    
+    def _load_agent_id_from_cache(self) -> Optional[int]:
+        """Load agent ID from local cache file.
+        
+        Cache format: {
+            "network_chainId": {
+                "wallet_address": {
+                    "agent_id": 1234,
+                    "timestamp": "2025-12-19T12:00:00",
+                    "domain": "agent.example.com"
+                }
+            }
+        }
+        """
+        import os
+        import json
+        
+        cache_file = self._get_cache_file_path()
+        if not os.path.exists(cache_file):
+            return None
+        
+        try:
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+            
+            chain_key = str(self.w3.eth.chain_id)
+            wallet_key = self.address.lower()
+            
+            if chain_key in cache and wallet_key in cache[chain_key]:
+                return cache[chain_key][wallet_key].get("agent_id")
+            
+        except Exception as e:
+            rprint(f"[dim]⚠️ Cache read error: {e}[/dim]")
+        
+        return None
+    
+    def _save_agent_id_to_cache(self, agent_id: int) -> None:
+        """Save agent ID to local cache file."""
+        import os
+        import json
+        from datetime import datetime
+        
+        cache_file = self._get_cache_file_path()
+        
+        # Load existing cache or create new
+        cache = {}
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    cache = json.load(f)
+            except:
+                cache = {}
+        
+        chain_key = str(self.w3.eth.chain_id)
+        wallet_key = self.address.lower()
+        
+        if chain_key not in cache:
+            cache[chain_key] = {}
+        
+        cache[chain_key][wallet_key] = {
+            "agent_id": agent_id,
+            "timestamp": datetime.now().isoformat(),
+            "domain": self.agent_domain if hasattr(self, 'agent_domain') else ""
+        }
+        
+        try:
+            with open(cache_file, 'w') as f:
+                json.dump(cache, f, indent=2)
+            rprint(f"[dim]📦 Cached agent ID {agent_id} for {wallet_key[:10]}...[/dim]")
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Could not cache agent ID: {e}[/yellow]")
+    
+    def set_cached_agent_id(self, agent_id: int) -> None:
+        """Manually set the agent ID (useful when known from external source).
+        
+        This sets both the in-memory agent_id AND saves to cache.
+        
+        Args:
+            agent_id: The ERC-8004 agent ID to cache
+            
+        Example:
+            ```python
+            # If you already know your agent ID from previous registration
+            agent.set_cached_agent_id(1234)
+            ```
+        """
+        self.agent_id = agent_id
+        self._save_agent_id_to_cache(agent_id)
+        rprint(f"[green]✅ Agent ID set: {agent_id}[/green]")
     
     def get_reputation_score(self, agent_id: Optional[int] = None) -> float:
         """
