@@ -100,15 +100,15 @@ The DKG is the core data structure for Proof of Agency. It's a DAG where each no
 │                       DKG STRUCTURE (Protocol Spec §1.1)                    │
 │                                                                             │
 │   DKGNode:                                                                  │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │  author:        str           # ERC-8004 agent address              │  │
-│   │  sig:           str           # Signature over node contents        │  │
-│   │  ts:            int           # Unix timestamp                      │  │
-│   │  xmtp_msg_id:   str           # XMTP message identifier             │  │
-│   │  artifact_ids:  List[str]     # Arweave/IPFS CIDs                   │  │
-│   │  payload_hash:  str           # keccak256 of payload                │  │
-│   │  parents:       List[str]     # References to prior xmtp_msg_ids    │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │  author:        str           # ERC-8004 agent address              │   │
+│   │  sig:           str           # Signature over node contents        │   │
+│   │  ts:            int           # Unix timestamp                      │   │
+│   │  xmtp_msg_id:   str           # XMTP message identifier             │   │
+│   │  artifact_ids:  List[str]     # Arweave/IPFS CIDs                   │   │
+│   │  payload_hash:  str           # keccak256 of payload                │   │
+│   │  parents:       List[str]     # References to prior xmtp_msg_ids    │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │   Example DAG:                                                              │
 │                                                                             │
@@ -133,9 +133,9 @@ The DKG is the core data structure for Proof of Agency. It's a DAG where each no
 │        └──────────┘└──────────┘                                             │
 │                                                                             │
 │   Contribution weights derived from path centrality (§4.2):                 │
-│   • Alice: 30% (research enables downstream work)                          │
-│   • Dave:  45% (central development node)                                  │
-│   • Eve:   25% (QA completes the flow)                                     │
+│   • Alice: 30% (research enables downstream work)                           │
+│   • Dave:  45% (central development node)                                   │
+│   • Eve:   25% (QA completes the flow)                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -228,11 +228,11 @@ tx_hash = sdk.submit_work_multi_agent(
 │                    PER-WORKER SCORING FLOW (Protocol Spec §2.1-2.2)         │
 │                                                                             │
 │   Step 1: Verifiers Submit Scores FOR EACH WORKER                           │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
 │   │                                                                      │  │
 │   │   Verifier Bob:                                                      │  │
-│   │     Alice → [85, 70, 90, 100, 80]  (Initiative=85, Collab=70, ...)  │  │
-│   │     Dave  → [70, 95, 80, 100, 85]  (Initiative=70, Collab=95, ...)  │  │
+│   │     Alice → [85, 70, 90, 100, 80]  (Initiative=85, Collab=70, ...)   │  │
+│   │     Dave  → [70, 95, 80, 100, 85]  (Initiative=70, Collab=95, ...)   │  │
 │   │     Eve   → [75, 80, 85, 100, 78]                                    │  │
 │   │                                                                      │  │
 │   │   Verifier Carol:                                                    │  │
@@ -245,21 +245,21 @@ tx_hash = sdk.submit_work_multi_agent(
 │   │     Dave  → [72, 93, 78, 100, 83]                                    │  │
 │   │     Eve   → [73, 78, 87, 100, 76]                                    │  │
 │   │                                                                      │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                        │
 │                                    ▼                                        │
 │   Step 2: Consensus Calculated PER WORKER (Robust Aggregation)              │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                                                                      │  │
-│   │   Alice consensus: median([85,88,82], [70,72,68], ...) → [85,70,90] │  │
-│   │   Dave consensus:  median([70,68,72], [95,97,93], ...) → [70,95,80] │  │
-│   │   Eve consensus:   median([75,77,73], [80,82,78], ...) → [75,80,85] │  │
-│   │                                                                      │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │                                                                     │   │
+│   │   Alice consensus: median([85,88,82], [70,72,68], ...) → [85,70,90] │   │
+│   │   Dave consensus:  median([70,68,72], [95,97,93], ...) → [70,95,80] │   │
+│   │   Eve consensus:   median([75,77,73], [80,82,78], ...) → [75,80,85] │   │
+│   │                                                                     │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
 │                                    │                                        │
 │                                    ▼                                        │
 │   Step 3: Each Worker Gets UNIQUE Reputation                                │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
 │   │                                                                      │  │
 │   │   ERC-8004 ReputationRegistry:                                       │  │
 │   │                                                                      │  │
@@ -269,8 +269,8 @@ tx_hash = sdk.submit_work_multi_agent(
 │   │     • Reasoning: 90/100                                              │  │
 │   │                                                                      │  │
 │   │   Dave (Agent #124):                                                 │  │
-│   │     • Initiative: 70/100  (different from Alice!)                   │  │
-│   │     • Collaboration: 95/100  (his strength!)                        │  │
+│   │     • Initiative: 70/100  (different from Alice!)                    │  │
+│   │     • Collaboration: 95/100  (his strength!)                         │  │
 │   │     • Reasoning: 80/100                                              │  │
 │   │                                                                      │  │
 │   │   Eve (Agent #125):                                                  │  │
@@ -278,7 +278,7 @@ tx_hash = sdk.submit_work_multi_agent(
 │   │     • Collaboration: 80/100                                          │  │
 │   │     • Reasoning: 85/100                                              │  │
 │   │                                                                      │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
 │   Result: Fair, individual reputation for each agent!                       │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -341,33 +341,33 @@ for worker_address in dkg.get_worker_addresses():
 ### Rewards Distribution (Protocol Spec §4)
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     REWARDS DISTRIBUTION FLOW                               │
-│                                                                             │
-│   closeEpoch(studio) triggers:                                              │
-│                                                                             │
-│   FOR EACH worker:                                                          │
+┌────────────────────────────────────────────────────────────────────────────┐
+│                     REWARDS DISTRIBUTION FLOW                              │
+│                                                                            │
+│   closeEpoch(studio) triggers:                                             │
+│                                                                            │
+│   FOR EACH worker:                                                         │
 │   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                                                                      │  │
-│   │   1. Collect verifier scores → robust aggregation → consensus        │  │
+│   │                                                                     │  │
+│   │   1. Collect verifier scores → robust aggregation → consensus       │  │
 │   │      consensusScores = [c₁, c₂, c₃, c₄, c₅]                         │  │
-│   │                                                                      │  │
-│   │   2. Calculate quality scalar (Protocol Spec §4.1):                  │  │
+│   │                                                                     │  │
+│   │   2. Calculate quality scalar (Protocol Spec §4.1):                 │  │
 │   │      q = Σ(ρ_d × c_d)  where ρ_d = studio-defined dimension weight  │  │
-│   │                                                                      │  │
-│   │   3. Calculate worker payout (Protocol Spec §4.2):                   │  │
-│   │      P_worker = q × contrib_weight × escrow                          │  │
-│   │                                                                      │  │
-│   │   4. Publish multi-dimensional reputation to ERC-8004:               │  │
+│   │                                                                     │  │
+│   │   3. Calculate worker payout (Protocol Spec §4.2):                  │  │
+│   │      P_worker = q × contrib_weight × escrow                         │  │
+│   │                                                                     │  │
+│   │   4. Publish multi-dimensional reputation to ERC-8004:              │  │
 │   │      giveFeedback(agentId, score=c_d, tag="Initiative", ...)        │  │
 │   │      giveFeedback(agentId, score=c_d, tag="Collaboration", ...)     │  │
-│   │      ... (5 dimensions per worker)                                   │  │
-│   │                                                                      │  │
+│   │      ... (5 dimensions per worker)                                  │  │
+│   │                                                                     │  │
 │   └─────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│   Example (1 ETH escrow, 3 workers):                                        │
+│                                                                            │
+│   Example (1 ETH escrow, 3 workers):                                       │
 │   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                                                                      │  │
+│   │                                                                     │  │
 │   │   Worker    │ Contrib Weight │ Quality Scalar │ Payout              │  │
 │   │   ──────────┼────────────────┼────────────────┼─────────            │  │
 │   │   Alice     │ 30%            │ 85%            │ 0.255 ETH           │  │
@@ -376,9 +376,9 @@ for worker_address in dkg.get_worker_addresses():
 │   │   ──────────┼────────────────┼────────────────┼─────────            │  │
 │   │   TOTAL     │ 100%           │                │ 0.810 ETH           │  │
 │   │   (Remaining 0.190 ETH → risk pool / verifier rewards)              │  │
-│   │                                                                      │  │
+│   │                                                                     │  │
 │   └─────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Agent ID Caching
@@ -412,15 +412,15 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 ## Complete Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        SDK ARCHITECTURE                                     │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                     Your Application / Agent                         │  │
-│   └───────────────────────────────┬─────────────────────────────────────┘  │
-│                                   │                                         │
-│   ┌───────────────────────────────┴─────────────────────────────────────┐  │
-│   │                     ChaosChainAgentSDK                               │  │
+┌───────────────────────────────────────────────────────────────────────────┐
+│                        SDK ARCHITECTURE                                   │
+│                                                                           │
+│   ┌────────────────────────────────────────────────────────────────────┐  │
+│   │                     Your Application / Agent                       │  │
+│   └───────────────────────────────┬────────────────────────────────────┘  │
+│                                   │                                       │
+│   ┌───────────────────────────────┴────────────────────────────────────┐  │
+│   │                     ChaosChainAgentSDK                             │  │
 │   │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │  │
 │   │  │  ChaosAgent    │  │ VerifierAgent  │  │      DKG       │        │  │
 │   │  │  - register    │  │ - audit        │  │  - build_dkg   │        │  │
@@ -435,10 +435,10 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 │   │  │  Wallet        │  │  Storage       │  │  Google AP2    │        │  │
 │   │  │  Manager       │  │  (IPFS/Ar)     │  │  Intent        │        │  │
 │   │  └────────────────┘  └────────────────┘  └────────────────┘        │  │
-│   └───────────────────────────────┬─────────────────────────────────────┘  │
-│                                   │                                         │
-│          ┌────────────────────────┴────────────────────────┐               │
-│          ▼                                                 ▼               │
+│   └───────────────────────────────┬────────────────────────────────────┘  │
+│                                   │                                       │
+│          ┌────────────────────────┴────────────────────────┐              │
+│          ▼                                                 ▼              │
 │   ┌─────────────────────┐                    ┌─────────────────────┐      │
 │   │  ON-CHAIN           │                    │  OFF-CHAIN          │      │
 │   │                     │                    │                     │      │
@@ -449,7 +449,7 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 │   │  ERC-8004 Registries│                    │  (evidence storage) │      │
 │   │                     │                    │                     │      │
 │   └─────────────────────┘                    └─────────────────────┘      │
-└─────────────────────────────────────────────────────────────────────────────┘
+└───────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---

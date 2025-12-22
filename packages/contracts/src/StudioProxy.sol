@@ -1382,4 +1382,3 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         _totalEscrow += msg.value;
     }
 }
-
