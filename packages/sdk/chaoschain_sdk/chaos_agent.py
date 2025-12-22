@@ -86,18 +86,21 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
+                # ERC-8004 Registries (deployed by Nethermind)
                 'identity_registry': '0x8004a6090Cd10A7288092483047B097295Fb8847',
                 'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts V3 (deployed Dec 9, 2024 - FeedbackAuth support)
-                'chaos_registry': '0xd0839467e3b87BBd123C82555bCC85FC9e345977',
-                'chaos_core': '0xB17e4810bc150e1373f288bAD2DEA47bBcE34239',
-                'rewards_distributor': '0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39',
+                # ChaosChain Protocol MVP v0.4.3 (deployed Dec 20, 2025)
+                # Features: Per-worker consensus, Multi-agent attribution, DKG-based scoring
+                # NEW: registerFeedbackAuth() for multi-agent reputation publishing
+                'chaos_registry': '0xB5Dba66ae57479190A7723518f8cA7ea8c40de53',
+                'chaos_core': '0x6660e8EF6baaAf847519dFd693D0033605b825f5',
+                'rewards_distributor': '0xA050527d38Fae9467730412d941560c8706F060A',
+                'studio_factory': '0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d',
                 # LogicModules
-                'finance_logic': '0xb37c1F3a35CA99c509d087c394F5B4470599734D',
-                'prediction_logic': '0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A'
+                'finance_logic': '0x2049f335A812b68aC488d4b687C3B701BF845f5b'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -854,17 +857,31 @@ class ChaosAgent:
             
             raise AgentRegistrationError(f"Failed to register {self.agent_domain}: {error_msg}")
     
-    def get_agent_id(self) -> Optional[AgentID]:
+    def get_agent_id(self, use_cache: bool = True) -> Optional[AgentID]:
         """
-        Get the agent's on-chain ID (ERC-8004 v1.0).
+        Get the agent's on-chain ID (ERC-8004 v1.0) with optional local caching.
         
         v1.0: Agents are ERC-721 NFTs. Check if this wallet owns any agent tokens.
+        
+        Caching: When a wallet has many NFTs, iteration is slow. The SDK now caches
+        agent IDs in a local file (chaoschain_agent_ids.json) for fast lookup.
+        
+        Args:
+            use_cache: If True, check local cache first (default: True)
         
         Returns:
             Agent ID if registered, None otherwise
         """
         if self.agent_id:
             return self.agent_id
+        
+        # Check local cache first (fast!)
+        if use_cache:
+            cached_id = self._load_agent_id_from_cache()
+            if cached_id:
+                self.agent_id = cached_id
+                rprint(f"[dim]📦 Using cached agent ID: {cached_id}[/dim]")
+                return self.agent_id
         
         try:
             # v1.0: Use balanceOf to check if wallet owns any tokens
@@ -878,6 +895,7 @@ class ChaosAgent:
                 # ERC-721 Enumerable extension
                 agent_id = self.identity_registry.functions.tokenOfOwnerByIndex(self.address, 0).call()
                 self.agent_id = agent_id
+                self._save_agent_id_to_cache(agent_id)  # Cache it!
                 return self.agent_id
             except:
                 # If enumerable not available, try totalSupply and iterate
@@ -890,6 +908,7 @@ class ChaosAgent:
                             owner = self.identity_registry.functions.ownerOf(potential_id).call()
                             if owner.lower() == self.address.lower():
                                 self.agent_id = potential_id
+                                self._save_agent_id_to_cache(potential_id)  # Cache it!
                                 return self.agent_id
                         except:
                             continue
@@ -900,6 +919,7 @@ class ChaosAgent:
                             owner = self.identity_registry.functions.ownerOf(potential_id).call()
                             if owner.lower() == self.address.lower():
                                 self.agent_id = potential_id
+                                self._save_agent_id_to_cache(potential_id)  # Cache it!
                                 return self.agent_id
                         except:
                             continue
@@ -910,6 +930,100 @@ class ChaosAgent:
             rprint(f"[yellow]⚠️  Could not check agent ownership: {e}[/yellow]")
         
         return None
+    
+    def _get_cache_file_path(self) -> str:
+        """Get the path to the agent ID cache file."""
+        import os
+        return os.path.join(os.getcwd(), "chaoschain_agent_ids.json")
+    
+    def _load_agent_id_from_cache(self) -> Optional[int]:
+        """Load agent ID from local cache file.
+        
+        Cache format: {
+            "network_chainId": {
+                "wallet_address": {
+                    "agent_id": 1234,
+                    "timestamp": "2025-12-19T12:00:00",
+                    "domain": "agent.example.com"
+                }
+            }
+        }
+        """
+        import os
+        import json
+        
+        cache_file = self._get_cache_file_path()
+        if not os.path.exists(cache_file):
+            return None
+        
+        try:
+            with open(cache_file, 'r') as f:
+                cache = json.load(f)
+            
+            chain_key = str(self.w3.eth.chain_id)
+            wallet_key = self.address.lower()
+            
+            if chain_key in cache and wallet_key in cache[chain_key]:
+                return cache[chain_key][wallet_key].get("agent_id")
+            
+        except Exception as e:
+            rprint(f"[dim]⚠️ Cache read error: {e}[/dim]")
+        
+        return None
+    
+    def _save_agent_id_to_cache(self, agent_id: int) -> None:
+        """Save agent ID to local cache file."""
+        import os
+        import json
+        from datetime import datetime
+        
+        cache_file = self._get_cache_file_path()
+        
+        # Load existing cache or create new
+        cache = {}
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    cache = json.load(f)
+            except:
+                cache = {}
+        
+        chain_key = str(self.w3.eth.chain_id)
+        wallet_key = self.address.lower()
+        
+        if chain_key not in cache:
+            cache[chain_key] = {}
+        
+        cache[chain_key][wallet_key] = {
+            "agent_id": agent_id,
+            "timestamp": datetime.now().isoformat(),
+            "domain": self.agent_domain if hasattr(self, 'agent_domain') else ""
+        }
+        
+        try:
+            with open(cache_file, 'w') as f:
+                json.dump(cache, f, indent=2)
+            rprint(f"[dim]📦 Cached agent ID {agent_id} for {wallet_key[:10]}...[/dim]")
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Could not cache agent ID: {e}[/yellow]")
+    
+    def set_cached_agent_id(self, agent_id: int) -> None:
+        """Manually set the agent ID (useful when known from external source).
+        
+        This sets both the in-memory agent_id AND saves to cache.
+        
+        Args:
+            agent_id: The ERC-8004 agent ID to cache
+            
+        Example:
+            ```python
+            # If you already know your agent ID from previous registration
+            agent.set_cached_agent_id(1234)
+            ```
+        """
+        self.agent_id = agent_id
+        self._save_agent_id_to_cache(agent_id)
+        rprint(f"[green]✅ Agent ID set: {agent_id}[/green]")
     
     def get_reputation_score(self, agent_id: Optional[int] = None) -> float:
         """
@@ -1841,6 +1955,130 @@ class ChaosAgent:
             
         except Exception as e:
             raise ContractError(f"Failed to submit score vector: {str(e)}")
+    
+    def submit_score_vector_for_worker(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        worker_address: str,
+        score_vector: List[int]
+    ) -> TransactionHash:
+        """
+        Submit score vector for a SPECIFIC WORKER in multi-agent tasks (§3.1, §4.2).
+        
+        This is the CORRECT method for multi-agent work:
+        - Each verifier evaluates EACH WORKER from DKG causal analysis
+        - Submits separate score vector for each worker
+        - Contract calculates per-worker consensus
+        - Each worker gets THEIR OWN reputation scores
+        
+        Args:
+            studio_address: The StudioProxy contract address
+            data_hash: The work hash (bytes32) being scored
+            worker_address: The worker being scored
+            score_vector: Multi-dimensional score vector for THIS worker (list of uint8 scores 0-100)
+                         e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+        
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If score submission fails
+            
+        Example:
+            ```python
+            # Verifier submits scores for Alice FROM DKG analysis
+            scores_alice = [85, 60, 70, 95, 80]  # High initiative (root node)
+            tx_hash = agent.submit_score_vector_for_worker(
+                studio_address="0x123...",
+                data_hash=work_data_hash,
+                worker_address="0xAlice...",
+                score_vector=scores_alice
+            )
+            
+            # Verifier submits scores for Bob FROM DKG analysis
+            scores_bob = [65, 90, 75, 95, 85]  # High collaboration (central node)
+            tx_hash = agent.submit_score_vector_for_worker(
+                studio_address="0x123...",
+                data_hash=work_data_hash,
+                worker_address="0xBob...",
+                score_vector=scores_bob
+            )
+            ```
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum addresses
+            studio_address = self.w3.to_checksum_address(studio_address)
+            worker_address = self.w3.to_checksum_address(worker_address)
+            
+            # StudioProxy ABI for submitScoreVectorForWorker
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "worker", "type": "address"},
+                        {"name": "scoreVector", "type": "bytes"}
+                    ],
+                    "name": "submitScoreVectorForWorker",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            studio_proxy = self.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Encode score vector as ABI-encoded bytes
+            from eth_abi import encode
+            
+            # Ensure we have exactly 5 scores (pad with 0 if needed)
+            scores_padded = (score_vector + [0, 0, 0, 0, 0])[:5]
+            
+            # ABI encode as 5 uint8s - this produces 160 bytes
+            score_bytes = encode(['uint8', 'uint8', 'uint8', 'uint8', 'uint8'], scores_padded)
+            
+            rprint(f"[cyan]📊 Submitting per-worker score vector to Studio {studio_address[:10]}...[/cyan]")
+            rprint(f"   Worker: {worker_address[:10]}...")
+            rprint(f"   Data Hash: {data_hash.hex()[:16]}...")
+            rprint(f"   Scores: {score_vector}")
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            # Build transaction
+            tx = studio_proxy.functions.submitScoreVectorForWorker(
+                data_hash,
+                worker_address,
+                score_bytes
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.w3.eth.get_transaction_count(account.address),
+                'gas': 250000,  # Slightly more gas for per-worker submission
+                'gasPrice': self.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.w3.eth.account.sign_transaction(tx, account.key)
+            raw_transaction = getattr(signed_tx, 'raw_transaction', getattr(signed_tx, 'rawTransaction', None))
+            tx_hash = self.w3.eth.send_raw_transaction(raw_transaction)
+            
+            # Wait for confirmation
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Per-worker score submission transaction failed")
+            
+            tx_hash_hex = tx_hash.hex()
+            rprint(f"[green]✅ Per-worker score vector submitted for {worker_address[:10]}...: {tx_hash_hex[:10]}...[/green]")
+            
+            return tx_hash_hex
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit per-worker score vector: {str(e)}")
     
     def _generate_feedback_auth(
         self,

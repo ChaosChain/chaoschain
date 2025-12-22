@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {ChaosChainRegistry} from "../src/ChaosChainRegistry.sol";
 import {ChaosCore} from "../src/ChaosCore.sol";
+import {StudioProxyFactory} from "../src/StudioProxyFactory.sol";
 import {RewardsDistributor} from "../src/RewardsDistributor.sol";
 import {PredictionMarketLogic} from "../src/logic/PredictionMarketLogic.sol";
 
@@ -36,6 +37,7 @@ contract DeployCore is Script {
     // ============ State Variables ============
     
     ChaosChainRegistry public registry;
+    StudioProxyFactory public factory;
     ChaosCore public chaosCore;
     RewardsDistributor public rewardsDistributor;
     PredictionMarketLogic public predictionLogic;
@@ -73,32 +75,38 @@ contract DeployCore is Script {
         console.log("");
         
         // Step 2: Deploy RewardsDistributor
-        console.log("Step 2/6: Deploying RewardsDistributor...");
+        console.log("Step 2/7: Deploying RewardsDistributor...");
         rewardsDistributor = new RewardsDistributor(address(registry));
         console.log("  RewardsDistributor deployed at:", address(rewardsDistributor));
         console.log("");
         
-        // Step 3: Deploy ChaosCore
-        console.log("Step 3/6: Deploying ChaosCore...");
-        chaosCore = new ChaosCore(address(registry));
+        // Step 3: Deploy StudioProxyFactory
+        console.log("Step 3/7: Deploying StudioProxyFactory...");
+        factory = new StudioProxyFactory();
+        console.log("  StudioProxyFactory deployed at:", address(factory));
+        console.log("");
+        
+        // Step 4: Deploy ChaosCore
+        console.log("Step 4/7: Deploying ChaosCore...");
+        chaosCore = new ChaosCore(address(registry), address(factory));
         console.log("  ChaosCore deployed at:", address(chaosCore));
         console.log("");
         
-        // Step 4: Update Registry
-        console.log("Step 4/6: Updating Registry with deployed addresses...");
+        // Step 5: Update Registry
+        console.log("Step 5/7: Updating Registry with deployed addresses...");
         registry.setChaosCore(address(chaosCore));
         registry.setRewardsDistributor(address(rewardsDistributor));
         console.log("  Registry updated successfully");
         console.log("");
         
-        // Step 5: Deploy PredictionMarketLogic
-        console.log("Step 5/6: Deploying PredictionMarketLogic...");
+        // Step 6: Deploy PredictionMarketLogic
+        console.log("Step 6/7: Deploying PredictionMarketLogic...");
         predictionLogic = new PredictionMarketLogic();
         console.log("  PredictionMarketLogic deployed at:", address(predictionLogic));
         console.log("");
         
-        // Step 6: Register logic module
-        console.log("Step 6/6: Registering PredictionMarketLogic...");
+        // Step 7: Register logic module
+        console.log("Step 7/7: Registering PredictionMarketLogic...");
         chaosCore.registerLogicModule(address(predictionLogic), "PredictionMarket");
         console.log("  Logic module registered successfully");
         console.log("");
@@ -114,6 +122,7 @@ contract DeployCore is Script {
         console.log("-------------------------------------------");
         console.log("ChaosChainRegistry:    ", address(registry));
         console.log("RewardsDistributor:    ", address(rewardsDistributor));
+        console.log("StudioProxyFactory:    ", address(factory));
         console.log("ChaosCore:             ", address(chaosCore));
         console.log("PredictionMarketLogic: ", address(predictionLogic));
         console.log("-------------------------------------------");
