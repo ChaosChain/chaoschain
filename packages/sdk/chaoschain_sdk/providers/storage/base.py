@@ -16,6 +16,7 @@ class StorageProvider(Enum):
     PINATA = "ipfs-pinata"
     IRYS = "irys"
     ZEROG = "0g"
+    ARIO = "ario"
     WEB3_STORAGE = "web3-storage"
     FLEEK = "fleek"
     INFURA_IPFS = "infura-ipfs"
