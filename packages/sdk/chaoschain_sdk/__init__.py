@@ -65,6 +65,16 @@ from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
 from .x402_payment_manager import X402PaymentManager
 
+# Mandates (optional - requires mandates-core package)
+try:
+    from .mandate_manager import MandateManager
+    from mandates_core import Mandate
+    _has_mandates = True
+except ImportError:
+    _has_mandates = False
+    MandateManager = None
+    Mandate = None
+
 # XMTP & Causal Audit (optional - requires xmtp package)
 try:
     from .xmtp_client import XMTPManager, XMTPMessage
@@ -260,3 +270,6 @@ if _has_x402_server:
 
 if _has_xmtp:
     __all__.extend(["XMTPManager", "XMTPMessage", "DKG", "DKGNode", "VerifierAgent", "AuditResult", "StudioManager", "Task", "WorkerBid"])
+
+if _has_mandates:
+    __all__.extend(["MandateManager", "Mandate"])

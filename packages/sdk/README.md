@@ -89,6 +89,54 @@ tx_hash = sdk.submit_work(
 
 ---
 
+### Mandates Core (ERC-8004 deterministic agreements)
+
+```python
+from eth_account import Account
+from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig
+
+# Initialize your agent (server)
+sdk = ChaosChainAgentSDK(
+    agent_name="ServerAgent",
+    agent_domain="server.example.com",
+    network=NetworkConfig.BASE_SEPOLIA,
+    enable_payments=True,
+)
+
+# Client identity (CAIP-10)
+client_acct = Account.create()
+client_caip10 = f"eip155:{sdk.wallet_manager.chain_id}:{client_acct.address}"
+
+# Build primitive core from mandate-specs (swap@1 as example)
+core = sdk.build_mandate_core(
+    "swap@1",
+    {
+        "chainId": sdk.wallet_manager.chain_id,
+        "tokenIn": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "tokenOut": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+        "amountIn": "100000000",   # 100 USDC (6 decimals)
+        "minOut": "165000",
+        "recipient": client_acct.address,
+        "deadline": "2025-12-31T00:00:00Z",
+    },
+)
+
+# Create + sign mandate
+mandate = sdk.create_mandate(
+    intent="Swap 100 USDC for WBTC on Base Sepolia",
+    core=core,
+    deadline="2025-12-31T00:10:00Z",
+    client=client_caip10,
+)
+sdk.sign_mandate_as_server(mandate)  # uses agent wallet
+sdk.sign_mandate_as_client(mandate, client_acct.key.hex())
+
+verification = sdk.verify_mandate(mandate)
+print("All signatures valid:", verification["all_ok"])
+```
+
+---
+
 ## ChaosChain Protocol - Complete Guide
 
 ### The DKG (Decentralized Knowledge Graph)
