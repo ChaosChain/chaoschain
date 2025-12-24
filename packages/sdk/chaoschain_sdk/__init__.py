@@ -52,7 +52,7 @@ Example (With 0G):
     ```
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 __author__ = "ChaosChain"
 __email__ = "sumeet@chaoscha.in"
 
@@ -66,6 +66,16 @@ from .wallet_manager import WalletManager
 from .x402_payment_manager import X402PaymentManager
 from .mandate_manager import MandateManager
 from mandates_core import Mandate
+
+# XMTP & Causal Audit (optional - requires xmtp package)
+try:
+    from .xmtp_client import XMTPManager, XMTPMessage
+    from .dkg import DKG, DKGNode
+    from .verifier_agent import VerifierAgent, AuditResult
+    from .studio_manager import StudioManager, Task, WorkerBid
+    _has_xmtp = True
+except ImportError:
+    _has_xmtp = False
 
 # Types and enums
 from .types import (
@@ -251,3 +261,6 @@ if _has_ap2:
 
 if _has_x402_server:
     __all__.append("X402PaywallServer")
+
+if _has_xmtp:
+    __all__.extend(["XMTPManager", "XMTPMessage", "DKG", "DKGNode", "VerifierAgent", "AuditResult", "StudioManager", "Task", "WorkerBid"])

@@ -1368,14 +1368,41 @@ class ChaosChainAgentSDK:
         """
         import uuid
         
-        # Compute thread_root if XMTP thread provided
+        # Compute thread_root and build DKG if XMTP thread provided
         thread_root = "0x" + "0" * 64
+        dkg_export = None
+        
         if xmtp_thread_id and self.xmtp_manager:
             try:
                 messages = self.xmtp_manager.get_thread(xmtp_thread_id)
-                thread_root = self.xmtp_manager.compute_thread_root(messages)
+                
+                # Build artifacts map for DKG
+                artifacts_map = {}
+                if artifacts:
+                    for artifact in artifacts:
+                        msg_id = artifact.get("message_id", artifact.get("xmtp_msg_id"))
+                        cid = artifact.get("cid", artifact.get("ipfs_cid"))
+                        if msg_id and cid:
+                            if msg_id not in artifacts_map:
+                                artifacts_map[msg_id] = []
+                            artifacts_map[msg_id].append(cid)
+                
+                # Build DKG from XMTP thread
+                from .dkg import DKG
+                dkg = DKG.from_xmtp_thread(messages, artifacts_map)
+                
+                # Compute thread root from DKG
+                thread_root = dkg.compute_thread_root()
+                
+                # Export DKG for verifiers
+                dkg_export = dkg.to_dict()
+                
+                rprint(f"[green]✅ DKG exported: {len(dkg.nodes)} nodes, {len(dkg.agents)} agents[/green]")
+                
             except Exception as e:
-                rprint(f"[yellow]⚠️  Failed to compute thread root: {e}[/yellow]")
+                rprint(f"[yellow]⚠️  Failed to build DKG: {e}[/yellow]")
+                import traceback
+                traceback.print_exc()
         
         # Compute evidence_root from artifacts
         evidence_root = "0x" + "0" * 64
@@ -1411,6 +1438,8 @@ class ChaosChainAgentSDK:
                 "thread_root": package.thread_root,
                 "evidence_root": package.evidence_root,
                 "participants": package.participants,
+                "dkg_export": dkg_export,  # Full DKG for verifiers!
+                "artifacts": artifacts or [],
                 "agent_identity": {
                     "agent_id": package.agent_identity.agent_id,
                     "agent_name": package.agent_identity.agent_name,
@@ -1746,6 +1775,398 @@ class ChaosChainAgentSDK:
         except Exception as e:
             raise ContractError(f"Failed to submit work: {str(e)}")
     
+    def submit_work_multi_agent(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        thread_root: bytes,
+        evidence_root: bytes,
+        participants: List[str],
+        contribution_weights,  # Can be Dict[str, float] or List[int] or List[float]
+        evidence_cid: str = ""
+    ) -> str:
+        """
+        Submit work with multi-agent attribution (Protocol Spec §4.2).
+        
+        This method enables multiple agents to collaborate on a task and receive
+        rewards based on their contribution weights computed FROM DKG causal analysis.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: EIP-712 DataHash of the work (bytes32)
+            thread_root: VLC/Merkle root of XMTP thread (bytes32)
+            evidence_root: Merkle root of artifacts (bytes32)
+            participants: List of participant addresses (in order)
+            contribution_weights: Contribution weights in one of these formats:
+                - Dict[str, float]: {address: weight} where weights sum to 1.0
+                  Example: {"0xAlice": 0.45, "0xBob": 0.35, "0xCarol": 0.20}
+                - List[float]: weights in same order as participants, sum to 1.0
+                  Example: [0.45, 0.35, 0.20]
+                - List[int]: basis points in same order as participants, sum to 10000
+                  Example: [4500, 3500, 2000]
+                These come FROM DKG.compute_contribution_weights()!
+            evidence_cid: IPFS/Arweave CID of evidence package (optional)
+            
+        Returns:
+            Transaction hash
+            
+        Example:
+            # After DKG causal analysis
+            dkg = DKG.from_xmtp_messages_and_artifacts(messages, artifacts)
+            contribution_weights = dkg.compute_contribution_weights()  # FROM DKG!
+            
+            # Submit work
+            tx = sdk.submit_work_multi_agent(
+                studio_address="0x...",
+                data_hash=data_hash,
+                thread_root=thread_root,
+                evidence_root=evidence_root,
+                participants=["0xAlice", "0xBob", "0xCarol"],
+                contribution_weights=contribution_weights,  # FROM DKG!
+                evidence_cid="Qm..."
+            )
+        
+        Raises:
+            ValueError: If contribution weights don't sum to 1.0
+            ContractError: If submission fails
+        """
+        try:
+            from rich import print as rprint
+            
+            # Normalize contribution_weights to basis points (0-10000)
+            # Handle different input formats: Dict, List[float], List[int]
+            weights_bp = []
+            
+            if isinstance(contribution_weights, dict):
+                # Dict format: {address: float_weight}
+                total_weight = sum(contribution_weights.values())
+                if abs(total_weight - 1.0) > 1e-6:
+                    raise ValueError(f"Dict contribution weights must sum to 1.0, got {total_weight}")
+                
+                # Validate participants match weights
+                for p in participants:
+                    if p not in contribution_weights:
+                        raise ValueError(f"No contribution weight for participant {p}")
+                
+                # Convert to basis points
+                weights_bp = [int(contribution_weights[p] * 10000) for p in participants]
+                
+            elif isinstance(contribution_weights, list):
+                if len(contribution_weights) != len(participants):
+                    raise ValueError(f"Weights list length ({len(contribution_weights)}) must match participants ({len(participants)})")
+                
+                # Check if list contains floats (0-1) or ints (basis points)
+                total = sum(contribution_weights)
+                
+                if total <= 1.1:  # Float weights (0-1 range)
+                    if abs(total - 1.0) > 1e-6:
+                        raise ValueError(f"Float contribution weights must sum to 1.0, got {total}")
+                    weights_bp = [int(w * 10000) for w in contribution_weights]
+                else:  # Basis points (0-10000 range)
+                    if total != 10000:
+                        rprint(f"[yellow]⚠️  Basis point weights sum to {total}, expected 10000. Auto-normalizing...[/yellow]")
+                        weights_bp = [int(w * 10000 / total) for w in contribution_weights]
+                    else:
+                        weights_bp = [int(w) for w in contribution_weights]
+            else:
+                raise ValueError(f"contribution_weights must be dict or list, got {type(contribution_weights)}")
+            
+            # Checksum addresses
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            participants_checksummed = [
+                self.chaos_agent.w3.to_checksum_address(p) for p in participants
+            ]
+            
+            # Verify sum is 10000 (handling rounding)
+            weights_sum = sum(weights_bp)
+            if weights_sum != 10000:
+                # Adjust last weight to ensure exact sum
+                diff = 10000 - weights_sum
+                weights_bp[-1] += diff
+            
+            # Get agent ID
+            agent_id = self.chaos_agent.get_agent_id()
+            if not agent_id or agent_id == 0:
+                raise ContractError("Agent not registered. Call register_agent() first.")
+            
+            # Generate feedbackAuth signature
+            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
+            if not rewards_distributor:
+                raise ContractError("RewardsDistributor address not configured")
+            
+            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature...")
+            feedback_auth = self.chaos_agent._generate_feedback_auth(
+                agent_id,
+                rewards_distributor
+            )
+            
+            # StudioProxy ABI for multi-agent submission
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "threadRoot", "type": "bytes32"},
+                        {"name": "evidenceRoot", "type": "bytes32"},
+                        {"name": "feedbackAuth", "type": "bytes"},
+                        {"name": "participants", "type": "address[]"},
+                        {"name": "contributionWeights", "type": "uint16[]"},
+                        {"name": "evidenceCID", "type": "string"}
+                    ],
+                    "name": "submitWorkMultiAgent",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Submitting multi-agent work to studio {studio_address}")
+            rprint(f"[dim]   Participants: {len(participants)}[/dim]")
+            for i, (p, w) in enumerate(zip(participants, weights_bp)):
+                rprint(f"[dim]     {i+1}. {p[:10]}... → {w/100:.1f}% contribution[/dim]")
+            rprint(f"[dim]   DataHash: {data_hash.hex() if isinstance(data_hash, bytes) else data_hash}[/dim]")
+            if evidence_cid:
+                rprint(f"[dim]   Evidence: ipfs://{evidence_cid}[/dim]")
+            
+            # Build transaction
+            tx = studio.functions.submitWorkMultiAgent(
+                data_hash,
+                thread_root,
+                evidence_root,
+                feedback_auth,
+                participants_checksummed,
+                weights_bp,
+                evidence_cid
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 800000,  # Higher gas for multi-agent
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("Multi-agent work submission failed")
+            
+            rprint(f"[green]✓[/green] Multi-agent work submitted successfully")
+            rprint(f"[green]  Rewards will be distributed based on DKG contribution weights![/green]")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit multi-agent work: {str(e)}")
+    
+    def register_feedback_auth(
+        self,
+        studio_address: str,
+        data_hash: bytes
+    ) -> str:
+        """
+        Register feedbackAuth for a multi-agent work submission.
+        
+        This allows participants (who didn't submit the work) to register their
+        feedbackAuth so they can receive reputation when the epoch closes.
+        
+        Flow:
+        1. Alice submits multi-agent work (her feedbackAuth is stored)
+        2. Dave calls register_feedback_auth(data_hash) → Dave can receive reputation
+        3. Eve calls register_feedback_auth(data_hash) → Eve can receive reputation
+        4. Epoch closes → ALL participants receive reputation!
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: The work dataHash (bytes32)
+            
+        Returns:
+            Transaction hash
+            
+        Example:
+            # After Alice submits multi-agent work including Dave:
+            tx = dave_sdk.register_feedback_auth(
+                studio_address="0x...",
+                data_hash=data_hash  # From Alice's submission
+            )
+            print(f"Dave registered feedbackAuth: {tx}")
+            
+        Raises:
+            ContractError: If not a participant or already registered
+        """
+        try:
+            from rich import print as rprint
+            
+            # Checksum addresses
+            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+            
+            # Get agent ID
+            agent_id = self.chaos_agent.get_agent_id()
+            if not agent_id or agent_id == 0:
+                raise ContractError("Agent not registered. Call register_agent() first.")
+            
+            # Generate feedbackAuth signature
+            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
+            if not rewards_distributor:
+                raise ContractError("RewardsDistributor address not configured")
+            
+            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature for multi-agent work...")
+            feedback_auth = self.chaos_agent._generate_feedback_auth(
+                agent_id,
+                rewards_distributor
+            )
+            
+            # StudioProxy ABI for registerFeedbackAuth
+            studio_proxy_abi = [
+                {
+                    "inputs": [
+                        {"name": "dataHash", "type": "bytes32"},
+                        {"name": "feedbackAuth", "type": "bytes"}
+                    ],
+                    "name": "registerFeedbackAuth",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+            
+            # Create contract instance
+            studio = self.chaos_agent.w3.eth.contract(
+                address=studio_address,
+                abi=studio_proxy_abi
+            )
+            
+            # Get wallet account
+            account = self.wallet_manager.wallets[self.agent_name]
+            
+            rprint(f"[cyan]→[/cyan] Registering feedbackAuth for work {data_hash.hex()[:16]}...")
+            
+            # Build transaction
+            tx = studio.functions.registerFeedbackAuth(
+                data_hash,
+                feedback_auth
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 500000,  # Higher gas for feedbackAuth storage
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()[:16]}...")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("FeedbackAuth registration failed")
+            
+            rprint(f"[green]✓[/green] FeedbackAuth registered successfully!")
+            rprint(f"[green]  You will now receive reputation when epoch closes![/green]")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to register feedbackAuth: {str(e)}")
+    
+    def submit_work_from_audit(
+        self,
+        studio_address: str,
+        audit_result: 'AuditResult',
+        evidence_cid: str
+    ) -> str:
+        """
+        Submit work with contribution weights FROM audit result (convenience helper).
+        
+        This helper automatically extracts contribution weights from VerifierAgent audit,
+        computes all necessary hashes, and submits the work.
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            audit_result: Result from VerifierAgent.perform_causal_audit()
+            evidence_cid: IPFS/Arweave CID of evidence package
+            
+        Returns:
+            Transaction hash
+            
+        Example:
+            # Verifier performs audit
+            verifier = VerifierAgent(sdk)
+            audit = verifier.perform_causal_audit(evidence_cid, studio_address)
+            
+            # Submit work (one line!)
+            tx = sdk.submit_work_from_audit(
+                studio_address,
+                audit,  # Contains DKG contribution weights!
+                evidence_cid
+            )
+        """
+        try:
+            from rich import print as rprint
+            
+            # Extract contribution weights FROM audit (FROM DKG!)
+            contribution_weights = audit_result.contribution_weights
+            if not contribution_weights:
+                raise ValueError("Audit result does not contain contribution weights")
+            
+            # Get participants (sorted by address for consistency)
+            participants = sorted(contribution_weights.keys())
+            
+            # Fetch evidence package to compute hashes
+            rprint(f"[cyan]📦[/cyan] Fetching evidence package to compute hashes...")
+            evidence = self.storage_client.fetch(evidence_cid)
+            
+            if not evidence:
+                raise ValueError("Could not fetch evidence package")
+            
+            # Compute thread root from XMTP messages
+            from chaoschain_sdk.xmtp_client import XMTPMessage
+            messages = evidence.get("xmtp_messages", [])
+            if messages and isinstance(messages[0], dict):
+                messages = [XMTPMessage(**msg) if isinstance(msg, dict) else msg for msg in messages]
+            
+            thread_root = self.xmtp_manager.compute_thread_root(messages) if messages else bytes(32)
+            
+            # Compute evidence root from artifacts
+            artifacts = evidence.get("artifacts", [])
+            evidence_root = self._compute_evidence_root(artifacts) if artifacts else bytes(32)
+            
+            # Compute data hash
+            data_hash = audit_result.data_hash
+            
+            rprint(f"[green]✓[/green] Hashes computed from evidence package")
+            rprint(f"[dim]   Thread root: {thread_root.hex()}[/dim]")
+            rprint(f"[dim]   Evidence root: {evidence_root.hex()}[/dim]")
+            rprint(f"[dim]   Data hash: {data_hash.hex()}[/dim]")
+            
+            # Submit work
+            return self.submit_work_multi_agent(
+                studio_address,
+                data_hash,
+                thread_root,
+                evidence_root,
+                participants,
+                contribution_weights,
+                evidence_cid
+            )
+            
+        except Exception as e:
+            raise ContractError(f"Failed to submit work from audit: {str(e)}")
+    
     def commit_score(
         self,
         studio_address: str,
@@ -1970,6 +2391,76 @@ class ChaosChainAgentSDK:
             studio_address=studio_address,
             data_hash=data_hash,
             score_vector=score_vector
+        )
+    
+    def submit_score_vector_for_worker(
+        self,
+        studio_address: str,
+        data_hash: bytes,
+        worker_address: str,
+        scores: List[int]
+    ) -> str:
+        """
+        Submit score vector for a SPECIFIC WORKER in multi-agent tasks (§3.1, §4.2).
+        
+        This is the CORRECT method for multi-agent work reputation:
+        - Each verifier evaluates EACH WORKER from DKG causal analysis
+        - Submits separate score vector for each worker
+        - Contract calculates per-worker consensus
+        - Each worker gets THEIR OWN reputation scores
+        
+        Why this matters:
+        - Alice (research) gets different scores than Bob (dev) than Carol (QA)
+        - Reputation reflects individual contribution, not team average
+        - Enables fair agent selection based on actual performance
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            data_hash: DataHash of the work being scored (bytes32)
+            worker_address: Address of the worker being scored
+            scores: Multi-dimensional scores for THIS worker [0-100 each]
+                   e.g., [initiative, collaboration, reasoning_depth, compliance, efficiency]
+            
+        Returns:
+            Transaction hash
+            
+        Raises:
+            ContractError: If submission fails
+            
+        Example:
+            ```python
+            # After DKG causal audit, score each worker separately
+            
+            # Alice's scores FROM DKG (high initiative = root node)
+            sdk.submit_score_vector_for_worker(
+                studio_address="0x67b...",
+                data_hash=work_hash,
+                worker_address="0xAlice...",
+                scores=[85, 60, 70, 95, 80]  # High initiative
+            )
+            
+            # Bob's scores FROM DKG (high collaboration = central node)
+            sdk.submit_score_vector_for_worker(
+                studio_address="0x67b...",
+                data_hash=work_hash,
+                worker_address="0xBob...",
+                scores=[65, 90, 75, 95, 85]  # High collaboration
+            )
+            
+            # Carol's scores FROM DKG (high reasoning = deep path)
+            sdk.submit_score_vector_for_worker(
+                studio_address="0x67b...",
+                data_hash=work_hash,
+                worker_address="0xCarol...",
+                scores=[55, 70, 95, 95, 88]  # High reasoning depth
+            )
+            ```
+        """
+        return self.chaos_agent.submit_score_vector_for_worker(
+            studio_address=studio_address,
+            data_hash=data_hash,
+            worker_address=worker_address,
+            score_vector=scores
         )
     
     def close_epoch(

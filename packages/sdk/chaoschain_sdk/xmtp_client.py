@@ -1,467 +1,686 @@
 """
 XMTP Client for ChaosChain Agent Communication
 
-Implements:
-- Real-time agent-to-agent messaging
-- Causal DAG construction (parents[], timestamps, signatures)
-- Thread root computation (Merkle root)
-- Verifiable Logical Clock (VLC)
-- Causality verification
+Provides agent-to-agent communication with causal DAG construction
+as specified in Protocol Spec v0.1 (§1 - Formal DKG & Causal Audit Model).
 
-Protocol Spec: §1 (Formal DKG & Causal Audit Model)
+MVP Mode (Default):
+- Uses LOCAL message storage (no XMTP network dependency)
+- DKG nodes built from local interaction logs
+- Thread root computed locally (Merkle root)
+- VLC computed locally (Verifiable Logical Clock)
+- Full causal analysis support
+
+Future Mode (XMTP Bridge):
+- When XMTP bridge infrastructure is deployed, agents can use real XMTP
+- Messages will be E2E encrypted via XMTP network
+- See packages/xmtp-bridge/ for bridge implementation
+
+Key Features (work in both modes):
+- DKG node construction (§1.1)
+- Thread root calculation (Merkle root over topologically sorted messages) (§1.2)
+- Verifiable Logical Clock (VLC) computation (§1.3)
+- Causality verification (parents exist, timestamps monotonic) (§1.5)
+
+Usage:
+    ```python
+    from chaoschain_sdk import ChaosChainAgentSDK
+    
+    sdk = ChaosChainAgentSDK(...)
+    
+    # Send message (creates DKG node locally)
+    message_id, dkg_node = sdk.xmtp.send_message(
+        to_agent="0x...",
+        content={"task": "analyze market data"},
+        parent_ids=[previous_message_id]  # Creates causal link
+    )
+    
+    # Get thread for causal audit
+    thread = sdk.xmtp.get_thread()
+    
+    # Compute thread root for DataHash
+    thread_root = sdk.xmtp.compute_thread_root(thread["nodes"])
+    ```
+
+@author ChaosChain
 """
 
-from typing import List, Optional, Dict, Any, Tuple
-from dataclasses import dataclass
+from typing import List, Optional, Dict, Any, Tuple, Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from eth_utils import keccak
-from eth_account.messages import encode_defunct
 import json
-import logging
+import hashlib
+import uuid
+import os
+from eth_utils import keccak
+from rich import print as rprint
 
-logger = logging.getLogger(__name__)
+
+@dataclass
+class DKGNode:
+    """
+    DKG Node structure (Protocol Spec §1.1).
+    
+    Represents a node in the Decentralized Knowledge Graph.
+    Each message becomes a DKG node with causal links.
+    
+    Attributes:
+        author: ERC-8004 agent address
+        sig: Cryptographic signature over node contents
+        ts: Unix timestamp in milliseconds
+        xmtp_msg_id: Message ID (local UUID in MVP mode)
+        artifact_ids: Array of artifact CIDs (IPFS/Arweave)
+        payload_hash: keccak256 hash of the payload
+        parents: Parent message IDs (for causal DAG)
+        vlc: Verifiable Logical Clock value (§1.3)
+        agent_id: ERC-8004 Agent ID (if registered)
+    """
+    author: str
+    sig: str
+    ts: int
+    xmtp_msg_id: str
+    artifact_ids: List[str]
+    payload_hash: str
+    parents: List[str]
+    vlc: Optional[str] = None
+    agent_id: Optional[int] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "author": self.author,
+            "sig": self.sig,
+            "ts": self.ts,
+            "xmtp_msg_id": self.xmtp_msg_id,
+            "artifact_ids": self.artifact_ids,
+            "payload_hash": self.payload_hash,
+            "parents": self.parents,
+            "vlc": self.vlc,
+            "agent_id": self.agent_id
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'DKGNode':
+        """Create from dictionary."""
+        return cls(
+            author=data.get("author", ""),
+            sig=data.get("sig", ""),
+            ts=data.get("ts", 0),
+            xmtp_msg_id=data.get("xmtp_msg_id", ""),
+            artifact_ids=data.get("artifact_ids", []),
+            payload_hash=data.get("payload_hash", ""),
+            parents=data.get("parents", []),
+            vlc=data.get("vlc"),
+            agent_id=data.get("agent_id")
+        )
+    
+    def compute_hash(self) -> bytes:
+        """Compute canonical hash for this node (§1.2)."""
+        canonical = f"{self.author}|{self.ts}|{self.xmtp_msg_id}|{self.payload_hash}|{','.join(self.parents)}"
+        return keccak(text=canonical)
+    
+    def to_full_dkg_node(self):
+        """
+        Convert to full DKGNode from dkg.py module.
+        
+        Use this when you need to add the node to a DKG graph for causal analysis.
+        
+        Returns:
+            dkg.DKGNode instance
+        """
+        from .dkg import DKGNode as FullDKGNode
+        
+        # Convert string hashes to bytes
+        payload_hash_bytes = bytes.fromhex(
+            self.payload_hash[2:] if self.payload_hash.startswith('0x') else self.payload_hash
+        ) if self.payload_hash else bytes(32)
+        
+        vlc_bytes = None
+        if self.vlc:
+            vlc_bytes = bytes.fromhex(
+                self.vlc[2:] if self.vlc.startswith('0x') else self.vlc
+            )
+        
+        sig_bytes = bytes.fromhex(
+            self.sig[2:] if self.sig.startswith('0x') else self.sig
+        ) if self.sig else bytes(65)
+        
+        return FullDKGNode(
+            author=self.author,
+            sig=sig_bytes,
+            ts=self.ts,
+            xmtp_msg_id=self.xmtp_msg_id,
+            artifact_ids=self.artifact_ids,
+            payload_hash=payload_hash_bytes,
+            parents=self.parents,
+            vlc=vlc_bytes,
+            metadata={"agent_id": self.agent_id} if self.agent_id else {}
+        )
 
 
 @dataclass
 class XMTPMessage:
     """
-    XMTP message with causal DAG metadata.
-    
-    Represents a node in the causal DAG (§1.1).
+    Message with DKG metadata.
     """
     id: str
-    author: str
-    content: str
+    sender: str
+    recipient: str
+    content: Dict[str, Any]
     timestamp: int
-    parent_id: Optional[str] = None
-    signature: Optional[str] = None
-    vlc: Optional[str] = None  # Verifiable Logical Clock (§1.3)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "id": self.id,
-            "author": self.author,
-            "content": self.content,
-            "timestamp": self.timestamp,
-            "parent_id": self.parent_id,
-            "signature": self.signature,
-            "vlc": self.vlc
-        }
+    dkg_node: DKGNode
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'XMTPMessage':
         """Create from dictionary."""
         return cls(
-            id=data["id"],
-            author=data["author"],
-            content=data["content"],
-            timestamp=data["timestamp"],
-            parent_id=data.get("parent_id"),
-            signature=data.get("signature"),
-            vlc=data.get("vlc")
+            id=data.get("id", ""),
+            sender=data.get("sender", ""),
+            recipient=data.get("recipient", ""),
+            content=data.get("content", {}),
+            timestamp=data.get("timestamp", 0),
+            dkg_node=DKGNode.from_dict(data.get("dkg_node", {}))
         )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "sender": self.sender,
+            "recipient": self.recipient,
+            "content": self.content,
+            "timestamp": self.timestamp,
+            "dkg_node": self.dkg_node.to_dict()
+        }
 
 
 class XMTPManager:
     """
-    XMTP integration for agent-to-agent communication.
+    XMTP-compatible message manager for agent communication.
     
-    Creates causal DAG of agent interactions for:
-    - Multi-dimensional scoring (§3.1)
-    - Causal audit (§1.5)
-    - Proof of Agency
+    MVP Mode (Default):
+    - Stores messages locally (in-memory + optional file persistence)
+    - Builds DKG nodes with proper causal links
+    - Computes thread roots and VLCs locally
+    - No external XMTP dependency
     
-    Protocol Spec: §1 (Formal DKG & Causal Audit Model)
+    This allows full Protocol Spec §1 compliance without XMTP infrastructure.
+    When XMTP bridge is available, this can be upgraded to use real XMTP.
+    
+    Protocol Spec v0.1 Compliance:
+    - §1.1: Graph Structure (Causal DAG)
+    - §1.2: Canonicalization (Merkle root computation)
+    - §1.3: Verifiable Logical Clock (VLC)
+    - §1.5: Causal Audit Algorithm
     """
     
-    def __init__(self, wallet_manager):
+    def __init__(
+        self,
+        address: str,
+        agent_id: Optional[int] = None,
+        persistence_file: Optional[str] = None
+    ):
         """
-        Initialize XMTP client with wallet.
+        Initialize XMTP Manager.
         
         Args:
-            wallet_manager: WalletManager instance with account
+            address: Agent's wallet address
+            agent_id: Optional ERC-8004 agent ID
+            persistence_file: Optional file path for message persistence
         """
-        self.wallet = wallet_manager.account
-        self.wallet_address = wallet_manager.account.address
-        self.conversations = {}
-        self.message_cache = {}
+        self.address = address
+        self.agent_id = agent_id
+        self.persistence_file = persistence_file
         
-        # Initialize XMTP client
-        try:
-            from xmtp import Client
-            self.client = Client.create(self.wallet)
-            logger.info(f"✅ XMTP client initialized for {self.wallet_address}")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize XMTP client: {e}")
-            raise
+        # In-memory message storage
+        self._messages: Dict[str, XMTPMessage] = {}
+        self._conversations: Dict[str, List[str]] = {}  # peer -> [msg_ids]
+        
+        # Load persisted messages if file exists
+        if persistence_file and os.path.exists(persistence_file):
+            self._load_messages()
+        
+        rprint(f"[green]✅ XMTP Manager initialized (local mode)[/green]")
     
     def send_message(
         self,
         to_address: str,
         content: Dict[str, Any],
-        parent_id: Optional[str] = None
-    ) -> str:
+        parent_ids: Optional[List[str]] = None,
+        artifact_ids: Optional[List[str]] = None,
+        sign_func: Optional[Callable[[bytes], str]] = None
+    ) -> Tuple[str, DKGNode]:
         """
-        Send message to another agent (creates DAG node).
+        Send a message (creates DKG node).
         
         Args:
             to_address: Recipient agent address
             content: Message content (JSON serializable)
-            parent_id: Parent message ID (for causal DAG)
+            parent_ids: Parent message IDs (for causal DAG)
+            artifact_ids: Artifact CIDs (IPFS/Arweave)
+            sign_func: Optional signing function for the node
         
         Returns:
-            Message ID
-            
-        Raises:
-            Exception: If message send fails
+            Tuple of (message_id, dkg_node)
         """
-        try:
-            # Add metadata
-            message_data = {
-                "from": self.wallet_address,
-                "timestamp": int(datetime.now(timezone.utc).timestamp()),
-                "content": content,
-                "parent_id": parent_id
-            }
-            
-            # Serialize
-            message_str = json.dumps(message_data, sort_keys=True)
-            
-            # Sign message
-            message_hash = keccak(text=message_str)
-            signature = self.wallet.sign_message(encode_defunct(message_hash))
-            
-            # Add signature
-            message_data["signature"] = signature.signature.hex()
-            final_message_str = json.dumps(message_data, sort_keys=True)
-            
-            # Get or create conversation
-            if to_address not in self.conversations:
-                self.conversations[to_address] = self.client.conversations.new_conversation(to_address)
-            
-            conversation = self.conversations[to_address]
-            
-            # Send message
-            xmtp_message = conversation.send(final_message_str)
-            
-            # Cache message
-            self.message_cache[xmtp_message.id] = XMTPMessage(
-                id=xmtp_message.id,
-                author=self.wallet_address,
-                content=final_message_str,
-                timestamp=message_data["timestamp"],
-                parent_id=parent_id,
-                signature=message_data["signature"]
-            )
-            
-            logger.info(f"✅ Message sent to {to_address}: {xmtp_message.id}")
-            return xmtp_message.id
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to send message: {e}")
-            raise
+        # Generate message ID
+        message_id = f"msg_{uuid.uuid4().hex[:16]}"
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        
+        # Compute payload hash
+        payload_hash = keccak(text=json.dumps(content, sort_keys=True)).hex()
+        
+        # Create signature (placeholder or real)
+        sig = ""
+        if sign_func:
+            node_data = f"{self.address}|{timestamp}|{message_id}|{payload_hash}"
+            sig = sign_func(node_data.encode())
+        
+        # Create DKG node
+        dkg_node = DKGNode(
+            author=self.address,
+            sig=sig,
+            ts=timestamp,
+            xmtp_msg_id=message_id,
+            artifact_ids=artifact_ids or [],
+            payload_hash=payload_hash,
+            parents=parent_ids or [],
+            agent_id=self.agent_id
+        )
+        
+        # Compute VLC (§1.3)
+        dkg_node.vlc = self._compute_vlc(dkg_node)
+        
+        # Create message
+        message = XMTPMessage(
+            id=message_id,
+            sender=self.address,
+            recipient=to_address,
+            content=content,
+            timestamp=timestamp,
+            dkg_node=dkg_node
+        )
+        
+        # Store message
+        self._messages[message_id] = message
+        
+        # Track conversation
+        if to_address not in self._conversations:
+            self._conversations[to_address] = []
+        self._conversations[to_address].append(message_id)
+        
+        # Persist if configured
+        if self.persistence_file:
+            self._save_messages()
+        
+        rprint(f"[green]📤 Message sent to {to_address[:10]}... (ID: {message_id})[/green]")
+        
+        return message_id, dkg_node
+    
+    def receive_message(
+        self,
+        from_address: str,
+        message_id: str,
+        content: Dict[str, Any],
+        timestamp: int,
+        parent_ids: Optional[List[str]] = None,
+        artifact_ids: Optional[List[str]] = None,
+        agent_id: Optional[int] = None
+    ) -> DKGNode:
+        """
+        Record a received message (creates DKG node).
+        
+        Use this to log messages received from other agents.
+        
+        Args:
+            from_address: Sender agent address
+            message_id: Message ID
+            content: Message content
+            timestamp: Message timestamp (ms)
+            parent_ids: Parent message IDs
+            artifact_ids: Artifact CIDs
+            agent_id: Sender's ERC-8004 agent ID
+        
+        Returns:
+            DKG node for the received message
+        """
+        # Compute payload hash
+        payload_hash = keccak(text=json.dumps(content, sort_keys=True)).hex()
+        
+        # Create DKG node
+        dkg_node = DKGNode(
+            author=from_address,
+            sig="",  # We don't have the sender's signature
+            ts=timestamp,
+            xmtp_msg_id=message_id,
+            artifact_ids=artifact_ids or [],
+            payload_hash=payload_hash,
+            parents=parent_ids or [],
+            agent_id=agent_id
+        )
+        
+        # Compute VLC
+        dkg_node.vlc = self._compute_vlc(dkg_node)
+        
+        # Create message
+        message = XMTPMessage(
+            id=message_id,
+            sender=from_address,
+            recipient=self.address,
+            content=content,
+            timestamp=timestamp,
+            dkg_node=dkg_node
+        )
+        
+        # Store message
+        self._messages[message_id] = message
+        
+        # Track conversation
+        if from_address not in self._conversations:
+            self._conversations[from_address] = []
+        self._conversations[from_address].append(message_id)
+        
+        # Persist if configured
+        if self.persistence_file:
+            self._save_messages()
+        
+        return dkg_node
     
     def get_thread(
         self,
-        conversation_address: str,
-        force_refresh: bool = False
-    ) -> List[XMTPMessage]:
+        peer_address: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
-        Fetch entire thread (reconstruct DAG).
+        Get message thread as DKG structure.
         
         Args:
-            conversation_address: Address of conversation partner
-            force_refresh: Force refresh from XMTP network
+            peer_address: Filter to specific conversation (None = all messages)
         
         Returns:
-            List of XMTPMessage objects sorted by timestamp
-            
-        Raises:
-            Exception: If thread fetch fails
+            Dict with:
+            - nodes: List[DKGNode]
+            - thread_root: str (Merkle root, §1.2)
+            - edges: List[{from, to}] (causal edges)
         """
-        try:
-            # Check cache
-            cache_key = f"thread_{conversation_address}"
-            if not force_refresh and cache_key in self.message_cache:
-                return self.message_cache[cache_key]
-            
-            # Get conversation
-            conversation = self.client.conversations.get(conversation_address)
-            if not conversation:
-                logger.warning(f"⚠️  No conversation found with {conversation_address}")
-                return []
-            
-            # Fetch all messages
-            raw_messages = conversation.messages()
-            
-            # Convert to XMTPMessage objects
-            messages = []
-            for msg in raw_messages:
-                try:
-                    message_data = json.loads(msg.content)
-                    
-                    xmtp_msg = XMTPMessage(
-                        id=msg.id,
-                        author=message_data.get("from", msg.sender_address),
-                        content=msg.content,
-                        timestamp=message_data.get("timestamp", int(msg.sent_at.timestamp())),
-                        parent_id=message_data.get("parent_id"),
-                        signature=message_data.get("signature")
-                    )
-                    
-                    # Compute VLC
-                    xmtp_msg.vlc = self.compute_vlc(xmtp_msg, messages)
-                    
-                    messages.append(xmtp_msg)
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️  Failed to parse message {msg.id}: {e}")
-                    continue
-            
-            # Sort by timestamp
-            messages.sort(key=lambda m: m.timestamp)
-            
-            # Cache
-            self.message_cache[cache_key] = messages
-            
-            logger.info(f"✅ Fetched {len(messages)} messages from {conversation_address}")
-            return messages
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to fetch thread: {e}")
-            raise
+        # Get relevant messages
+        if peer_address:
+            msg_ids = self._conversations.get(peer_address, [])
+            messages = [self._messages[mid] for mid in msg_ids if mid in self._messages]
+        else:
+            messages = list(self._messages.values())
+        
+        # Extract DKG nodes
+        nodes = [msg.dkg_node for msg in messages]
+        
+        # Build edges from parent relationships
+        edges = []
+        for node in nodes:
+            for parent_id in node.parents:
+                edges.append({"from": parent_id, "to": node.xmtp_msg_id})
+        
+        # Compute thread root
+        thread_root = self.compute_thread_root(nodes)
+        
+        return {
+            "nodes": nodes,
+            "thread_root": thread_root.hex() if isinstance(thread_root, bytes) else thread_root,
+            "edges": edges
+        }
     
-    def compute_thread_root(self, messages: List[XMTPMessage]) -> str:
+    def get_all_nodes(self) -> List[DKGNode]:
+        """Get all DKG nodes."""
+        return [msg.dkg_node for msg in self._messages.values()]
+    
+    def get_node(self, message_id: str) -> Optional[DKGNode]:
+        """Get a specific DKG node by message ID."""
+        msg = self._messages.get(message_id)
+        return msg.dkg_node if msg else None
+    
+    def compute_thread_root(self, nodes: List[DKGNode]) -> bytes:
         """
-        Compute Merkle root of XMTP DAG (for DataHash).
+        Compute Merkle root of thread (for DataHash) (§1.2).
         
-        Protocol Spec: §1.2 (Canonicalization), §1.4 (On-chain Commitment)
+        Thread root is computed over topologically-sorted list of node hashes.
         
         Args:
-            messages: List of XMTP messages
+            nodes: List of DKG nodes
         
         Returns:
-            Thread root (Merkle root) as hex string
+            Thread root (32-byte hash)
         """
-        if not messages:
-            return "0x" + "0" * 64
+        if not nodes:
+            return bytes(32)  # Zero hash for empty thread
         
-        # Sort messages topologically (by timestamp, then ID)
-        sorted_messages = sorted(messages, key=lambda m: (m.timestamp, m.id))
+        # Sort nodes topologically (by timestamp, then ID)
+        sorted_nodes = sorted(nodes, key=lambda n: (n.ts, n.xmtp_msg_id))
         
-        # Compute canonical hash for each message (§1.2)
-        message_hashes = []
-        for msg in sorted_messages:
-            canonical = self._canonicalize_message(msg)
-            msg_hash = keccak(text=canonical)
-            message_hashes.append(msg_hash)
+        # Compute hash for each node (§1.2 - Canonicalization)
+        node_hashes = [node.compute_hash() for node in sorted_nodes]
         
         # Compute Merkle root
-        root = self._compute_merkle_root(message_hashes)
-        
-        logger.info(f"✅ Computed thread root: {root}")
-        return root
+        return self._compute_merkle_root(node_hashes)
     
-    def _canonicalize_message(self, message: XMTPMessage) -> str:
-        """
-        Compute canonical byte string for a message node.
-        
-        Protocol Spec: §1.2 (Canonicalization)
-        canon(v) = RLP(author || ts || xmtp_msg_id || payload_hash || parents[])
-        
-        Args:
-            message: XMTPMessage object
-        
-        Returns:
-            Canonical string representation
-        """
-        # Simplified canonical form (RLP encoding would be more complex)
-        # For production, use proper RLP encoding
-        canonical = (
-            f"{message.author}|"
-            f"{message.timestamp}|"
-            f"{message.id}|"
-            f"{keccak(text=message.content).hex()}|"
-            f"{message.parent_id or ''}"
-        )
-        return canonical
-    
-    def _compute_merkle_root(self, hashes: List[bytes]) -> str:
+    def _compute_merkle_root(self, hashes: List[bytes]) -> bytes:
         """
         Compute Merkle root from list of hashes.
         
         Args:
-            hashes: List of message hashes
+            hashes: List of 32-byte hashes
         
         Returns:
-            Merkle root as hex string
+            Merkle root (32 bytes)
         """
         if len(hashes) == 0:
-            return "0x" + "0" * 64
+            return bytes(32)
         if len(hashes) == 1:
-            return "0x" + hashes[0].hex()
+            return hashes[0]
         
         # Build Merkle tree
-        current_level = hashes
+        current_level = hashes[:]
         while len(current_level) > 1:
             next_level = []
             for i in range(0, len(current_level), 2):
                 if i + 1 < len(current_level):
                     combined = current_level[i] + current_level[i + 1]
                 else:
-                    # Odd number of hashes, duplicate the last one
+                    # Odd number of nodes - hash with itself
                     combined = current_level[i] + current_level[i]
                 next_level.append(keccak(combined))
             current_level = next_level
         
-        return "0x" + current_level[0].hex()
+        return current_level[0]
     
-    def verify_causality(self, messages: List[XMTPMessage]) -> bool:
+    def verify_causality(self, nodes: Optional[List[DKGNode]] = None) -> bool:
         """
-        Verify parents exist and timestamps are monotonic.
-        
-        Protocol Spec: §1.5 (Causal Audit Algorithm)
-        Check causality: parents exist; timestamps monotonic within tolerance
+        Verify parents exist and timestamps are monotonic (§1.5).
         
         Args:
-            messages: List of XMTP messages
+            nodes: List of DKG nodes (None = use all stored nodes)
         
         Returns:
-            True if causality is valid, False otherwise
+            True if causality is valid
         """
-        message_map = {msg.id: msg for msg in messages}
+        if nodes is None:
+            nodes = self.get_all_nodes()
         
-        for msg in messages:
-            # Check parent exists
-            if msg.parent_id:
-                if msg.parent_id not in message_map:
-                    logger.error(f"❌ Parent {msg.parent_id} not found for message {msg.id}")
+        if not nodes:
+            return True
+        
+        node_map = {n.xmtp_msg_id: n for n in nodes}
+        
+        for node in nodes:
+            # Check each parent exists and has earlier timestamp
+            for parent_id in node.parents:
+                if parent_id not in node_map:
+                    rprint(f"[red]❌ Parent {parent_id} not found for node {node.xmtp_msg_id}[/red]")
                     return False
                 
-                # Check timestamp monotonicity
-                parent = message_map[msg.parent_id]
-                if msg.timestamp <= parent.timestamp:
-                    logger.error(
-                        f"❌ Timestamp not monotonic: "
-                        f"message {msg.id} ({msg.timestamp}) <= "
-                        f"parent {parent.id} ({parent.timestamp})"
-                    )
+                parent = node_map[parent_id]
+                if node.ts < parent.ts:
+                    rprint(f"[red]❌ Timestamp not monotonic: {node.xmtp_msg_id} < {parent.xmtp_msg_id}[/red]")
                     return False
         
-        logger.info("✅ Causality verification passed")
         return True
     
-    def compute_vlc(
-        self,
-        message: XMTPMessage,
-        messages: List[XMTPMessage]
-    ) -> str:
+    def _compute_vlc(self, node: DKGNode) -> str:
         """
-        Compute Verifiable Logical Clock (VLC).
+        Compute Verifiable Logical Clock (§1.3).
         
-        Protocol Spec: §1.3 (Verifiable Logical Clock)
-        lc(v) = keccak256(h(v) || max(lc(p) for p in parents(v)))
+        VLC makes tampering with ancestry detectable:
+        lc(v) = keccak256(h(v) || max_{p ∈ parents(v)} lc(p))
         
         Args:
-            message: Message to compute VLC for
-            messages: All messages in thread (for parent lookup)
+            node: Node to compute VLC for
         
         Returns:
-            VLC hash as hex string
+            VLC hash (hex string)
         """
-        # Compute message hash
-        canonical = self._canonicalize_message(message)
-        message_hash = keccak(text=canonical)
+        # Compute node hash
+        node_hash = node.compute_hash()
         
-        # Find parent VLC
-        parent_vlc = bytes(32)  # Zero bytes if no parent
-        if message.parent_id:
-            for msg in messages:
-                if msg.id == message.parent_id and msg.vlc:
-                    parent_vlc = bytes.fromhex(msg.vlc[2:])
-                    break
-        
-        # Compute VLC: keccak256(h(v) || max(lc(parent)))
-        vlc = keccak(message_hash + parent_vlc)
-        
-        return "0x" + vlc.hex()
-    
-    def verify_signatures(self, messages: List[XMTPMessage]) -> bool:
-        """
-        Verify all message signatures.
-        
-        Protocol Spec: §1.5 (Causal Audit Algorithm)
-        Verify all signatures
-        
-        Args:
-            messages: List of XMTP messages
-        
-        Returns:
-            True if all signatures are valid, False otherwise
-        """
-        from eth_account.messages import encode_defunct
-        from eth_account import Account
-        
-        for msg in messages:
-            if not msg.signature:
-                logger.error(f"❌ No signature for message {msg.id}")
-                return False
-            
-            try:
-                # Parse message content to get the signed data
-                message_data = json.loads(msg.content)
-                
-                # Remove signature for verification
-                message_data_copy = message_data.copy()
-                message_data_copy.pop("signature", None)
-                
-                # Recreate the signed message
-                signed_message = json.dumps(message_data_copy, sort_keys=True)
-                message_hash = keccak(text=signed_message)
-                
-                # Recover signer
-                recovered_address = Account.recover_message(
-                    encode_defunct(message_hash),
-                    signature=msg.signature
+        # Find max parent VLC
+        max_parent_vlc = bytes(32)  # Zero for root nodes
+        for parent_id in node.parents:
+            parent_msg = self._messages.get(parent_id)
+            if parent_msg and parent_msg.dkg_node.vlc:
+                parent_vlc_bytes = bytes.fromhex(
+                    parent_msg.dkg_node.vlc[2:] if parent_msg.dkg_node.vlc.startswith('0x') 
+                    else parent_msg.dkg_node.vlc
                 )
-                
-                # Verify signer matches author
-                if recovered_address.lower() != msg.author.lower():
-                    logger.error(
-                        f"❌ Signature mismatch for message {msg.id}: "
-                        f"expected {msg.author}, got {recovered_address}"
-                    )
-                    return False
-                    
-            except Exception as e:
-                logger.error(f"❌ Failed to verify signature for message {msg.id}: {e}")
-                return False
+                if parent_vlc_bytes > max_parent_vlc:
+                    max_parent_vlc = parent_vlc_bytes
         
-        logger.info("✅ All signatures verified")
-        return True
+        # VLC = keccak256(node_hash || max_parent_vlc)
+        vlc = keccak(node_hash + max_parent_vlc)
+        
+        return '0x' + vlc.hex()
     
-    def get_conversation_addresses(self) -> List[str]:
+    def reconstruct_dag(self, nodes: Optional[List[DKGNode]] = None) -> Dict[str, List[str]]:
         """
-        Get all conversation addresses.
+        Reconstruct causal DAG from nodes.
+        
+        Args:
+            nodes: List of DKG nodes (None = use all stored nodes)
         
         Returns:
-            List of conversation addresses
+            Adjacency list {node_id: [child_ids]}
         """
-        try:
-            conversations = self.client.conversations.list()
-            return [conv.peer_address for conv in conversations]
-        except Exception as e:
-            logger.error(f"❌ Failed to get conversations: {e}")
-            return []
+        if nodes is None:
+            nodes = self.get_all_nodes()
+        
+        dag = {n.xmtp_msg_id: [] for n in nodes}
+        
+        for node in nodes:
+            for parent_id in node.parents:
+                if parent_id in dag:
+                    dag[parent_id].append(node.xmtp_msg_id)
+        
+        return dag
     
-    def close(self):
-        """Close XMTP client and cleanup."""
+    def get_node_depth(self, node: DKGNode, nodes: Optional[List[DKGNode]] = None) -> int:
+        """
+        Compute depth of a node in the DAG (distance from root).
+        
+        Args:
+            node: Node to compute depth for
+            nodes: All nodes in thread (None = use stored)
+        
+        Returns:
+            Depth (1 for root nodes)
+        """
+        if nodes is None:
+            nodes = self.get_all_nodes()
+        
+        if not node.parents:
+            return 1
+        
+        node_map = {n.xmtp_msg_id: n for n in nodes}
+        max_parent_depth = 0
+        
+        for parent_id in node.parents:
+            parent = node_map.get(parent_id)
+            if parent:
+                parent_depth = self.get_node_depth(parent, nodes)
+                max_parent_depth = max(max_parent_depth, parent_depth)
+        
+        return max_parent_depth + 1
+    
+    def to_dkg(self):
+        """
+        Convert all stored messages to a DKG graph for causal analysis.
+        
+        This creates a full DKG object that can be used for:
+        - Contribution weight calculation
+        - Causal chain verification
+        - Multi-dimensional scoring
+        
+        Returns:
+            DKG instance with all nodes added
+        
+        Example:
+            ```python
+            xmtp = XMTPManager(address="0x...")
+            xmtp.send_message(to="0xBob", content={...})
+            xmtp.receive_message(from_address="0xBob", ...)
+            
+            # Convert to DKG for analysis
+            dkg = xmtp.to_dkg()
+            weights = dkg.compute_contribution_weights()
+            ```
+        """
+        from .dkg import DKG
+        
+        dkg = DKG()
+        
+        # Add all nodes
+        for msg in self._messages.values():
+            full_node = msg.dkg_node.to_full_dkg_node()
+            dkg.add_node(full_node)
+        
+        return dkg
+    
+    def clear(self) -> None:
+        """Clear all stored messages."""
+        self._messages.clear()
+        self._conversations.clear()
+        
+        if self.persistence_file and os.path.exists(self.persistence_file):
+            os.remove(self.persistence_file)
+    
+    def _save_messages(self) -> None:
+        """Save messages to persistence file."""
+        if not self.persistence_file:
+            return
+        
+        data = {
+            "address": self.address,
+            "agent_id": self.agent_id,
+            "messages": {mid: msg.to_dict() for mid, msg in self._messages.items()},
+            "conversations": self._conversations
+        }
+        
+        with open(self.persistence_file, 'w') as f:
+            json.dump(data, f, indent=2)
+    
+    def _load_messages(self) -> None:
+        """Load messages from persistence file."""
+        if not self.persistence_file or not os.path.exists(self.persistence_file):
+            return
+        
         try:
-            # Clear caches
-            self.conversations.clear()
-            self.message_cache.clear()
-            logger.info("✅ XMTP client closed")
+            with open(self.persistence_file, 'r') as f:
+                data = json.load(f)
+            
+            self._messages = {
+                mid: XMTPMessage.from_dict(msg_data) 
+                for mid, msg_data in data.get("messages", {}).items()
+            }
+            self._conversations = data.get("conversations", {})
+            
+            rprint(f"[dim]Loaded {len(self._messages)} messages from {self.persistence_file}[/dim]")
         except Exception as e:
-            logger.error(f"❌ Failed to close XMTP client: {e}")
+            rprint(f"[yellow]⚠️  Failed to load messages: {e}[/yellow]")
 
+
+# Alias for backward compatibility
+XMTPBridgeClient = XMTPManager

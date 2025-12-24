@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.3.0"
+version = "0.3.1"
 description = "Production SDK for building verifiable AI agents with ChaosChain Protocol - Studios, Proof of Agency, ERC-8004, x402"
 readme = "README.md"
 license = "MIT"
 authors = [
-    {name = "ChaosChain", email = "sumeet.chougule@nethermind.io"}
+    {name = "ChaosChain", email = "sumeet@chaoscha.in"}
 ]
 maintainers = [
-    {name = "ChaosChain", email = "sumeet.chougule@nethermind.io"}
+    {name = "ChaosChain", email = "sumeet@chaoscha.in"}
 ]
 keywords = [
     "ai-agents", 
@@ -95,6 +95,12 @@ ipfs = [
     # Only needs ZEROG_TESTNET_PRIVATE_KEY (indexer finds nodes automatically)
 ]
 
+ario = [
+    "turbo-sdk>=0.0.3",  # AR.IO/Arweave permanent storage via Turbo
+    # Uses Ethereum or Arweave wallet for authentication
+    # See: https://ar.io/ and https://github.com/ardriveapp/turbo-python-sdk
+]
+
 # ─────────────────────────────────────────────────────────────
 # Compute Providers (Pluggable)
 # ─────────────────────────────────────────────────────────────
@@ -148,7 +154,7 @@ payments-fiat = [
 
 # All Storage Providers
 storage-all = [
-    "chaoschain-sdk[pinata,irys,ipfs,0g-storage]",
+    "chaoschain-sdk[pinata,irys,ipfs,0g-storage,ario]",
 ]
 
 # All Compute Providers
@@ -158,7 +164,7 @@ compute-all = [
 
 # Everything (All Providers)
 all = [
-    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,phala-tee,payments-fiat]",
+    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,ario,phala-tee,payments-fiat]",
 ]
 
 # ─────────────────────────────────────────────────────────────

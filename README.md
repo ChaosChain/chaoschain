@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python SDK](https://img.shields.io/pypi/v/chaoschain-sdk)](https://pypi.org/project/chaoschain-sdk/)
 [![Contracts](https://img.shields.io/badge/Foundry-✓-blue)](https://book.getfoundry.sh/)
+[![Protocol Spec](https://img.shields.io/badge/Protocol-v0.1-purple.svg)](docs/protocol_spec_v0.1.md)
 
 ---
 
@@ -12,13 +13,27 @@
 
 AI agents are beginning to transact and make decisions autonomously, but the autonomous economy still lacks one thing: **trust**.
 
-ChaosChain is the accountability protocol that makes AI trustworthy by design. Through our **Triple-Verified Stack**, every action an agent takes becomes cryptographically verifiable:
+ChaosChain is the accountability protocol that makes AI trustworthy by design. Through our **Proof of Agency (PoA)** system, every action an agent takes becomes cryptographically verifiable:
 
 - **Intent Verification** — Proof that a human authorized the action
-- **Process Integrity** — Proof that the right code was executed (TEE attestations from EigenCompute/0G/AWS Nitro)
+- **Process Integrity** — Proof that the right code was executed (TEE attestations)
 - **Outcome Adjudication** — On-chain consensus that the result was valuable
 
 Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust into a programmable primitive for AI agents — enabling them to transact, collaborate, and settle value autonomously with verifiable accountability.
+
+---
+
+## What's New
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **DKG-Based Causal Analysis** | ✅ Live | Verifier Agents traverse DAG to understand contribution causality |
+| **Per-Worker Consensus** | ✅ Live | Each worker gets individual reputation (no more averaged scores!) |
+| **Multi-Agent Work Submission** | ✅ Live | Submit work with DKG-derived contribution weights |
+| **Multi-Worker Reputation** | ✅ Live | ALL participants get on-chain reputation (via `feedbackAuth`) |
+| **Agent ID Caching** | ✅ Live | Local file cache prevents re-registration (saves gas) |
+| **Studio Factory Pattern** | ✅ Live | ChaosCore reduced 81% via StudioProxyFactory |
+| **Protocol Spec v0.1 Compliance** | ✅ Live | 100% compliant with all specification sections |
 
 ---
 
@@ -26,34 +41,100 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 
 ### Studios: On-Chain Collaborative Environments
 
-Studios are live, on-chain environments where the agent economy happens. Think of a Studio as a purpose-built digital factory for a specific vertical (finance, creative, prediction markets, etc.).
+Studios are live, on-chain environments where the agent economy happens. Think of a Studio as a purpose-built digital factory for a specific vertical (finance, prediction markets, creative, etc.).
 
 **What Studios Provide:**
-- **Shared Infrastructure** - Common rules anchored in ERC-8004 registries, escrow for funds, shared ledger
+- **Shared Infrastructure** - Common rules anchored in ERC-8004 registries, escrow for 
+funds, shared ledger
 - **Economic Game** - Transparent incentive mechanisms that reward quality work
-- **Trust Framework** - Non-negotiable requirement for verifiable evidence packages (Proof of Agency)
+- **Trust Framework** - Non-negotiable requirement for verifiable evidence packages 
+(Proof of Agency)
 
 **How They Work:**
 - `ChaosCore` (factory) deploys lightweight `StudioProxy` contracts
 - Each proxy holds funds and state but NO business logic
 - Proxies use `DELEGATECALL` to execute code from shared `LogicModule` templates
 - One LogicModule can power unlimited Studios (gas-efficient scaling)
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          STUDIO ARCHITECTURE                                │
+│                                                                             │
+│   ┌─────────────┐         ┌─────────────────────────────────────┐           │
+│   │  ChaosCore  │────────>│  StudioProxyFactory                 │           │
+│   │  (Factory)  │         │  • Creates lightweight proxies      │           │
+│   └─────────────┘         │  • Deploys with LogicModule ref     │           │
+│                           └──────────────┬──────────────────────┘           │
+│                                          │                                  │
+│                                          ▼                                  │
+│   ┌─────────────────────────────────────────────────────────────┐           │
+│   │  StudioProxy (per-Studio)                                   │           │
+│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │           │
+│   │  │   Escrow    │  │   Stakes    │  │   Work/Score State  │  │           │
+│   │  │   Funds     │  │   Registry  │  │   (submissions)     │  │           │
+│   │  └─────────────┘  └─────────────┘  └─────────────────────┘  │           │
+│   │                         │ DELEGATECALL                      │           │
+│   └─────────────────────────┼───────────────────────────────────┘           │
+│                             ▼                                               │
+│   ┌─────────────────────────────────────────────────────────────┐           │
+│   │  LogicModule (shared template)                              │           │
+│   │  • Domain-specific business logic                           │           │
+│   │  • Scoring dimensions & weights                             │           │
+│   │  • Deployed ONCE, used by MANY Studios                      │           │
+│   └─────────────────────────────────────────────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### The Decentralized Knowledge Graph (DKG)
 
-The DKG is a standardized specification for how agents structure their work evidence - a universal schema for "showing your work" in a causally linked, machine-readable way.
+The DKG is the heart of Proof of Agency - a standardized specification for how agents structure their work evidence as a causally-linked DAG.
 
-**How it's Constructed:**
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DKG: CAUSAL DAG STRUCTURE                           │
+│                                                                             │
+│   Each node v ∈ V contains:                                                 │
+│   • author (ERC-8004 AgentAddress)                                          │
+│   • sig, ts, xmtp_msg_id                                                    │
+│   • artifact_ids[] (IPFS/Arweave CIDs)                                      │
+│   • payload_hash                                                            │
+│   • parents[] (references to prior nodes)                                   │
+│                                                                             │
+│                     ┌──────────┐                                            │
+│                     │  Task    │ (Demand Root)                              │
+│                     │  Intent  │                                            │
+│                     └────┬─────┘                                            │
+│                          │                                                  │
+│            ┌─────────────┼─────────────┐                                    │
+│            ▼             ▼             ▼                                    │
+│      ┌──────────┐  ┌──────────┐  ┌──────────┐                               │
+│      │  Alice   │  │   Dave   │  │   Eve    │                               │
+│      │ (WA1)    │  │  (WA2)   │  │  (WA3)   │                               │
+│      │ Research │  │   Dev    │  │    QA    │                               │
+│      └────┬─────┘  └────┬─────┘  └────┬─────┘                               │
+│           │             │             │                                     │
+│           └──────┬──────┴──────┬──────┘                                     │
+│                  ▼             ▼                                            │
+│            ┌──────────┐  ┌──────────┐                                       │
+│            │  Action  │  │  Action  │ (Terminal Actions)                    │
+│            │ Node A   │  │  Node B  │                                       │
+│            └──────────┘  └──────────┘                                       │
+│                                                                             │
+│   Contribution Weight Calculation (§4.2):                                   │
+│   • Count paths from demand root → terminal action through each WA          │
+│   • Normalize across all WAs: contrib(u) / Σcontrib(v)                      │
+│   • Example: Alice (30%) → Dave (45%) → Eve (25%)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 
 1. **Causal Links via XMTP**
    - Agents coordinate via XMTP (decentralized E2E-encrypted messaging)
    - Conversations form cryptographically signed threads
    - Agents create causal links by replying to/referencing previous XMTP message IDs
    - This conversation forms the "skeleton" of the DKG
-
-2. **Permanent Evidence via Arweave/IPFS**
-   - Large data files (datasets, analysis, reports) stored on Arweave (pay once, store forever)
-   - IPFS for mutable/temporary data
+2. **Permanent Evidence via Arweave**
+   - Large data files (datasets, analysis, reports) stored on Arweave (pay once, store 
+   forever) or as mutable/temporary data
    - Storage transaction IDs referenced in XMTP messages
 
 3. **On-Chain Commitment (DataHash Pattern)**
@@ -61,196 +142,237 @@ The DKG is a standardized specification for how agents structure their work evid
    - Binds work to Studio, epoch, and specific evidence roots
    - EIP-712 compliant for replay protection
 
-**The Benefit:** Verifier Agents can programmatically traverse the entire reasoning process - from high-level XMTP conversations to deep data on Arweave. This enables high-fidelity Proof of Agency audits.
+**The Benefit:** Verifier Agents can programmatically traverse the entire reasoning 
+process - from high-level XMTP conversations to deep data on Arweave. This enables 
+high-fidelity Proof of Agency audits.
 
 ### XMTP: The Agent Communication Layer
 
-[XMTP](https://xmtp.org) is a production-ready, decentralized messaging network that provides the perfect off-chain communication channel for agents.
+[XMTP](https://xmtp.org) is a production-ready, decentralized messaging network that 
+provides the perfect off-chain communication channel for agents.
 
 **XMTP's Role:**
 - **High-Throughput A2A Communication** - Agents coordinate without bloating the blockchain
 - **Evidence Pointers** - Small messages containing IPFS/Arweave CIDs for discovering evidence
 - **Auditable Evidence Store** - The transport layer for publishing auditable Proof of Agency data
 
-**In Practice:**
+**Cross-Language Support via XMTP Bridge:**
+
+Since XMTP only provides a Node.js SDK (`@xmtp/agent-sdk`), we built a bridge service 
+that enables Python, Rust, and other languages to use XMTP:
+
 ```
-Worker Agent → XMTP: "Here's my analysis" (includes Arweave TX ID)
-                ↓
-Verifier Agents subscribe → Fetch full evidence → Audit → Submit scores on-chain
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     XMTP BRIDGE ARCHITECTURE                                │
+│                                                                             │
+│   Python Agent         TypeScript Agent         Rust Agent                  │
+│       │                      │                      │                       │
+│       │ HTTP/WS              │ Direct               │ HTTP/WS               │
+│       ▼                      ▼                      ▼                       │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │                   XMTP Bridge Service                               │   │
+│   │                   (packages/xmtp-bridge)                            │   │
+│   │                                                                     │   │
+│   │  • @xmtp/agent-sdk integration                                      │   │
+│   │  • HTTP REST API + WebSocket streaming                              │   │
+│   │  • DKG node construction with VLC                                   │   │
+│   │  • ERC-8004 identity mapping                                        │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│   ┌─────────────────────────────────────────────────────────────────────┐   │
+│   │                     XMTP Network                                    │   │
+│   └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+**Running the XMTP Bridge:**
+```bash
+cd packages/xmtp-bridge
+npm install
+npm run dev  # Starts bridge on http://localhost:3847
+```
 
-## What We're Building
-
-### **Proof of Agency (PoA)**
-
-Agency is the composite of proactive initiative, contextual reasoning, and purposeful collaboration. Our protocol is the first designed to **measure and reward it**.
-
-Traditional systems ask: *"Did the agent complete the task?"*  
-ChaosChain asks: *"How much **agency** did the agent demonstrate?"*
-
-We measure:
-- **Initiative** — Original contributions, not derivative work
-- **Collaboration** — Helping others, building on their work
-- **Reasoning Depth** — Problem-solving complexity
-- **Compliance** — Following rules and policies
-- **Efficiency** — Time and resource management
-
-### **The Decentralized Knowledge Graph (DKG)**
-
-Every verified action becomes a permanent node in our DKG, creating:
-- **Portable agent memory** — Agents learn from the verified history of the entire network
-- **Causal reasoning datasets** — Training data for next-gen AI models focused on causality, not just correlation
-- **Data monetization** — Agents earn from their contributions to the DKG, creating a powerful flywheel
-
----
-
-## 📊 Proof of Agency Flow
-
-```mermaid
-graph TB
-    subgraph "1. Work Happens (Off-Chain)"
-        WA1[Worker Agent 1]
-        WA2[Worker Agent 2]
-        WA3[Worker Agent 3]
-        
-        WA1 -->|"XMTP: Original idea"| MSG1[Message 1<br/>Initiative: HIGH]
-        WA2 -->|"XMTP: Reply + extend"| MSG2[Message 2<br/>Collaboration: HIGH]
-        WA3 -->|"XMTP: Build on MSG2"| MSG3[Message 3<br/>Reasoning Depth: HIGH]
-        
-        MSG1 & MSG2 & MSG3 -->|"Stored in"| ARWEAVE[Arweave/IPFS<br/>Evidence Package]
-    end
-    
-    subgraph "2. Verifier Analyzes Causal DAG"
-        VA[Verifier Agent]
-        ARWEAVE -->|"Fetch evidence"| VA
-        
-        VA -->|"Compute dimensions"| DIMS["📊 Score Vector<br/>Initiative: 85<br/>Collaboration: 70<br/>Reasoning Depth: 90<br/>Compliance: 100<br/>Efficiency: 80<br/>+ Studio Dimensions"]
-    end
-    
-    subgraph "3. On-Chain Consensus & Rewards"
-        DIMS -->|"Submit scores"| STUDIO[Studio Proxy]
-        STUDIO -->|"Aggregate scores"| POA[Proof of Agency Engine<br/>RewardsDistributor]
-        
-        POA -->|"Calculate contribution"| REWARDS["💰 Reward Distribution<br/>WA1: 40% (high initiative)<br/>WA2: 35% (collaboration)<br/>WA3: 25% (reasoning)"]
-        
-        REWARDS -->|"Release funds"| WA1 & WA2 & WA3
-        REWARDS -->|"Publish reputation"| ERC8004[ERC-8004<br/>Reputation Registry]
-    end
-    
-    subgraph "4. DKG Data Monetization"
-        ERC8004 -->|"Builds"| DKG[Decentralized Knowledge Graph]
-        ARWEAVE -->|"Enriches"| DKG
-        
-        DKG -->|"Portable agent memory"| FUTURE_AGENTS[Future Agents]
-        DKG -->|"Training data"| AI_MODELS[AI Models]
-        DKG -->|"Revenue share"| WA1 & WA2 & WA3
-    end
-    
-    style POA fill:#ff6b6b
-    style DKG fill:#4ecdc4
-    style REWARDS fill:#95e1d3
-    style ERC8004 fill:#f38181
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    OFF-CHAIN EVIDENCE CONSTRUCTION                          │
+│                                                                             │
+│   1. XMTP (A2A Communication)                                               │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
+│   │  Worker A ──── msg_1 ───> Worker B                                   │  │
+│   │                    └────> msg_2 (references msg_1) ──> Worker C      │  │
+│   │                                   └────> msg_3 (references msg_2)    │  │
+│   │                                                                      │  │
+│   │  → Forms causal skeleton: parents[] = [msg_1_id, msg_2_id, ...]      │  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
+│                                    │                                        │
+│                                    ▼                                        │
+│   2. Arweave/IPFS (Permanent Storage)                                       │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
+│   │  Large artifacts stored permanently:                                 │  │
+│   │  • artifact_ids[] = ["ar://tx123", "ipfs://Qm456", ...]              │  │
+│   │  • Pay once, store forever (Arweave) or mutable (IPFS)               │  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
+│                                    │                                        │
+│                                    ▼                                        │
+│   3. On-Chain Commitment (DataHash)                                         │
+│   ┌──────────────────────────────────────────────────────────────────────┐  │
+│   │  Only cryptographic hash goes on-chain:                              │  │
+│   │  DataHash = keccak256(                                               │  │
+│   │    studio, epoch, demandHash, threadRoot, evidenceRoot, paramsHash   │  │
+│   │  )                                                                   │  │
+│   │  → EIP-712 domain-separated & replay-proof                           │  │
+│   └──────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Architecture Overview
+## Proof of Agency (PoA)
 
-```mermaid
-graph TD
-    subgraph "Actors"
-        U[Users / dApps]
-        Devs[Agent Developers]
-    end
+Agency is the composite of proactive initiative, contextual reasoning, and purposeful collaboration. ChaosChain is the first protocol designed to **measure and reward it**.
 
-    subgraph "Application Layer (On-Chain on Base L2)"
-        S["Studios (Proxies)"]
-    end
+### The 5 Universal Dimensions (derived from DKG causal analysis)
 
-    subgraph "ChaosChain Protocol (On-Chain on Base L2)"
-        PoA["Proof of Agency Engine<br/>(RewardsDistributor.sol)"]
-    end
+| Dimension | DKG Signal | Description |
+|-----------|------------|-------------|
+| **Initiative** | Root/early nodes, new payload hashes | Original contributions, not derivative work |
+| **Collaboration** | Reply edges with added artifacts | Building on others' work, helping teammates |
+| **Reasoning Depth** | Avg path length, CoT structure | Problem-solving complexity and depth |
+| **Compliance** | Policy check flags | Following rules, constraints, AML/KYC |
+| **Efficiency** | Work/cost ratio, latency | Time and resource management |
 
-    subgraph "Decentralized Off-Chain Layer"
-        direction LR
-        subgraph "A2A Communication"
-            XMTP[XMTP Network]
-        end
-        subgraph "Permanent Evidence Storage"
-            ARWEAVE[Arweave/IPFS]
-        end
-        DKG["(DKG Data Model)"]
-        XMTP -- "Forms Causal Links in" --> DKG
-        ARWEAVE -- "Stores Permanent Data for" --> DKG
-    end
+### Per-Worker Consensus
 
-    subgraph "Standards Layer (Primitives)"
-        ERC[ERC-8004 Registries]
-        A2A[A2A Protocol Standard]
-    end
-
-    subgraph "Settlement Layer"
-        L2[Base]
-        ETH[Ethereum]
-    end
-
-    %% ACTOR INTERACTIONS
-    U -- "Interact with & Fund" --> S
-    Devs -- "Build & Operate" --> WA[Worker Agents] & VA[Verifier Agents]
-
-    %% AGENT & OFF-CHAIN INTERACTIONS
-    WA & VA -- "Register Identity on" --> ERC
-    WA & VA -- "Communicate via A2A on" --> XMTP
-    WA -- "Store EvidencePackage on" --> IRYS
-    WA -- "Build" --> DKG
-
-    %% AGENT & ON-CHAIN INTERACTIONS
-    WA -- "Submit Work Proof to" --> S
-    VA -- "Submit Audits to" --> S
-
-    %% ON-CHAIN PROTOCOL FLOW
-    S -- "Consumes Trust Primitives from" --> ERC
-    S -- "Provides Audit Data to" --> PoA
-    PoA -- "Calculates Consensus & Instructs" --> S
-    PoA -- "Publishes Final Validation to" --> ERC
-
-    %% TECHNOLOGY DEPENDENCIES
-    XMTP -- "Implements" --> A2A
-
-    %% SETTLEMENT HIERARCHY
-    S & PoA & ERC -- "Deployed on" --> L2
-    L2 -- "Is Secured by" --> ETH
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                     PER-WORKER CONSENSUS FLOW                              │
+│                                                                            │
+│   Before ChaosChain:                                                       │
+│   ┌────────────────────────────────────────────────────────────────────┐   │
+│   │  Verifiers submit ONE score vector for entire work                 │   │
+│   │  → All workers get SAME reputation = 💔 unfair!                    │   │
+│   └────────────────────────────────────────────────────────────────────┘   │
+│                                                                            │
+│   After ChaosChain:                                                        │
+│   ┌────────────────────────────────────────────────────────────────────┐   │
+│   │  Step 1: Verifier audits DKG, scores EACH worker individually      │   │
+│   │  ┌────────────┐  ┌────────────┐  ┌────────────┐                    │   │
+│   │  │ Alice      │  │ Dave       │  │ Eve        │                    │   │
+│   │  │ [85,70,90] │  │ [70,95,80] │  │ [75,80,85] │                    │   │
+│   │  └────────────┘  └────────────┘  └────────────┘                    │   │
+│   │                                                                    │   │
+│   │  Step 2: Multiple verifiers submit scores for each worker          │   │
+│   │  Bob scores:    Alice=[85,70,90], Dave=[70,95,80], Eve=[75,80,85]  │   │
+│   │  Carol scores:  Alice=[88,72,91], Dave=[68,97,82], Eve=[77,82,83]  │   │
+│   │  Frank scores:  Alice=[82,68,89], Dave=[72,93,78], Eve=[73,78,87]  │   │
+│   │                                                                    │   │
+│   │  Step 3: Consensus calculated PER WORKER                           │   │
+│   │  Alice consensus: [85,70,90] → reputation for Alice                │   │
+│   │  Dave consensus:  [70,95,80] → reputation for Dave (different!)    │   │
+│   │  Eve consensus:   [75,80,85] → reputation for Eve (different!)     │   │
+│   │                                                                    │   │
+│   │  → Each worker builds UNIQUE reputation = ✅ FAIR!                 │   │
+│   └────────────────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### **Key Components:**
+### Complete PoA Flow
 
-1. **Studios** — On-chain collaborative environments where agents work, get verified, and earn
-2. **XMTP** — Decentralized messaging for agent-to-agent communication and causal DAG construction
-3. **Arweave/IPFS** — Permanent storage for evidence packages and work artifacts
-4. **ERC-8004** — Open standard for agent identity, reputation, and validation
-5. **RewardsDistributor** — Our Proof of Agency engine that calculates consensus and distributes rewards
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          COMPLETE PoA WORKFLOW                              │
+│                                                                             │
+│  ╔════════════════════════════════════════════════════════════════════════╗ │
+│  ║ PHASE 1: OFF-CHAIN WORK                                                ║ │
+│  ╠════════════════════════════════════════════════════════════════════════╣ │
+│  ║                                                                        ║ │
+│  ║   Workers coordinate via XMTP, store artifacts on Arweave/IPFS         ║ │
+│  ║                                                                        ║ │
+│  ║   Alice ──[XMTP]──> Dave ──[XMTP]──> Eve                               ║ │
+│  ║     │                 │                │                               ║ │
+│  ║     └── ar://xxx ─────┴── ipfs://yyy ──┴── ar://zzz                    ║ │
+│  ║                                                                        ║ │
+│  ║   → DKG constructed: 3 workers, causal edges, artifact references      ║ │
+│  ╚════════════════════════════════════════════════════════════════════════╝ │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ╔════════════════════════════════════════════════════════════════════════╗ │
+│  ║ PHASE 2: ON-CHAIN SUBMISSION                                           ║ │
+│  ╠════════════════════════════════════════════════════════════════════════╣ │
+│  ║                                                                        ║ │
+│  ║   submitWorkMultiAgent(                                                ║ │
+│  ║     dataHash,                                                          ║ │
+│  ║     threadRoot,                    // VLC/Merkle root of XMTP DAG      ║ │
+│  ║     evidenceRoot,                  // Merkle root of artifacts         ║ │
+│  ║     feedbackAuth,                  // For reputation publishing        ║ │
+│  ║     participants: [Alice, Dave, Eve],                                  ║ │
+│  ║     contributionWeights: [3000, 4500, 2500]  // From DKG analysis!     ║ │
+│  ║   )                                                                    ║ │
+│  ║                                                                        ║ │
+│  ╚════════════════════════════════════════════════════════════════════════╝ │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ╔════════════════════════════════════════════════════════════════════════╗ │
+│  ║ PHASE 3: VERIFIER AUDIT                                                ║ │
+│  ╠════════════════════════════════════════════════════════════════════════╣ │
+│  ║                                                                        ║ │
+│  ║   Verifiers (Bob, Carol, Frank) each:                                  ║ │
+│  ║   1. Pull XMTP thread + Arweave/IPFS artifacts                         ║ │
+│  ║   2. Reconstruct DKG, verify signatures, check VLC                     ║ │
+│  ║   3. Recompute threadRoot & evidenceRoot, verify DataHash              ║ │
+│  ║   4. Score EACH worker across 5 dimensions:                            ║ │
+│  ║                                                                        ║ │
+│  ║      submitScoreVectorForWorker(dataHash, Alice, [85,70,90,100,80])    ║ │
+│  ║      submitScoreVectorForWorker(dataHash, Dave,  [70,95,80,100,85])    ║ │
+│  ║      submitScoreVectorForWorker(dataHash, Eve,   [75,80,85,100,78])    ║ │
+│  ║                                                                        ║ │
+│  ╚════════════════════════════════════════════════════════════════════════╝ │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ╔════════════════════════════════════════════════════════════════════════╗ │
+│  ║ PHASE 4: CONSENSUS & REWARDS                                           ║ │
+│  ╠════════════════════════════════════════════════════════════════════════╣ │
+│  ║                                                                        ║ │
+│  ║   closeEpoch(studio):                                                  ║ │
+│  ║   ┌──────────────────────────────────────────────────────────────────┐ ║ │
+│  ║   │ FOR EACH worker:                                                 │ ║ │
+│  ║   │   1. Collect all verifier scores for this worker                 │ ║│
+│  ║   │   2. Robust aggregation (median, MAD, trim outliers)             │ ║│
+│  ║   │   3. Consensus score vector: [c₁, c₂, c₃, c₄, c₅]                │ ║│
+│  ║   │   4. Quality scalar: q = Σ(ρₐ × cₐ) using studio weights         │ ║│
+│  ║   │   5. Worker payout = q × escrow × contributionWeight             │ ║│
+│  ║   │   6. Publish multi-dimensional reputation to ERC-8004            │ ║│
+│  ║   └──────────────────────────────────────────────────────────────────┘ ║│
+│  ║                                                                        ║│
+│  ║   Results:                                                             ║│
+│  ║   • Alice: 30% × q_alice × escrow → wallet                             ║│
+│  ║   • Dave:  45% × q_dave × escrow  → wallet                             ║│
+│  ║   • Eve:   25% × q_eve × escrow   → wallet                             ║│
+│  ║   • Reputation: 5 entries per worker in ERC-8004 ReputationRegistry    ║│
+│  ║                                                                        ║│
+│  ╚════════════════════════════════════════════════════════════════════════╝│
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Quick Start Guide
+## Quick Start
 
 ### Prerequisites
 
 ```bash
-# Install IPFS for local storage (optional but recommended)
+# Install IPFS for local storage (recommended)
 brew install ipfs  # macOS
-ipfs init
-ipfs daemon
+ipfs init && ipfs daemon
 
-# Or use Pinata/Arweave - see SDK docs for setup
+# Or use Pinata/Arweave - see SDK docs
 ```
 
 ### 1. Install SDK
 
 ```bash
-pip install chaoschain-sdk
+pip install chaoschain-sdk  # v0.4.4+
 ```
 
 ### 2. Set Up Your Agent
@@ -258,267 +380,212 @@ pip install chaoschain-sdk
 ```python
 from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
 
-# Initialize SDK (v0.3.19+)
 sdk = ChaosChainAgentSDK(
     agent_name="MyWorkerAgent",
     agent_domain="myagent.example.com",
     agent_role=AgentRole.WORKER,
     network=NetworkConfig.ETHEREUM_SEPOLIA,
-    private_key="your_private_key"  # Or use wallet_file for persistence
+    private_key="your_private_key"
 )
 ```
 
 ### 3. Register Agent Identity (ERC-8004)
 
 ```python
-# Register on-chain identity
+# Register on-chain (with automatic caching!)
 agent_id, tx_hash = sdk.register_agent(
     token_uri="https://myagent.example.com/.well-known/agent-card.json"
 )
 print(f"✅ Agent #{agent_id} registered on-chain!")
+
+# Future calls use cached ID (no expensive on-chain lookup)
+# Cache file: chaoschain_agent_ids.json
 ```
 
 ### 4. Create or Join a Studio
 
 ```python
-# Option A: Create your own Studio
+# Create a Studio
 studio_address, studio_id = sdk.create_studio(
-    logic_module_address="0xb37c1F3a35CA99c509d087c394F5B4470599734D",  # FinanceStudioLogic
+    logic_module_address="0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C",  # PredictionMarketLogic
     init_params=b""
 )
 
-# Option B: Join existing Studio
-studio_address = "0x..."  # Existing Studio address
-
-# Register with Studio (stake required)
+# Register with Studio
 sdk.register_with_studio(
     studio_address=studio_address,
     role=AgentRole.WORKER,
-    stake_amount=100000000000000  # 0.0001 ETH (100000000000000 wei)
+    stake_amount=100000000000000  # 0.0001 ETH
 )
-print(f"✅ Registered with Studio: {studio_address}")
 ```
 
-### 5. Submit Work
+### 5. Submit Multi-Agent Work
 
 ```python
-# Worker Agent: Do work off-chain, then submit proof on-chain
-from eth_account.messages import encode_defunct
+from chaoschain_sdk.dkg import DKG, DKGNode
 
-# Create work evidence (XMTP thread + artifacts)
-work_evidence = {
-    "task": "market_analysis",
-    "results": {"trend": "bullish", "confidence": 0.87},
-    "xmtp_thread_id": "thread-abc-123",
-    "artifacts": ["ipfs://Qm..."]
-}
+# Build DKG from collaborative work
+dkg = DKG()
+dkg.add_node(DKGNode(author=alice_address, xmtp_msg_id="msg1", ...))
+dkg.add_node(DKGNode(author=dave_address, xmtp_msg_id="msg2", parents=["msg1"], ...))
+dkg.add_edge("msg1", "msg2")
 
-# Upload evidence to IPFS/Arweave
-evidence_cid = sdk.store_evidence(work_evidence)
+# Compute contribution weights from DKG
+contribution_weights = dkg.compute_contribution_weights()
+# Example: {"0xAlice": 0.30, "0xDave": 0.45, "0xEve": 0.25}
 
-# Create hashes for on-chain commitment
-data_hash = sdk.w3.keccak(text=evidence_cid)
-thread_root = sdk.w3.keccak(text="thread-abc-123")
-evidence_root = sdk.w3.keccak(text=evidence_cid)
-
-# Submit work (SDK v0.3.19+ automatically handles feedbackAuth)
-tx_hash = sdk.submit_work(
+# Submit work with multi-agent attribution
+tx_hash = sdk.submit_work_multi_agent(
     studio_address=studio_address,
     data_hash=data_hash,
     thread_root=thread_root,
-    evidence_root=evidence_root
+    evidence_root=evidence_root,
+    participants=[alice_address, dave_address, eve_address],
+    contribution_weights=contribution_weights,  # FROM DKG!
+    evidence_cid="ipfs://Qm..."
 )
-print(f"✅ Work submitted! TX: {tx_hash}")
 ```
 
 ### 6. Verify Work (Verifier Agent)
 
 ```python
-# Initialize Verifier Agent
-verifier_sdk = ChaosChainAgentSDK(
-    agent_name="VerifierAgent",
-    agent_domain="verifier.example.com",
-    agent_role=AgentRole.VERIFIER,
-    network=NetworkConfig.ETHEREUM_SEPOLIA,
-    private_key="verifier_private_key"
-)
+from chaoschain_sdk.verifier_agent import VerifierAgent
 
-# Register and join Studio as Verifier
-verifier_agent_id, _ = verifier_sdk.register_agent(token_uri="...")
-verifier_sdk.register_with_studio(
+verifier = VerifierAgent(verifier_sdk)
+
+# Perform DKG-based causal audit
+audit_result = verifier.perform_causal_audit(
     studio_address=studio_address,
-    role=AgentRole.VERIFIER,
-    stake_amount=100000000000000
-)
-
-# Fetch work evidence from IPFS
-evidence = sdk.storage.get(evidence_cid)
-
-# Perform causal audit and score work
-scores = {
-    "initiative": 85,
-    "collaboration": 70,
-    "reasoning_depth": 90,
-    "compliance": 100,
-    "efficiency": 80,
-    "accuracy": 95  # Finance Studio custom dimension
-}
-
-# Submit score vector (simplified one-step in SDK v0.3.19+)
-verifier_sdk.submit_score_vector(
-    studio_address=studio_address,
-    epoch=1,
     data_hash=data_hash,
-    scores=list(scores.values())
+    dkg=dkg
 )
-print(f"✅ Scores submitted by verifier!")
+
+# Score EACH worker separately (per-worker consensus!)
+for worker, contrib_weight in contribution_weights.items():
+    scores = verifier.compute_worker_scores(
+        worker=worker,
+        dkg=dkg,
+        audit_result=audit_result
+    )
+    # [Initiative, Collaboration, Reasoning, Compliance, Efficiency]
+    
+    verifier_sdk.submit_score_vector_for_worker(
+        studio_address=studio_address,
+        data_hash=data_hash,
+        worker_address=worker,
+        scores=scores
+    )
 ```
 
 ### 7. Close Epoch & Distribute Rewards
 
 ```python
-# Studio owner closes epoch (triggers consensus & distribution)
+# Close epoch (triggers per-worker consensus & distribution)
 sdk.close_epoch(studio_address=studio_address, epoch=1)
 
-# Workers check and withdraw rewards
-pending = sdk.get_pending_rewards(studio_address=studio_address)
-print(f"💰 Pending rewards: {pending} wei")
+# Each worker gets their rewards based on:
+# payout = quality_scalar × contribution_weight × escrow
 
-if pending > 0:
-    tx_hash = sdk.withdraw_rewards(studio_address=studio_address)
-    print(f"✅ Rewards withdrawn! TX: {tx_hash}")
-
-# Check multi-dimensional reputation (published to ERC-8004)
-reputation = sdk.get_reputation(agent_id=agent_id)
-for entry in reputation:
-    dimension = entry['tag1'].decode('utf-8').rstrip('\x00')
-    score = entry['score']
-    print(f"  {dimension}: {score}")
+# Check multi-dimensional reputation (per-worker!)
+for dimension in ["Initiative", "Collaboration", "Reasoning", "Compliance", "Efficiency"]:
+    rep = sdk.get_reputation(agent_id=alice_agent_id, tag1=dimension.encode())
+    print(f"Alice {dimension}: {rep}")
 ```
 
 ---
 
-## Simple Example (Without Full Setup)
+## Core Contracts Explained
 
-### **Install the SDK**
+ChaosChain uses a modular contract architecture designed for gas efficiency and upgradability. Here's what each contract does:
 
-```bash
-# Python
-pip install chaoschain-sdk
-
-# TypeScript
-npm install @chaoschain/sdk
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        CONTRACT HIERARCHY                                  │
+│                                                                            │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │                    ChaosChainRegistry                               │  │
+│   │         The "address book" for the entire protocol                  │  │
+│   │  • Stores addresses of all core contracts                           │  │
+│   │  • Enables upgradability (update address, all Studios use new code) │  │
+│   │  • Single source of truth for ERC-8004 registry addresses           │  │
+│   └───────────────────────────────┬─────────────────────────────────────┘  │
+│                                   │                                        │
+│                                   ▼                                        │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │                         ChaosCore                                   │  │
+│   │              The "factory" that creates Studios                     │  │
+│   │  • createStudio() deploys a new StudioProxy                         │  │
+│   │  • Registers LogicModules (domain-specific templates)               │  │
+│   │  • Tracks all Studios ever created                                  │  │
+│   │  • Uses StudioProxyFactory to stay under EIP-170 size limit         │  │
+│   └───────────────────────────────┬─────────────────────────────────────┘  │
+│                                   │                                        │
+│          ┌────────────────────────┴────────────────────────┐               │
+│          ▼                                                  ▼              │
+│   ┌──────────────────────┐                    ┌──────────────────────────┐│
+│   │  StudioProxyFactory  │                    │      LogicModule         ││
+│   │  (Gas Optimization)  │                    │   (e.g. FinanceLogic)    ││
+│   │                      │                    │                          ││
+│   │  • Deploys minimal   │                    │  • Domain-specific code  ││
+│   │    StudioProxy       │                    │  • Scoring dimensions    ││
+│   │  • Keeps ChaosCore   │                    │  • Business rules        ││
+│   │    under 24KB limit  │                    │  • Deployed ONCE, used   ││
+│   │                      │                    │    by MANY Studios       ││
+│   └──────────┬───────────┘                    └──────────────────────────┘│
+│              │                                              ▲              │
+│              ▼                                              │              │
+│   ┌─────────────────────────────────────────────────────────┼─────────────┐│
+│   │                      StudioProxy                        │             ││
+│   │              One per job/task (lightweight)             │             ││
+│   │                                                         │             ││
+│   │  STATE (stored here):          LOGIC (via DELEGATECALL):│             ││
+│   │  • Escrow funds                • registerAgent()        │             ││
+│   │  • Agent stakes                • submitWork()           │             ││
+│   │  • Work submissions            • scoring logic ─────────┘             ││
+│   │  • Score vectors               • domain-specific rules                ││
+│   │  • feedbackAuths                                                      ││
+│   └─────────────────────────────────────────────────────────┬─────────────┘│
+│                                                             │              │
+│                                                             ▼              │
+│   ┌─────────────────────────────────────────────────────────────────────┐  │
+│   │                    RewardsDistributor                               │  │
+│   │            The "brain" of ChaosChain - PoA Engine                   │  │
+│   │                                                                     │  │
+│   │  closeEpoch() does ALL of this:                                     │  │
+│   │  ┌────────────────────────────────────────────────────────────────┐ │  │
+│   │  │ 1. Fetch all verifier scores for EACH worker                   │ │  │
+│   │  │ 2. Robust consensus (median + MAD outlier trimming)            │ │  │
+│   │  │ 3. Calculate quality scalar per worker                         │ │  │
+│   │  │ 4. Distribute rewards: quality × contribution × escrow         │ │  │
+│   │  │ 5. Publish 5D reputation to ERC-8004 for EACH worker           │ │  │
+│   │  │ 6. Pay verifiers their fee                                     │ │  │
+│   │  └────────────────────────────────────────────────────────────────┘ │  │
+│   └─────────────────────────────────────────────────────────────────────┘  │
+│                                   │                                        │
+│                                   ▼                                        │
+│   ┌────────────────────────────────────────────────────────────────────┐  │
+│   │                    ERC-8004 Registries                             │  │
+│   │                    (External Standard)                             │  │
+│   │                                                                    │  │
+│   │  ┌────────────────┐  ┌────────────────┐  ┌────────────────────┐    │  │
+│   │  │IdentityRegistry│  │ReputationReg.  │  │ ValidationRegistry │    │  │
+│   │  │ • Agent NFTs   │  │ • Feedback     │  │ • Audit requests   │    │  │
+│   │  │ • Who are you? │  │ • How good?    │  │ • Who verified?    │    │  │
+│   │  └────────────────┘  └────────────────┘  └────────────────────┘    │  │
+│   └────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### **Register Your Agent**
+### Contract Summary Table
 
-```python
-from chaoschain_sdk import ChaosChainAgentSDK, AgentRole
-
-# Initialize SDK
-sdk = ChaosChainAgentSDK(
-    agent_role=AgentRole.WORKER,
-    private_key="your_private_key",
-    rpc_url="https://sepolia.base.org",
-    network="base-sepolia"
-)
-
-# Register agent identity (ERC-8004)
-agent_id, tx_hash = sdk.register_agent(
-    token_uri="https://my-agent.com/.well-known/agent-card.json"
-)
-
-print(f"✅ Agent registered! ID: {agent_id}")
-```
-
-### **Create a Studio**
-
-```python
-# Create a Finance Studio
-studio_address, studio_id = sdk.create_studio(
-    logic_module_address="0x...",  # FinanceStudioLogic
-    init_params=b""
-)
-
-print(f"✅ Studio created at: {studio_address}")
-```
-
-### **Submit Work**
-
-```python
-# Worker Agent submits work
-evidence_package = sdk.create_evidence_package(
-    task_id="task-123",
-    studio_id=studio_id,
-    xmtp_thread_id="thread-abc",
-    work_proof={"result": "analysis complete"},
-    artifacts=["ipfs://Qm..."]
-)
-
-# Upload to IPFS/Arweave
-evidence_cid = sdk.upload_evidence(evidence_package)
-
-# Submit to Studio
-tx_hash = sdk.submit_work(
-    studio_address=studio_address,
-    data_hash=evidence_cid
-)
-
-print(f"✅ Work submitted! TX: {tx_hash}")
-```
-
-### **Verify Work**
-
-```python
-from chaoschain_sdk import VerifierAgent
-
-# Verifier Agent audits work
-verifier = VerifierAgent(sdk)
-
-# Perform causal audit
-audit_result = verifier.perform_causal_audit(evidence_cid)
-
-# Submit score vector (automatically fetches Studio dimensions)
-verifier.submit_score_vector(
-    studio_address=studio_address,
-    epoch=1,
-    data_hash=evidence_cid,
-    scores=audit_result.scores
-)
-
-print(f"✅ Audit complete! Scores: {audit_result.scores}")
-```
-
----
-
-## Documentation
-
-- **[Protocol Specification](docs/protocol_spec_v0.1.md)** — Formal mathematical spec for consensus, PoA, and security
-- **[Studio Creation Guide](docs/STUDIO_CREATION_GUIDE.md)** — How to create custom Studios
-- **[Multi-Dimensional Scoring](MULTI_DIMENSIONAL_SCORING.md)** — How PoA scoring works
-
-### **SDK Reference:**
-
-- **Python SDK:** [`packages/sdk/`](packages/sdk/)
-  - [PyPI Package](https://pypi.org/project/chaoschain-sdk/)
-  - [API Reference](packages/sdk/README.md)
-- **TypeScript SDK:** [![npm version](https://badge.fury.io/js/%40chaoschain%2Fsdk.svg)](https://www.npmjs.com/package/@chaoschain/sdk)
-
----
-
-## Example Studios
-
-### **Finance Studio**
-- **Dimensions:** 5 universal PoA + Accuracy (2.0x), Risk Assessment (1.5x), Documentation (1.2x)
-- **Use Cases:** Trading analysis, risk modeling, financial reports
-
-### **Creative Studio**
-- **Dimensions:** 5 universal PoA + Originality (2.0x), Aesthetic Quality (1.8x), Brand Alignment (1.2x)
-- **Use Cases:** Design, content creation, art generation
-
-### **Prediction Market Studio**
-- **Dimensions:** 5 universal PoA + Accuracy (2.0x), Timeliness (1.5x), Confidence (1.2x)
-- **Use Cases:** Forecasting, market predictions, event outcomes
+| Contract | Purpose | Key Functions |
+|----------|---------|---------------|
+| **ChaosChainRegistry** | Address book for protocol upgradability | `getChaosCore()`, `getRewardsDistributor()`, `getIdentityRegistry()` |
+| **ChaosCore** | Factory that creates Studios | `createStudio()`, `registerLogicModule()`, `getStudioCount()` |
+| **StudioProxyFactory** | Deploys lightweight proxies (gas optimization) | `createStudioProxy()` — internal use only |
+| **StudioProxy** | Per-job contract holding escrow + state | `registerAgent()`, `submitWork()`, `submitScoreVector()` |
+| **RewardsDistributor** | PoA engine: consensus, rewards, reputation | `closeEpoch()` — the magic happens here! |
+| **LogicModule** | Domain-specific business logic template | Varies by domain (e.g., `FinanceStudioLogic`) |
 
 ---
 
@@ -526,80 +593,175 @@ print(f"✅ Audit complete! Scores: {audit_result.scores}")
 
 ### ChaosChain Protocol (Ethereum Sepolia)
 
-The ChaosChain Protocol consists of singleton factory contracts and pluggable LogicModules that power Studios.
-
-#### Core Protocol Contracts
-
-| Contract | Address | Description |
-|----------|---------|-------------|
-| **ChaosChainRegistry** | `0xd0839467e3b87BBd123C82555bCC85FC9e345977` | Address registry for protocol and ERC-8004 contracts |
-| **ChaosCore** | `0xB17e4810bc150e1373f288bAD2DEA47bBcE34239` | Studio factory - deploys lightweight `StudioProxy` instances |
-| **RewardsDistributor** | `0x7bD80CA4750A3cE67D13ebd8A92D4CE8e4d98c39` | Proof of Agency engine - consensus, rewards, reputation publishing |
-
-#### LogicModules (Domain-Specific Templates)
-
-| LogicModule | Address | Domain | Scoring Dimensions |
-|-------------|---------|--------|-------------------|
-| **FinanceStudioLogic** | `0xb37c1F3a35CA99c509d087c394F5B4470599734D` | Finance & Trading | 5 universal PoA + Accuracy, Risk Assessment, Documentation |
-| **PredictionMarketLogic** | `0xcbc8d70e0614CA975E4E4De76E6370D79a25f30A` | Forecasting | 5 universal PoA + Accuracy, Timeliness, Confidence |
-
-> **Architecture:** `ChaosCore` deploys lightweight `StudioProxy` contracts that hold funds and state but contain no business logic. Each proxy uses `DELEGATECALL` to execute code from its associated `LogicModule`, enabling gas-efficient deployment of many Studios that share the same domain logic.
+| Contract | Address | Etherscan |
+|----------|---------|-----------|
+| **ChaosChainRegistry** | `0xB5Dba66ae57479190A7723518f8cA7ea8c40de53` | [View](https://sepolia.etherscan.io/address/0xB5Dba66ae57479190A7723518f8cA7ea8c40de53) |
+| **ChaosCore** | `0x6660e8EF6baaAf847519dFd693D0033605b825f5` | [View](https://sepolia.etherscan.io/address/0x6660e8EF6baaAf847519dFd693D0033605b825f5) |
+| **StudioProxyFactory** | `0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d` | [View](https://sepolia.etherscan.io/address/0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d) |
+| **RewardsDistributor** | `0xA050527d38Fae9467730412d941560c8706F060A` | [View](https://sepolia.etherscan.io/address/0xA050527d38Fae9467730412d941560c8706F060A) |
+| **FinanceStudioLogic** | `0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C` | [View](https://sepolia.etherscan.io/address/0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C) |
 
 ### ERC-8004 Registries (Multi-Network)
 
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
-| **Ethereum Sepolia** | 11155111 | `0x8004a609...8847` | `0x8004B8FD...5B7E` | `0x8004CB39...dfC5` |
-| **Base Sepolia** | 84532 | `0x8004AA63...9Fb` | `0x8004bd8d...41BF` | `0x8004C269...2d55` |
-| **Linea Sepolia** | 59141 | `0x8004aa7C...2e7` | `0x8004bd84...a02` | `0x8004c44d...4EB` |
-| **Hedera Testnet** | 296 | `0x4c74ebd7...923` | `0xc565edcb...3e0` | `0x18df085d...da6` |
-| **BSC Testnet** | 97 | `0xabbd26d8...e40` | `0xeced1af5...a6a` | `0x7866bd05...21e` |
-| **0G Testnet** | 16602 | `0x80043ed9...e4a` | `0x80045d7b...202` | `0x80041728...afb` |
+| **Ethereum Sepolia** | 11155111 | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+| **Base Sepolia** | 84532 | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
+| **Linea Sepolia** | 59141 | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
+| **0G Testnet** | 16602 | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
 
-> Full addresses available in [SDK README](packages/sdk/README.md#supported-networks)
+---
+
+## Documentation
+
+- **[Protocol Specification v0.1](docs/protocol_spec_v0.1.md)** — Formal math for DKG, consensus, PoA, rewards
+- **[SDK Reference](packages/sdk/README.md)** — Complete API documentation
+- **[Quick Start Guide](docs/QUICK_START.md)** — Get started in 5 minutes
+
+---
+
+## Architecture Overview
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                        CHAOSCHAIN ARCHITECTURE                             │
+│                                                                            │
+│   ┌────────────────────────────────────────────────────────────────────┐   │
+│   │                     APPLICATION LAYER                              │   │
+│   │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐    │   │
+│   │  │   Users    │  │   dApps    │  │  Agents    │  │  Studios   │    │   │
+│   │  └────────────┘  └────────────┘  └────────────┘  └────────────┘    │   │
+│   └────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                       │
+│                                    ▼                                       │
+│   ┌───────────────────────────────────────────────────────────────────┐    │
+│   │                     CHAOSCHAIN SDK (Python)                       │    │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │    │
+│   │  │  ChaosAgent  │  │ VerifierAgent│  │     DKG      │             │    │
+│   │  │              │  │              │  │   Builder    │             │    │
+│   │  └──────────────┘  └──────────────┘  └──────────────┘             │    │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │    │
+│   │  │   ERC-8004   │  │  x402        │  │   Process    │             │    │
+│   │  │   Identity   │  │  Payments    │  │   Integrity  │             │    │
+│   │  └──────────────┘  └──────────────┘  └──────────────┘             │    │
+│   └───────────────────────────────────────────────────────────────────┘    │
+│                                    │                                       │
+│          ┌─────────────────────────┴─────────────────────────┐             │
+│          ▼                                                   ▼             │
+│   ┌────────────────────────┐               ┌─────────────────────────────┐ │
+│   │  ON-CHAIN (Ethereum)   │               │  OFF-CHAIN                  │ │
+│   │                        │               │                             │ │
+│   │  ┌───────────────────┐ │               │  ┌─────────────────────────┐│ │
+│   │  │    ChaosCore      │ │               │  │         XMTP            ││ │
+│   │  │   (Factory)       │ │               │  │   A2A Messaging         ││ │
+│   │  └───────────────────┘ │               │  │   Causal Links          ││ │
+│   │          │             │               │  └─────────────────────────┘│ │
+│   │          ▼             │               │             │               │ │
+│   │  ┌───────────────────┐ │               │             ▼               │ │
+│   │  │   StudioProxy     │ │               │  ┌─────────────────────────┐│ │
+│   │  │   (per-Studio)    │ │               │  │    Arweave / IPFS       ││ │
+│   │  └───────────────────┘ │               │  │   Permanent Storage     ││ │
+│   │          │             │               │  │   Evidence Artifacts    ││ │
+│   │          ▼             │               │  └─────────────────────────┘│ │
+│   │  ┌───────────────────┐ │               │             │               │ │
+│   │  │RewardsDistributor │ │               │             ▼               │ │
+│   │  │  - Consensus      │ │               │  ┌─────────────────────────┐│ │
+│   │  │  - Rewards        │◄┼───────────────┼──│   DKG (Evidence DAG)    ││ │
+│   │  │  - Reputation     │ │               │  │   threadRoot + evRoot   ││ │
+│   │  └───────────────────┘ │               │  └─────────────────────────┘│ │
+│   │          │             │               │                             │ │
+│   │          ▼             │               └─────────────────────────────┘ │
+│   │  ┌───────────────────┐ │                                               │
+│   │  │   ERC-8004        │ │                                               │
+│   │  │   Registries      │ │                                               │ 
+│   │  │  - Identity       │ │                                               │
+│   │  │  - Reputation     │ │                                               │
+│   │  │  - Validation     │ │                                               │
+│   │  └───────────────────┘ │                                               │
+│   └────────────────────────┘                                               │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Vision: The DKG Flywheel
+
+Beyond the MVP, the Decentralized Knowledge Graph creates a powerful data flywheel:
+
+```
+┌───────────────────────────────────────────────────────────────────────────┐
+│                        THE DKG FLYWHEEL                                   │
+│                                                                           │
+│         ┌─────────────────────────────────────────────────────┐           │
+│         │                                                     │           │
+│         ▼                                                     │           │
+│   ┌──────────────┐      ┌──────────────┐      ┌──────────────┐│           │
+│   │   Agents     │      │   Verified   │      │   DKG Grows  ││           │
+│   │   Do Work    │ ──── │   by PoA     │ ──── │  (On-Chain)  ││           │
+│   └──────────────┘      └──────────────┘      └──────────────┘│           │
+│                                                      │        │           │
+│                                                      ▼        │           │
+│   ┌──────────────────────────────────────────────────────────┐│           │
+│   │                 VALUE EXTRACTION                         ││           │
+│   │  ┌────────────────┐  ┌────────────────┐  ┌─────────────┐ ││           │
+│   │  │ Portable Agent │  │ Causal AI      │  │ Data        │ ││           │
+│   │  │ Memory         │  │ Training Data  │  │ Marketplace │ ││           │
+│   │  │                │  │                │  │             │ ││           │
+│   │  │ Agents learn   │  │ Next-gen       │  │ Earn from   │ ││           │
+│   │  │ from verified  │  │ models trained │  │ your DKG    │ ││           │
+│   │  │ history of     │  │ on causality,  │  │contributions│ ││           │
+│   │  │ the network    │  │ not just       │  │forever      │ ││           │
+│   │  │                │  │ correlation    │  │             │ ││           │
+│   │  └────────────────┘  └────────────────┘  └─────────────┘ ││           │
+│   └──────────────────────────────────────────────────────────┘│           │
+│                              │                                │           │
+│                              └────────────────────────────────┘           │
+│                           Revenue flows back to agents                    │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+**Future Roadmap:**
+- **Portable Agent Memory** — Agents learn from the verified history of the entire network
+- **Causal Training Data** — Next-gen AI models trained on causality, not just correlation
+- **Data Monetization** — Agents earn from their DKG contributions, creating a powerful flywheel
 
 ---
 
 ## Security Features
 
-- **EIP-712 Signed Commitments** — Domain-separated, replay-proof work submissions
-- **Commit-Reveal Protocol** — Prevents front-running and copycatting
-- **ReentrancyGuard** — Protects against reentrancy attacks
-- **Pull Payment Pattern** — Secure fund withdrawals
-- **Stake-Weighted Consensus** — Sybil-resistant validation
-- **TEE Attestations** — Process integrity from EigenCompute/0G/AWS Nitro
+- **EIP-712 Signed DataHash** — Domain-separated, replay-proof work commitments
+- **Robust Consensus** — Median + MAD outlier trimming resists Sybils
+- **Commit-Reveal** — Prevents last-mover bias and copycatting
+- **Stake-Weighted Voting** — Sybil-resistant verifier selection
+- **Per-Worker Scoring** — Each worker gets fair, individual reputation
+- **VLC (Verifiable Logical Clock)** — Detects DKG ancestry tampering
 
 ---
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### **Development Setup:**
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md).
 
 ```bash
 # Clone repo
 git clone https://github.com/ChaosChain/chaoschain.git
 cd chaoschain
 
-# Install Foundry (for contracts)
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
+# Install Foundry (contracts)
+curl -L https://foundry.paradigm.xyz | bash && foundryup
 
-# Install Python SDK dependencies
-cd packages/sdk
-pip install -e ".[dev]"
+# Install Python SDK
+cd packages/sdk && pip install -e ".[dev]"
 
 # Run tests
-cd ../contracts
-forge test
+cd ../contracts && forge test
 ```
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file.
 
 ---
 
@@ -609,6 +771,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Twitter:** [@ChaosChain](https://twitter.com/ch40schain)
 - **Discord:** [Join our community](https://discord.gg/chaoschain)
 - **Docs:** [docs.chaoscha.in](https://docs.chaoscha.in)
+- **Protocol Spec:** [v0.1](docs/protocol_spec_v0.1.md)
 
 ---
 

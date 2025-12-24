@@ -4,6 +4,7 @@ Storage provider adapters.
 Unified storage provider system supporting multiple backends:
 - IPFS (local node, Pinata, Infura, etc.)
 - Irys (programmable datachain)
+- AR.IO (permanent storage on Arweave via Turbo)
 - 0G Storage (decentralized, high-performance, CLI-based)
 - More providers can be easily added
 
@@ -29,6 +30,14 @@ from .ipfs_pinata import PinataStorage
 
 # Irys provider (always available, no extra deps)
 from .irys import IrysStorage
+
+# AR.IO provider (requires turbo-sdk)
+try:
+    from .ario import ArioStorage
+    _ario_available = True
+except ImportError:
+    ArioStorage = None
+    _ario_available = False
 
 # 0G Storage (CLI-based, no gRPC needed)
 try:
@@ -60,14 +69,17 @@ __all__ = [
     'StorageResult',
     'StorageProvider',
     'StorageConfig',
-    
+
     # IPFS Providers
     'LocalIPFSStorage',
     'PinataStorage',
-    
+
     # Irys Provider
     'IrysStorage',
-    
+
+    # AR.IO Provider
+    'ArioStorage',
+
     # 0G Providers
     'ZeroGStorage',  # CLI-based (recommended)
     'ZeroGStorageGRPC',  # Legacy gRPC (deprecated)
