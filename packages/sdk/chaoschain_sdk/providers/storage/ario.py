@@ -5,10 +5,18 @@ AR.IO provides permanent data storage on Arweave via the Turbo Upload service.
 Supports both Ethereum and Arweave signers for authentication.
 
 Uses turbo-sdk: https://pypi.org/project/turbo-sdk/
+
+Install: pip install chaoschain-sdk[ario]
 """
 
 import os
 from typing import Dict, Any, Optional, Tuple, List
+
+# Get SDK version for tagging uploads
+try:
+    from chaoschain_sdk import __version__ as SDK_VERSION
+except ImportError:
+    SDK_VERSION = "0.3.1"
 
 try:
     from turbo_sdk import Turbo, EthereumSigner, ArweaveSigner
@@ -155,7 +163,7 @@ class ArioStorage:
             # Build tags list for Turbo
             upload_tags = [
                 {"name": "App-Name", "value": "ChaosChain-SDK"},
-                {"name": "App-Version", "value": "0.1.2"}
+                {"name": "App-Version", "value": SDK_VERSION}
             ]
 
             if mime:

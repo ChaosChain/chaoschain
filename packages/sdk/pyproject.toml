@@ -92,6 +92,12 @@ ipfs = [
     # Only needs ZEROG_TESTNET_PRIVATE_KEY (indexer finds nodes automatically)
 ]
 
+ario = [
+    "turbo-sdk>=0.0.3",  # AR.IO/Arweave permanent storage via Turbo
+    # Uses Ethereum or Arweave wallet for authentication
+    # See: https://ar.io/ and https://github.com/ardriveapp/turbo-python-sdk
+]
+
 # ─────────────────────────────────────────────────────────────
 # Compute Providers (Pluggable)
 # ─────────────────────────────────────────────────────────────
@@ -145,7 +151,7 @@ payments-fiat = [
 
 # All Storage Providers
 storage-all = [
-    "chaoschain-sdk[pinata,irys,ipfs,0g-storage]",
+    "chaoschain-sdk[pinata,irys,ipfs,0g-storage,ario]",
 ]
 
 # All Compute Providers
@@ -155,7 +161,7 @@ compute-all = [
 
 # Everything (All Providers)
 all = [
-    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,phala-tee,payments-fiat]",
+    "chaoschain-sdk[0g,morpheus,chainlink,pinata,irys,ipfs,ario,phala-tee,payments-fiat]",
 ]
 
 # ─────────────────────────────────────────────────────────────
