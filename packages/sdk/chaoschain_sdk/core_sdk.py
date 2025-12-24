@@ -465,9 +465,12 @@ class ChaosChainAgentSDK:
         """
         Build a mandate `core` payload using the mandate-specs registry.
         """
-        if not self.mandate_manager:
-            raise ChaosChainSDKError("Mandates integration not available")
-        return self.mandate_manager.build_core(kind=kind, payload=payload, base_url=base_url)
+        try:
+            if not self.mandate_manager:
+                raise ChaosChainSDKError("Mandates integration not available")
+            return self.mandate_manager.build_core(kind=kind, payload=payload, base_url=base_url)
+        except Exception as e:
+            raise ChaosChainSDKError(f"Failed to build mandate core: {e}") from e
     
     def create_mandate(
         self,
@@ -494,19 +497,22 @@ class ChaosChainAgentSDK:
             mandate_id: Optional custom mandate id
             created_at: Optional ISO timestamp (defaults to now)
         """
-        if not self.mandate_manager:
-            raise ChaosChainSDKError("Mandates integration not available")
-        
-        return self.mandate_manager.create_mandate(
-            intent=intent,
-            core=core,
-            deadline=deadline,
-            client=client,
-            server=server,
-            version=version,
-            mandate_id=mandate_id,
-            created_at=created_at,
-        )
+        try:
+            if not self.mandate_manager:
+                raise ChaosChainSDKError("Mandates integration not available")
+            
+            return self.mandate_manager.create_mandate(
+                intent=intent,
+                core=core,
+                deadline=deadline,
+                client=client,
+                server=server,
+                version=version,
+                mandate_id=mandate_id,
+                created_at=created_at,
+            )
+        except Exception as e:
+            raise ChaosChainSDKError(f"Failed to create mandate: {e}") from e
     
     def sign_mandate_as_server(
         self,
@@ -516,9 +522,12 @@ class ChaosChainAgentSDK:
         """
         Sign a mandate as the server (defaults to this agent's wallet key).
         """
-        if not self.mandate_manager:
-            raise ChaosChainSDKError("Mandates integration not available")
-        return self.mandate_manager.sign_as_server(mandate, private_key=private_key)
+        try:
+            if not self.mandate_manager:
+                raise ChaosChainSDKError("Mandates integration not available")
+            return self.mandate_manager.sign_as_server(mandate, private_key=private_key)
+        except Exception as e:
+            raise ChaosChainSDKError(f"Failed to sign mandate as server: {e}") from e
     
     def sign_mandate_as_client(
         self,
@@ -528,15 +537,21 @@ class ChaosChainAgentSDK:
         """
         Sign a mandate as the client.
         """
-        if not self.mandate_manager:
-            raise ChaosChainSDKError("Mandates integration not available")
-        return self.mandate_manager.sign_as_client(mandate, private_key=private_key)
+        try:
+            if not self.mandate_manager:
+                raise ChaosChainSDKError("Mandates integration not available")
+            return self.mandate_manager.sign_as_client(mandate, private_key=private_key)
+        except Exception as e:
+            raise ChaosChainSDKError(f"Failed to sign mandate as client: {e}") from e
     
     def verify_mandate(self, mandate: Mandate | Dict[str, Any]) -> Dict[str, Any]:
         """Verify both client and server signatures on a mandate."""
-        if not self.mandate_manager:
-            raise ChaosChainSDKError("Mandates integration not available")
-        return self.mandate_manager.verify(mandate)
+        try:
+            if not self.mandate_manager:
+                raise ChaosChainSDKError("Mandates integration not available")
+            return self.mandate_manager.verify(mandate)
+        except Exception as e:
+            raise ChaosChainSDKError(f"Failed to verify mandate: {e}") from e
     
     # === PROCESS INTEGRITY ===
     
