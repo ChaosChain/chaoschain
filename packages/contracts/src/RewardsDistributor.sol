@@ -186,9 +186,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 // payout = quality × contribution_weight × worker_pool
                 uint256 workerShare = (workerPool * contributionWeight * workerQuality) / (10000 * 100);
                 
-                // Transfer reward to worker
+                // Transfer reward to worker (using agentWallet if configured)
                 if (workerShare > 0) {
-                    studioProxy.releaseFunds(worker, workerShare, dataHash);
+                    address recipient = _getPaymentRecipient(studioProxy, worker);
+                    studioProxy.releaseFunds(recipient, workerShare, dataHash);
                     totalWorkerRewards += workerShare;
                 }
                 
@@ -589,7 +590,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 uint256 reward = (rewardPool * weight) / totalWeight;
                 
                 if (reward > 0) {
-                    studioProxy.releaseFunds(validators[i], reward, dataHash);
+                    // Route to validator's agentWallet if configured
+                    address recipient = _getPaymentRecipient(studioProxy, validators[i]);
+                    studioProxy.releaseFunds(recipient, reward, dataHash);
                     totalDistributed += reward;
                 }
                 
@@ -796,7 +799,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 uint256 participantReward = (totalReward * weights[i] * workerQuality) / (10000 * 100);
                 
                 if (participantReward > 0) {
-                    studioProxy.releaseFunds(worker, participantReward, dataHash);
+                    // Route to worker's agentWallet if configured
+                    address recipient = _getPaymentRecipient(studioProxy, worker);
+                    studioProxy.releaseFunds(recipient, participantReward, dataHash);
                     totalDistributed += participantReward;
                 }
                 
@@ -821,9 +826,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 }
             }
         } else if (participants.length == 1) {
-            // Single-agent work
+            // Single-agent work - route to agentWallet if configured
             if (totalReward > 0) {
-                studioProxy.releaseFunds(participants[0], totalReward, dataHash);
+                address recipient = _getPaymentRecipient(studioProxy, participants[0]);
+                studioProxy.releaseFunds(recipient, totalReward, dataHash);
                 totalDistributed += totalReward;
             }
             
@@ -849,7 +855,8 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         } else {
             // Fallback: Use original worker address (backward compatibility)
             if (totalReward > 0) {
-                studioProxy.releaseFunds(fallbackWorker, totalReward, dataHash);
+                address recipient = _getPaymentRecipient(studioProxy, fallbackWorker);
+                studioProxy.releaseFunds(recipient, totalReward, dataHash);
                 totalDistributed += totalReward;
             }
             
@@ -1052,12 +1059,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         
         require(totalPoAScore > 0, "Invalid PoA scores");
         
-        // Distribute rewards proportionally
+        // Distribute rewards proportionally (using agentWallet routing)
         for (uint256 i = 0; i < participants.length; i++) {
             uint256 participantReward = (totalReward * poaScores[i]) / totalPoAScore;
             
             if (participantReward > 0) {
-                studioProxy.releaseFunds(participants[i], participantReward, dataHash);
+                address recipient = _getPaymentRecipient(studioProxy, participants[i]);
+                studioProxy.releaseFunds(recipient, participantReward, dataHash);
                 totalDistributed += participantReward;
             }
         }
@@ -1093,6 +1101,57 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             names = new string[](0);
             weights = new uint16[](0);
         }
+    }
+    
+    /**
+     * @notice Get the payment recipient for an agent (agentWallet routing)
+     * @dev ERC-8004 Jan 2026: Agents can set a separate wallet for receiving payments
+     * 
+     * Use cases:
+     * - Team of agents sharing a treasury
+     * - Company routing agent rewards to corporate wallet
+     * - DAO-controlled agents
+     * - Security: operational wallet separate from reward wallet
+     * 
+     * @param studioProxy The StudioProxy contract
+     * @param workerAddress The worker's registered address
+     * @return recipient The address to send payments to (agentWallet if set, otherwise worker)
+     */
+    function _getPaymentRecipient(
+        StudioProxy studioProxy,
+        address workerAddress
+    ) internal view returns (address recipient) {
+        // Get agent ID from studio registration
+        uint256 agentId = studioProxy.getAgentId(workerAddress);
+        if (agentId == 0) {
+            return workerAddress; // Not registered, use original address
+        }
+        
+        // Try to get agentWallet from Identity Registry
+        address identityRegistryAddr = registry.getIdentityRegistry();
+        if (identityRegistryAddr == address(0)) {
+            return workerAddress; // No registry, use original address
+        }
+        
+        // Check if registry has code
+        uint256 size;
+        assembly {
+            size := extcodesize(identityRegistryAddr)
+        }
+        if (size == 0) {
+            return workerAddress; // Mock/test registry, use original address
+        }
+        
+        // Get agentWallet - if set, use it; otherwise use worker address
+        try IERC8004IdentityV1(identityRegistryAddr).getAgentWallet(agentId) returns (address agentWallet) {
+            if (agentWallet != address(0)) {
+                return agentWallet; // Agent has a configured wallet!
+            }
+        } catch {
+            // getAgentWallet not implemented or failed, use original
+        }
+        
+        return workerAddress; // Fallback to worker address
     }
     
     /**
