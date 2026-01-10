@@ -439,6 +439,226 @@ class ChaosChainAgentSDK:
             network=self.network
         )
     
+    # === AGENT WALLET MANAGEMENT (ERC-8004 Jan 2026) ===
+    
+    def get_agent_wallet(self, agent_id: Optional[int] = None) -> Optional[str]:
+        """
+        Get the payment wallet address for an agent.
+        
+        ERC-8004 Jan 2026: Agents can designate a separate wallet for receiving
+        payments via setAgentWallet(). This wallet:
+        - Receives all rewards instead of the agent owner address
+        - Requires EIP-712/ERC-1271 signature to set
+        - Resets when the agent NFT is transferred
+        
+        Use cases:
+        - Route rewards to team treasury
+        - Separate operational key from reward wallet
+        - DAO-controlled agent fleet
+        
+        Args:
+            agent_id: Agent ID to query. Defaults to this agent's ID.
+            
+        Returns:
+            Agent wallet address if set, None if not set (rewards go to owner)
+        """
+        from rich import print as rprint
+        
+        # Get agent ID
+        if agent_id is None:
+            agent_id = self.chaos_agent.get_agent_id()
+        
+        if not agent_id or agent_id == 0:
+            rprint(f"[yellow]⚠️  Agent not registered[/yellow]")
+            return None
+        
+        # Get identity registry address
+        identity_registry_addr = self.chaos_agent.contract_addresses.identity_registry
+        if not identity_registry_addr:
+            rprint(f"[yellow]⚠️  Identity registry not configured[/yellow]")
+            return None
+        
+        # IdentityRegistry ABI for getAgentWallet
+        identity_abi = [
+            {
+                "inputs": [{"name": "agentId", "type": "uint256"}],
+                "name": "getAgentWallet",
+                "outputs": [{"name": "", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]
+        
+        try:
+            registry = self.chaos_agent.w3.eth.contract(
+                address=self.chaos_agent.w3.to_checksum_address(identity_registry_addr),
+                abi=identity_abi
+            )
+            
+            wallet_addr = registry.functions.getAgentWallet(agent_id).call()
+            
+            # Zero address means not set
+            if wallet_addr == "0x0000000000000000000000000000000000000000":
+                return None
+                
+            return wallet_addr
+            
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Could not get agent wallet: {e}[/yellow]")
+            return None
+    
+    def set_agent_wallet(
+        self,
+        new_wallet: str,
+        deadline_seconds: int = 3600
+    ) -> str:
+        """
+        Set a dedicated payment wallet for this agent.
+        
+        ERC-8004 Jan 2026: Allows agents to designate a separate wallet for
+        receiving all payments (rewards, reimbursements, etc.).
+        
+        Security:
+        - Requires EIP-712 signature from the NEW wallet
+        - Prevents hijacking: new wallet must consent to receiving payments
+        - Resets when agent NFT is transferred (protection against stale wallets)
+        
+        Args:
+            new_wallet: Address of the new payment wallet
+            deadline_seconds: Signature validity period (default: 1 hour)
+            
+        Returns:
+            Transaction hash
+            
+        Example:
+            # Route rewards to team treasury
+            tx = sdk.set_agent_wallet(
+                new_wallet="0xTreasuryAddress...",
+                deadline_seconds=3600
+            )
+            print(f"Agent wallet updated: {tx}")
+            
+        Raises:
+            ContractError: If setting fails
+            AgentRegistrationError: If agent not registered
+        """
+        from rich import print as rprint
+        import time
+        
+        # Get agent ID
+        agent_id = self.chaos_agent.get_agent_id()
+        if not agent_id or agent_id == 0:
+            raise AgentRegistrationError("Agent not registered. Call register_agent() first.")
+        
+        # Get identity registry address
+        identity_registry_addr = self.chaos_agent.contract_addresses.identity_registry
+        if not identity_registry_addr:
+            raise ContractError("Identity registry not configured")
+        
+        # Checksum address
+        new_wallet = self.chaos_agent.w3.to_checksum_address(new_wallet)
+        
+        # Calculate deadline
+        deadline = int(time.time()) + deadline_seconds
+        
+        rprint(f"[cyan]→[/cyan] Setting agent wallet for agent #{agent_id}")
+        rprint(f"[dim]   New wallet: {new_wallet}[/dim]")
+        rprint(f"[dim]   Deadline: {deadline} ({deadline_seconds}s from now)[/dim]")
+        
+        # Generate EIP-712 signature from the NEW wallet
+        # NOTE: In production, the new_wallet owner must sign this message
+        # For demo/testing, we assume caller controls both wallets
+        rprint(f"[yellow]⚠️  NOTE: New wallet must sign authorization message[/yellow]")
+        
+        # EIP-712 domain and type for setAgentWallet
+        domain_data = {
+            "name": "ERC8004Identity",
+            "version": "1",
+            "chainId": self.chaos_agent.chain_id,
+            "verifyingContract": self.chaos_agent.w3.to_checksum_address(identity_registry_addr)
+        }
+        
+        message_types = {
+            "SetAgentWallet": [
+                {"name": "agentId", "type": "uint256"},
+                {"name": "newWallet", "type": "address"},
+                {"name": "deadline", "type": "uint256"}
+            ]
+        }
+        
+        message_data = {
+            "agentId": agent_id,
+            "newWallet": new_wallet,
+            "deadline": deadline
+        }
+        
+        # Sign with new wallet (for demo, use current wallet - in production this needs separate signing)
+        from eth_account.messages import encode_typed_data
+        
+        full_message = encode_typed_data(
+            domain_data,
+            message_types,
+            message_data
+        )
+        
+        account = self.wallet_manager.wallets[self.agent_name]
+        signed = account.sign_message(full_message)
+        signature = signed.signature
+        
+        # IdentityRegistry ABI for setAgentWallet  
+        identity_abi = [
+            {
+                "inputs": [
+                    {"name": "agentId", "type": "uint256"},
+                    {"name": "newWallet", "type": "address"},
+                    {"name": "deadline", "type": "uint256"},
+                    {"name": "signature", "type": "bytes"}
+                ],
+                "name": "setAgentWallet",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ]
+        
+        try:
+            registry = self.chaos_agent.w3.eth.contract(
+                address=self.chaos_agent.w3.to_checksum_address(identity_registry_addr),
+                abi=identity_abi
+            )
+            
+            # Build transaction
+            tx = registry.functions.setAgentWallet(
+                agent_id,
+                new_wallet,
+                deadline,
+                signature
+            ).build_transaction({
+                'from': account.address,
+                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
+                'gas': 200000,
+                'gasPrice': self.chaos_agent.w3.eth.gas_price
+            })
+            
+            # Sign and send
+            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
+            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            
+            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()}")
+            
+            # Wait for receipt
+            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
+            
+            if receipt['status'] != 1:
+                raise ContractError("setAgentWallet transaction failed")
+            
+            rprint(f"[green]✓[/green] Agent wallet set successfully!")
+            rprint(f"[green]   All rewards will now go to: {new_wallet}[/green]")
+            return tx_hash.hex()
+            
+        except Exception as e:
+            raise ContractError(f"Failed to set agent wallet: {str(e)}")
+    
     # === PROCESS INTEGRITY ===
     
     def register_integrity_checked_function(self, func: callable, function_name: str = None) -> str:
@@ -1580,6 +1800,9 @@ class ChaosChainAgentSDK:
         """
         Submit work to a Studio (§1.4 protocol spec).
         
+        ERC-8004 Jan 2026 Update: feedbackAuth is no longer required.
+        Reputation is now published automatically by RewardsDistributor.
+        
         Args:
             studio_address: Address of the Studio proxy
             data_hash: EIP-712 DataHash of the work (bytes32)
@@ -1598,24 +1821,16 @@ class ChaosChainAgentSDK:
             # Checksum address
             studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
             
-            # Get agent ID
+            # Get agent ID (verify registration)
             agent_id = self.chaos_agent.get_agent_id()
             if not agent_id or agent_id == 0:
                 raise ContractError("Agent not registered. Call register_agent() first.")
             
-            # Generate feedbackAuth signature
-            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
-            if not rewards_distributor:
-                raise ContractError("RewardsDistributor address not configured")
+            # ERC-8004 Jan 2026: feedbackAuth no longer required!
+            # Pass empty bytes for backward compatibility with contract interface
+            feedback_auth = b''
             
-            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature...")
-            feedback_auth = self.chaos_agent._generate_feedback_auth(
-                agent_id,
-                rewards_distributor
-            )
-            rprint(f"[dim]   Signature length: {len(feedback_auth)} bytes[/dim]")
-            
-            # StudioProxy ABI (with feedbackAuth)
+            # StudioProxy ABI (feedbackAuth kept for interface compatibility but ignored)
             studio_proxy_abi = [
                 {
                     "inputs": [
@@ -1645,12 +1860,12 @@ class ChaosChainAgentSDK:
             rprint(f"[dim]   ThreadRoot: {thread_root.hex() if isinstance(thread_root, bytes) else thread_root}[/dim]")
             rprint(f"[dim]   EvidenceRoot: {evidence_root.hex() if isinstance(evidence_root, bytes) else evidence_root}[/dim]")
             
-            # Build transaction with feedbackAuth
+            # Build transaction
             tx = studio.functions.submitWork(
                 data_hash,
                 thread_root,
                 evidence_root,
-                feedback_auth
+                feedback_auth  # Empty - no longer needed
             ).build_transaction({
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
@@ -1785,30 +2000,19 @@ class ChaosChainAgentSDK:
                 diff = 10000 - weights_sum
                 weights_bp[-1] += diff
             
-            # Get agent ID
+            # Get agent ID (verify registration)
             agent_id = self.chaos_agent.get_agent_id()
             if not agent_id or agent_id == 0:
                 raise ContractError("Agent not registered. Call register_agent() first.")
             
-            # Generate feedbackAuth signature
-            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
-            if not rewards_distributor:
-                raise ContractError("RewardsDistributor address not configured")
-            
-            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature...")
-            feedback_auth = self.chaos_agent._generate_feedback_auth(
-                agent_id,
-                rewards_distributor
-            )
-            
-            # StudioProxy ABI for multi-agent submission
+            # ERC-8004 Jan 2026: feedbackAuth no longer required!
+            # StudioProxy ABI for multi-agent submission (new signature without feedbackAuth)
             studio_proxy_abi = [
                 {
                     "inputs": [
                         {"name": "dataHash", "type": "bytes32"},
                         {"name": "threadRoot", "type": "bytes32"},
                         {"name": "evidenceRoot", "type": "bytes32"},
-                        {"name": "feedbackAuth", "type": "bytes"},
                         {"name": "participants", "type": "address[]"},
                         {"name": "contributionWeights", "type": "uint16[]"},
                         {"name": "evidenceCID", "type": "string"}
@@ -1837,12 +2041,11 @@ class ChaosChainAgentSDK:
             if evidence_cid:
                 rprint(f"[dim]   Evidence: ipfs://{evidence_cid}[/dim]")
             
-            # Build transaction
+            # Build transaction (no feedbackAuth needed!)
             tx = studio.functions.submitWorkMultiAgent(
                 data_hash,
                 thread_root,
                 evidence_root,
-                feedback_auth,
                 participants_checksummed,
                 weights_bp,
                 evidence_cid
@@ -1878,111 +2081,36 @@ class ChaosChainAgentSDK:
         data_hash: bytes
     ) -> str:
         """
-        Register feedbackAuth for a multi-agent work submission.
+        DEPRECATED: feedbackAuth is no longer required per ERC-8004 Jan 2026 update.
         
-        This allows participants (who didn't submit the work) to register their
-        feedbackAuth so they can receive reputation when the epoch closes.
+        Reputation is now published automatically by RewardsDistributor for ALL
+        participants in a multi-agent work submission. No pre-registration needed!
         
-        Flow:
-        1. Alice submits multi-agent work (her feedbackAuth is stored)
-        2. Dave calls register_feedback_auth(data_hash) → Dave can receive reputation
-        3. Eve calls register_feedback_auth(data_hash) → Eve can receive reputation
-        4. Epoch closes → ALL participants receive reputation!
+        This method is kept for backward compatibility but does nothing.
         
         Args:
-            studio_address: Address of the Studio proxy
-            data_hash: The work dataHash (bytes32)
+            studio_address: Address of the Studio proxy (ignored)
+            data_hash: The work dataHash (ignored)
             
         Returns:
-            Transaction hash
-            
-        Example:
-            # After Alice submits multi-agent work including Dave:
-            tx = dave_sdk.register_feedback_auth(
-                studio_address="0x...",
-                data_hash=data_hash  # From Alice's submission
-            )
-            print(f"Dave registered feedbackAuth: {tx}")
-            
-        Raises:
-            ContractError: If not a participant or already registered
+            Empty string (no transaction)
         """
-        try:
-            from rich import print as rprint
-            
-            # Checksum addresses
-            studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
-            
-            # Get agent ID
-            agent_id = self.chaos_agent.get_agent_id()
-            if not agent_id or agent_id == 0:
-                raise ContractError("Agent not registered. Call register_agent() first.")
-            
-            # Generate feedbackAuth signature
-            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
-            if not rewards_distributor:
-                raise ContractError("RewardsDistributor address not configured")
-            
-            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature for multi-agent work...")
-            feedback_auth = self.chaos_agent._generate_feedback_auth(
-                agent_id,
-                rewards_distributor
-            )
-            
-            # StudioProxy ABI for registerFeedbackAuth
-            studio_proxy_abi = [
-                {
-                    "inputs": [
-                        {"name": "dataHash", "type": "bytes32"},
-                        {"name": "feedbackAuth", "type": "bytes"}
-                    ],
-                    "name": "registerFeedbackAuth",
-                    "outputs": [],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
-                }
-            ]
-            
-            # Create contract instance
-            studio = self.chaos_agent.w3.eth.contract(
-                address=studio_address,
-                abi=studio_proxy_abi
-            )
-            
-            # Get wallet account
-            account = self.wallet_manager.wallets[self.agent_name]
-            
-            rprint(f"[cyan]→[/cyan] Registering feedbackAuth for work {data_hash.hex()[:16]}...")
-            
-            # Build transaction
-            tx = studio.functions.registerFeedbackAuth(
-                data_hash,
-                feedback_auth
-            ).build_transaction({
-                'from': account.address,
-                'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
-                'gas': 500000,  # Higher gas for feedbackAuth storage
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
-            })
-            
-            # Sign and send
-            signed_tx = self.chaos_agent.w3.eth.account.sign_transaction(tx, account.key)
-            tx_hash = self.chaos_agent.w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            
-            rprint(f"[cyan]→[/cyan] Transaction sent: {tx_hash.hex()[:16]}...")
-            
-            # Wait for receipt
-            receipt = self.chaos_agent.w3.eth.wait_for_transaction_receipt(tx_hash)
-            
-            if receipt['status'] != 1:
-                raise ContractError("FeedbackAuth registration failed")
-            
-            rprint(f"[green]✓[/green] FeedbackAuth registered successfully!")
-            rprint(f"[green]  You will now receive reputation when epoch closes![/green]")
-            return tx_hash.hex()
-            
-        except Exception as e:
-            raise ContractError(f"Failed to register feedbackAuth: {str(e)}")
+        import warnings
+        from rich import print as rprint
+        
+        warnings.warn(
+            "register_feedback_auth() is DEPRECATED per ERC-8004 Jan 2026 update. "
+            "feedbackAuth is no longer required - reputation is published automatically. "
+            "This method will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
+        rprint(f"[yellow]⚠️  DEPRECATED: register_feedback_auth() no longer needed![/yellow]")
+        rprint(f"[yellow]   ERC-8004 Jan 2026: Reputation is now automatic for all participants.[/yellow]")
+        rprint(f"[green]   No action required - you will receive reputation when epoch closes![/green]")
+        
+        return ""  # No transaction needed
     
     def submit_work_from_audit(
         self,

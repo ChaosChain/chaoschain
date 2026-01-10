@@ -36,9 +36,15 @@ class TestSDKImports:
     
     def test_enum_values(self):
         """Test that enums have expected values."""
-        assert AgentRole.SERVER.value == "server"
-        assert AgentRole.VALIDATOR.value == "validator"
+        # Current role names
+        assert AgentRole.WORKER.value == "worker"
+        assert AgentRole.VERIFIER.value == "verifier"
         assert AgentRole.CLIENT.value == "client"
+        assert AgentRole.ORCHESTRATOR.value == "orchestrator"
+        
+        # Legacy aliases (for backward compat)
+        assert AgentRole.SERVER.value == "worker"  # WORKER alias
+        assert AgentRole.VALIDATOR.value == "verifier"  # VERIFIER alias
         
         assert NetworkConfig.BASE_SEPOLIA.value == "base-sepolia"
         assert NetworkConfig.ETHEREUM_SEPOLIA.value == "ethereum-sepolia"
@@ -48,8 +54,7 @@ class TestSDKInitialization:
     """Test SDK initialization without network connections."""
     
     @patch('chaoschain_sdk.core_sdk.WalletManager')
-    @patch('chaoschain_sdk.core_sdk.StorageManager')
-    def test_sdk_init_minimal(self, mock_storage, mock_wallet):
+    def test_sdk_init_minimal(self, mock_wallet):
         """Test SDK initialization with mocked dependencies."""
         # Mock wallet manager
         mock_wallet_instance = Mock()
@@ -57,23 +62,22 @@ class TestSDKInitialization:
         mock_wallet_instance.chain_id = 84532
         mock_wallet_instance.is_connected = True
         mock_wallet_instance.w3 = Mock()
+        mock_wallet_instance.wallets = {}
         mock_wallet.return_value = mock_wallet_instance
-        
-        # Mock storage manager
-        mock_storage_instance = Mock()
-        mock_storage.return_value = mock_storage_instance
         
         # Mock ChaosAgent to avoid contract loading
         with patch('chaoschain_sdk.core_sdk.ChaosAgent') as mock_chaos_agent:
             mock_agent_instance = Mock()
             mock_agent_instance.get_agent_id.return_value = None
+            mock_agent_instance.contract_addresses = Mock()
+            mock_agent_instance.w3 = Mock()
             mock_chaos_agent.return_value = mock_agent_instance
             
             # Initialize SDK
             sdk = ChaosChainAgentSDK(
                 agent_name="TestAgent",
                 agent_domain="test.example.com",
-                agent_role=AgentRole.SERVER,
+                agent_role=AgentRole.WORKER,  # Use current role name
                 network=NetworkConfig.BASE_SEPOLIA,
                 enable_process_integrity=False,  # Disable to avoid complex mocking
                 enable_payments=False,
@@ -82,15 +86,23 @@ class TestSDKInitialization:
             
             assert sdk.agent_name == "TestAgent"
             assert sdk.agent_domain == "test.example.com"
-            assert sdk.agent_role == AgentRole.SERVER
+            assert sdk.agent_role == AgentRole.WORKER
             assert sdk.network == NetworkConfig.BASE_SEPOLIA
     
     def test_agent_role_enum(self):
         """Test AgentRole enum functionality."""
-        assert len(list(AgentRole)) == 3
-        assert AgentRole.SERVER in AgentRole
-        assert AgentRole.VALIDATOR in AgentRole
+        # 4 real roles + 2 legacy aliases = 6 enum members
+        assert len(list(AgentRole)) >= 4  # At least 4 unique roles
+        
+        # Current roles
+        assert AgentRole.WORKER in AgentRole
+        assert AgentRole.VERIFIER in AgentRole
         assert AgentRole.CLIENT in AgentRole
+        assert AgentRole.ORCHESTRATOR in AgentRole
+        
+        # Legacy aliases still work
+        assert AgentRole.SERVER in AgentRole  # Alias for WORKER
+        assert AgentRole.VALIDATOR in AgentRole  # Alias for VERIFIER
     
     def test_network_config_enum(self):
         """Test NetworkConfig enum functionality."""

@@ -2086,71 +2086,28 @@ class ChaosAgent:
         rewards_distributor: str
     ) -> bytes:
         """
-        Generate EIP-712 signed feedbackAuth for reputation publishing.
+        DEPRECATED: feedbackAuth is no longer required per ERC-8004 Jan 2026 update.
         
-        This authorizes RewardsDistributor to publish reputation on behalf of the agent
-        when work is completed and consensus is reached.
+        This method is kept for backward compatibility but returns empty bytes.
+        Reputation is now published automatically by RewardsDistributor for all
+        registered participants.
         
         Args:
-            agent_id: The agent's ERC-8004 identity ID
-            rewards_distributor: Address of RewardsDistributor contract
+            agent_id: The agent's ERC-8004 identity ID (ignored)
+            rewards_distributor: Address of RewardsDistributor contract (ignored)
             
         Returns:
-            bytes: Full feedbackAuth (289 bytes: encoded struct + signature)
-                   - First 224 bytes: ABI-encoded struct (agentId, clientAddress, etc.)
-                   - Last 65 bytes: EIP-712 signature (r, s, v)
-            
-        Raises:
-            ContractError: If signature generation fails
+            bytes: Empty bytes (feedbackAuth no longer needed)
         """
-        try:
-            # Get account
-            account = self.wallet_manager.wallets[self.agent_name]
-            
-            # FeedbackAuth parameters
-            agent_id_param = agent_id
-            client_address_param = self.w3.to_checksum_address(rewards_distributor)
-            index_limit = 1000  # Allow many feedbacks
-            expiry = int(time.time()) + (365 * 24 * 60 * 60)  # 1 year
-            chain_id = self.w3.eth.chain_id
-            identity_registry_param = self.contract_addresses.identity_registry
-            signer_address = account.address
-            
-            # Encode the struct (224 bytes) - must match contract's abi.encode()
-            encoded_struct = abi_encode(
-                ['uint256', 'address', 'uint64', 'uint256', 'uint256', 'address', 'address'],
-                [
-                    agent_id_param,
-                    client_address_param,
-                    index_limit,
-                    expiry,
-                    chain_id,
-                    identity_registry_param,
-                    signer_address
-                ]
-            )
-            
-            # Hash the encoded struct
-            message_hash = self.w3.keccak(encoded_struct)
-            
-            # Sign using Ethereum signed message format (NOT EIP-712!)
-            # This adds "\x19Ethereum Signed Message:\n32" prefix
-            from eth_account.messages import encode_defunct
-            signable_message = encode_defunct(message_hash)
-            signed_message = self.w3.eth.account.sign_message(
-                signable_message,
-                private_key=account.key
-            )
-            
-            # Build full feedbackAuth (289 bytes):
-            # First 224 bytes: ABI-encoded struct
-            # Last 65 bytes: Signature (r, s, v)
-            full_feedback_auth = encoded_struct + signed_message.signature
-            
-            return full_feedback_auth
-            
-        except Exception as e:
-            raise ContractError(f"Failed to generate feedbackAuth: {str(e)}")
+        import warnings
+        warnings.warn(
+            "_generate_feedback_auth() is DEPRECATED per ERC-8004 Jan 2026 update. "
+            "feedbackAuth is no longer required - reputation is published automatically. "
+            "This method will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return b''  # No feedbackAuth needed anymore
     
     @property
     def wallet_address(self) -> str:

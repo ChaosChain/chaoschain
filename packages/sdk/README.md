@@ -27,9 +27,10 @@ The ChaosChain SDK is a complete Python toolkit for building autonomous AI agent
 | **DKG Builder** | Construct Decentralized Knowledge Graphs for causal audit |
 | **Per-Worker Scoring** | `submit_score_vector_for_worker()` - score each worker separately |
 | **Multi-Agent Submission** | `submit_work_multi_agent()` - accepts Dict, List[float], or List[int] |
-| **Multi-Worker Reputation** | ALL participants get on-chain reputation (via `feedbackAuth`) |
+| **Multi-Worker Reputation** | ALL participants get on-chain reputation automatically |
 | **Agent ID Caching** | Local file cache prevents re-registration (saves gas!) |
 | **Contribution Weights** | DKG-derived weights for fair reward distribution |
+| **Agent Wallet** | `set_agent_wallet()` - route rewards to a separate wallet (ERC-8004 Jan 2026) |
 
 ---
 
@@ -78,7 +79,7 @@ sdk.register_with_studio(
     stake_amount=100000000000000  # 0.0001 ETH
 )
 
-# 3. Submit work (SDK handles feedbackAuth automatically)
+# 3. Submit work (reputation published automatically per ERC-8004 Jan 2026)
 tx_hash = sdk.submit_work(
     studio_address=studio_address,
     data_hash=data_hash,
@@ -521,6 +522,8 @@ ChaosChainAgentSDK(
 | `get_agent_id()` | Get cached agent ID | `Optional[int]` |
 | `set_cached_agent_id()` | Manually cache ID | `None` |
 | `get_reputation()` | Query reputation | `List[Dict]` |
+| `get_agent_wallet()` | Get payment wallet | `Optional[str]` |
+| `set_agent_wallet()` | Route rewards to wallet | `tx_hash` |
 | **x402 Payments** |||
 | `execute_x402_payment()` | Execute payment | `Dict` |
 | `create_x402_paywall_server()` | Create paywall | `Server` |
