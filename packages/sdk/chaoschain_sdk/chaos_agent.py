@@ -405,20 +405,20 @@ class ChaosAgent:
         """
         return [
             # Core Functions
-                {
-                    "inputs": [
+            {
+                "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "score", "type": "uint8"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"},
-                    {"name": "feedbackUri", "type": "string"},
-                    {"name": "feedbackHash", "type": "bytes32"},
-                    {"name": "feedbackAuth", "type": "bytes"}
-                    ],
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
+                    {"name": "endpoint", "type": "string"},
+                    {"name": "feedbackURI", "type": "string"},
+                    {"name": "feedbackHash", "type": "bytes32"}
+                ],
                 "name": "giveFeedback",
-                    "outputs": [],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
             },
             {
                 "inputs": [
@@ -435,7 +435,7 @@ class ChaosAgent:
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddress", "type": "address"},
                     {"name": "feedbackIndex", "type": "uint64"},
-                    {"name": "responseUri", "type": "string"},
+                    {"name": "responseURI", "type": "string"},
                     {"name": "responseHash", "type": "bytes32"}
                 ],
                 "name": "appendResponse",
@@ -448,8 +448,8 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddresses", "type": "address[]"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"}
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"}
                 ],
                 "name": "getSummary",
                 "outputs": [
@@ -463,13 +463,13 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddress", "type": "address"},
-                    {"name": "index", "type": "uint64"}
+                    {"name": "feedbackIndex", "type": "uint64"}
                 ],
                 "name": "readFeedback",
                 "outputs": [
                     {"name": "score", "type": "uint8"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
                     {"name": "isRevoked", "type": "bool"}
                 ],
                 "stateMutability": "view",
@@ -479,16 +479,17 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddresses", "type": "address[]"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
                     {"name": "includeRevoked", "type": "bool"}
                 ],
                 "name": "readAllFeedback",
                 "outputs": [
                     {"name": "clients", "type": "address[]"},
+                    {"name": "feedbackIndexes", "type": "uint64[]"},
                     {"name": "scores", "type": "uint8[]"},
-                    {"name": "tag1s", "type": "bytes32[]"},
-                    {"name": "tag2s", "type": "bytes32[]"},
+                    {"name": "tag1s", "type": "string[]"},
+                    {"name": "tag2s", "type": "string[]"},
                     {"name": "revokedStatuses", "type": "bool[]"}
                 ],
                 "stateMutability": "view",
@@ -524,10 +525,12 @@ class ChaosAgent:
                 "inputs": [
                     {"indexed": True, "name": "agentId", "type": "uint256"},
                     {"indexed": True, "name": "clientAddress", "type": "address"},
+                    {"indexed": False, "name": "feedbackIndex", "type": "uint64"},
                     {"indexed": False, "name": "score", "type": "uint8"},
-                    {"indexed": True, "name": "tag1", "type": "bytes32"},
-                    {"indexed": False, "name": "tag2", "type": "bytes32"},
-                    {"indexed": False, "name": "feedbackUri", "type": "string"},
+                    {"indexed": True, "name": "tag1", "type": "string"},
+                    {"indexed": False, "name": "tag2", "type": "string"},
+                    {"indexed": False, "name": "endpoint", "type": "string"},
+                    {"indexed": False, "name": "feedbackURI", "type": "string"},
                     {"indexed": False, "name": "feedbackHash", "type": "bytes32"}
                 ],
                 "name": "NewFeedback",
@@ -540,7 +543,7 @@ class ChaosAgent:
                     {"indexed": True, "name": "clientAddress", "type": "address"},
                     {"indexed": False, "name": "feedbackIndex", "type": "uint64"},
                     {"indexed": True, "name": "responder", "type": "address"},
-                    {"indexed": False, "name": "responseUri", "type": "string"},
+                    {"indexed": False, "name": "responseURI", "type": "string"},
                     {"indexed": False, "name": "responseHash", "type": "bytes32"}
                 ],
                 "name": "ResponseAppended",
@@ -576,11 +579,11 @@ class ChaosAgent:
                 {
                     "inputs": [
                     {"name": "requestHash", "type": "bytes32"},
-                        {"name": "response", "type": "uint8"},
-                    {"name": "responseUri", "type": "string"},
+                    {"name": "response", "type": "uint8"},
+                    {"name": "responseURI", "type": "string"},
                     {"name": "responseHash", "type": "bytes32"},
-                    {"name": "tag", "type": "bytes32"}
-                    ],
+                    {"name": "tag", "type": "string"}
+                ],
                 "name": "validationResponse",
                     "outputs": [],
                     "stateMutability": "nonpayable",
@@ -595,7 +598,7 @@ class ChaosAgent:
                     {"name": "agentId", "type": "uint256"},
                     {"name": "response", "type": "uint8"},
                     {"name": "responseHash", "type": "bytes32"},
-                    {"name": "tag", "type": "bytes32"},
+                    {"name": "tag", "type": "string"},
                     {"name": "lastUpdate", "type": "uint256"}
                 ],
                 "stateMutability": "view",
@@ -605,7 +608,7 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "validatorAddresses", "type": "address[]"},
-                    {"name": "tag", "type": "bytes32"}
+                    {"name": "tag", "type": "string"}
                 ],
                 "name": "getSummary",
                 "outputs": [
@@ -655,9 +658,9 @@ class ChaosAgent:
                     {"indexed": True, "name": "agentId", "type": "uint256"},
                     {"indexed": True, "name": "requestHash", "type": "bytes32"},
                     {"indexed": False, "name": "response", "type": "uint8"},
-                    {"indexed": False, "name": "responseUri", "type": "string"},
+                    {"indexed": False, "name": "responseURI", "type": "string"},
                     {"indexed": False, "name": "responseHash", "type": "bytes32"},
-                    {"indexed": False, "name": "tag", "type": "bytes32"}
+                    {"indexed": False, "name": "tag", "type": "string"}
                 ],
                 "name": "ValidationResponse",
                 "type": "event"
@@ -1322,21 +1325,18 @@ class ChaosAgent:
                 else:
                     response_hash_bytes = response_hash
             
-            # Convert tag to bytes32
-            tag_bytes = b'\x00' * 32  # Default empty tag
-            if tag:
-                tag_encoded = tag.encode()[:32]  # Truncate to 32 bytes if needed
-                tag_bytes = tag_encoded + b'\x00' * (32 - len(tag_encoded))  # Pad with zeros
+            # Jan 2026: tag is now string, no conversion needed
+            tag_str = tag if tag else ""
             
             rprint(f"[yellow]✍️  Submitting validation response: {response}/100[/yellow]")
             
-            # v1.0: validationResponse(requestHash, response, responseUri, responseHash, tag)
+            # Jan 2026: validationResponse(requestHash, response, responseURI, responseHash, tag)
             contract_call = self.validation_registry.functions.validationResponse(
                 request_hash_bytes,
                 response,
                 response_uri,
                 response_hash_bytes,
-                tag_bytes
+                tag_str  # string (was bytes32)
             )
             
             # Build and send transaction
@@ -1439,26 +1439,26 @@ class ChaosAgent:
         self,
         agent_id: AgentID,
         score: int,
-        feedback_auth: bytes,
         tag1: str = "",
         tag2: str = "",
-        file_uri: str = "",
-        file_hash: Optional[str] = None
+        endpoint: str = "",
+        feedback_uri: str = "",
+        feedback_hash: Optional[str] = None
     ) -> TransactionHash:
         """
-        Submit feedback for another agent (ERC-8004 v1.0).
+        Submit feedback for another agent (ERC-8004 Jan 2026).
         
-        v1.0: Uses cryptographic signatures for feedback authorization.
-        The agent owner must have pre-authorized this feedback via generate_feedback_authorization().
+        Jan 2026 Update: feedbackAuth is NO LONGER required!
+        Any clientAddress can submit feedback directly.
         
         Args:
             agent_id: Target agent ID receiving feedback
             score: Feedback score (0-100)
-            feedback_auth: Signed authorization from agent owner
-            tag1: Optional first tag for categorization
-            tag2: Optional second tag for categorization
-            file_uri: Optional URI to detailed feedback data (IPFS, 0G Storage, etc.)
-            file_hash: Optional KECCAK-256 hash of file content
+            tag1: Optional first tag for categorization (string)
+            tag2: Optional second tag for categorization (string)
+            endpoint: Optional endpoint URI related to this feedback
+            feedback_uri: Optional URI to detailed feedback data (IPFS, Arweave, etc.)
+            feedback_hash: Optional KECCAK-256 hash of file content
             
         Returns:
             Transaction hash
@@ -1467,37 +1467,29 @@ class ChaosAgent:
             # Validate score
             score = min(100, max(0, int(score)))
             
-            # Convert tags to bytes32
-            tag1_bytes = b'\x00' * 32
-            if tag1:
-                tag1_encoded = tag1.encode()[:32]
-                tag1_bytes = tag1_encoded + b'\x00' * (32 - len(tag1_encoded))
-            
-            tag2_bytes = b'\x00' * 32
-            if tag2:
-                tag2_encoded = tag2.encode()[:32]
-                tag2_bytes = tag2_encoded + b'\x00' * (32 - len(tag2_encoded))
+            # Jan 2026: tags are now strings, no conversion needed!
             
             # Convert file hash to bytes32 if provided
-            file_hash_bytes = b'\x00' * 32
-            if file_hash:
-                if isinstance(file_hash, str):
-                    if file_hash.startswith('0x'):
-                        file_hash_bytes = bytes.fromhex(file_hash[2:])
+            feedback_hash_bytes = b'\x00' * 32
+            if feedback_hash:
+                if isinstance(feedback_hash, str):
+                    if feedback_hash.startswith('0x'):
+                        feedback_hash_bytes = bytes.fromhex(feedback_hash[2:])
                     else:
-                        file_hash_bytes = bytes.fromhex(file_hash)
+                        feedback_hash_bytes = bytes.fromhex(feedback_hash)
             
             rprint(f"[yellow]💬 Submitting feedback: {score}/100 for agent #{agent_id}[/yellow]")
             
-            # v1.0: giveFeedback(agentId, score, tag1, tag2, fileuri, filehash, feedbackAuth)
+            # Jan 2026: giveFeedback(agentId, score, tag1, tag2, endpoint, feedbackURI, feedbackHash)
+            # NOTE: feedbackAuth removed in Jan 2026 update!
             contract_call = self.reputation_registry.functions.giveFeedback(
                 agent_id,
                 score,
-                tag1_bytes,
-                tag2_bytes,
-                file_uri,
-                file_hash_bytes,
-                feedback_auth
+                tag1,           # string (was bytes32)
+                tag2,           # string (was bytes32)
+                endpoint,       # NEW in Jan 2026
+                feedback_uri,
+                feedback_hash_bytes
             )
             
             # Build and send transaction
@@ -1532,40 +1524,44 @@ class ChaosAgent:
         self,
         agent_id: AgentID,
         score: int,
-        feedback_auth: bytes,
         payment_proof: Optional['PaymentProof'] = None,
         tag1: str = "",
         tag2: str = "",
+        endpoint: str = "",
         skill: Optional[str] = None,
         task: Optional[str] = None,
         capability: Optional[str] = None,
         mcp_tool_name: Optional[str] = None,
+        domain: Optional[str] = None,
         **additional_fields
     ) -> Tuple[str, str]:
         """
-        Create ERC-8004 v1.0 compliant feedback JSON with optional payment proof.
+        Create ERC-8004 Jan 2026 compliant feedback JSON with optional payment proof.
+        
+        Jan 2026 Update: feedbackAuth is NO LONGER required!
         
         This is a convenience method that:
-        1. Generates the feedback JSON structure per ERC-8004 v1.0 spec
+        1. Generates the feedback JSON structure per ERC-8004 Jan 2026 spec
         2. Optionally includes x402 payment proof
-        3. Uploads to storage (IPFS/0G)
-        4. Returns (file_uri, file_hash) ready for give_feedback()
+        3. Uploads to storage (IPFS/Arweave)
+        4. Returns (feedback_uri, feedback_hash) ready for give_feedback()
         
         Args:
             agent_id: Target agent ID receiving feedback
             score: Feedback score (0-100)
-            feedback_auth: Signed authorization from agent owner
             payment_proof: Optional PaymentProof from payment execution
-            tag1: Optional first tag for categorization
-            tag2: Optional second tag for categorization
-            skill: Optional A2A skill identifier
+            tag1: Optional first tag for categorization (string)
+            tag2: Optional second tag for categorization (string)
+            endpoint: Optional endpoint URI for this interaction
+            skill: Optional A2A/OASF skill identifier
             task: Optional A2A task identifier
             capability: Optional MCP capability ("prompts", "resources", "tools", "completions")
             mcp_tool_name: Optional MCP tool/prompt/resource name
+            domain: Optional OASF domain identifier
             **additional_fields: Any additional custom fields
         
         Returns:
-            Tuple of (file_uri, file_hash) ready for give_feedback()
+            Tuple of (feedback_uri, feedback_hash) ready for give_feedback()
         
         Example:
             # Execute payment
@@ -1576,39 +1572,43 @@ class ChaosAgent:
                 service_description="Data analysis"
             )
             
-            # Create feedback with payment proof (automatic formatting!)
+            # Create feedback with payment proof
             uri, hash = agent.create_feedback_with_payment(
                 agent_id=server_agent_id,
                 score=100,
-                feedback_auth=auth,
-                payment_proof=payment_proof,  # ✅ Automatically ERC-8004 v1.0 compliant
+                payment_proof=payment_proof,
                 skill="data-analysis",
-                task="market-research"
+                task="market-research",
+                endpoint="https://myagent.com/api"
             )
             
-            # Submit feedback (URI already includes payment proof!)
-            agent.give_feedback(agent_id, score, auth, file_uri=uri, file_hash=hash)
+            # Submit feedback (no feedbackAuth needed!)
+            agent.give_feedback(agent_id, score, tag1="skill", feedback_uri=uri, feedback_hash=hash)
         """
         from datetime import datetime, timezone
         import json
         import hashlib
         
-        # Build ERC-8004 v1.0 compliant feedback structure
+        # Build ERC-8004 Jan 2026 compliant feedback structure
         feedback_data = {
-            # MUST fields (per ERC-8004 v1.0 spec)
+            # MUST fields (per ERC-8004 Jan 2026 spec)
             "agentRegistry": f"eip155:{self.network.value.chain_id}:{self.identity_registry.address}",
             "agentId": int(agent_id),
             "clientAddress": f"eip155:{self.network.value.chain_id}:{self.address}",
             "createdAt": datetime.now(timezone.utc).isoformat(),
-            "feedbackAuth": feedback_auth.hex() if isinstance(feedback_auth, bytes) else feedback_auth,
             "score": min(100, max(0, int(score))),
+            # Jan 2026: feedbackAuth removed!
         }
         
-        # MAY fields (optional per spec)
+        # OPTIONAL fields (per spec)
         if tag1:
             feedback_data["tag1"] = tag1
         if tag2:
             feedback_data["tag2"] = tag2
+        if endpoint:
+            feedback_data["endpoint"] = endpoint
+        if domain:
+            feedback_data["domain"] = domain
         if skill:
             feedback_data["skill"] = skill
         if task:
@@ -1686,8 +1686,8 @@ class ChaosAgent:
     def get_reputation(
         self,
         agent_id: Optional[int] = None,
-        tag1: Optional[bytes] = None,
-        tag2: Optional[bytes] = None
+        tag1: Optional[str] = None,
+        tag2: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get reputation feedback for an agent from ERC-8004 Reputation Registry.
@@ -1763,8 +1763,8 @@ class ChaosAgent:
                             all_feedback.append({
                                 'client': client,
                                 'score': score,
-                                'tag1': feedback_tag1.hex() if isinstance(feedback_tag1, bytes) else str(feedback_tag1),
-                                'tag2': feedback_tag2.hex() if isinstance(feedback_tag2, bytes) else str(feedback_tag2),
+                                'tag1': feedback_tag1,  # Jan 2026: already a string
+                                'tag2': feedback_tag2,  # Jan 2026: already a string
                                 'index': idx
                             })
                     except Exception as e:
@@ -1784,8 +1784,8 @@ class ChaosAgent:
         self,
         agent_id: Optional[int] = None,
         client_addresses: Optional[List[str]] = None,
-        tag1: Optional[bytes] = None,
-        tag2: Optional[bytes] = None
+        tag1: Optional[str] = None,
+        tag2: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get reputation summary for an agent (count and average score).
@@ -1822,16 +1822,16 @@ class ChaosAgent:
             if client_addresses:
                 clients = [self.w3.to_checksum_address(addr) for addr in client_addresses]
             
-            # Convert tags to bytes32 if needed
-            tag1_bytes = tag1 if isinstance(tag1, bytes) else b'\x00' * 32
-            tag2_bytes = tag2 if isinstance(tag2, bytes) else b'\x00' * 32
+            # Jan 2026: tags are now strings, pass directly
+            tag1_str = tag1 if tag1 else ""
+            tag2_str = tag2 if tag2 else ""
             
             # Call getSummary
             count, avg_score = reputation_registry.functions.getSummary(
                 agent_id,
                 clients,
-                tag1_bytes,
-                tag2_bytes
+                tag1_str,
+                tag2_str
             ).call()
             
             rprint(f"[green]✓[/green] Reputation summary: {count} entries, avg {avg_score}/100")

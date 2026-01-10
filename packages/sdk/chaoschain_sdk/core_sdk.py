@@ -1272,8 +1272,8 @@ class ChaosChainAgentSDK:
     def get_reputation(
         self,
         agent_id: Optional[int] = None,
-        tag1: Optional[bytes] = None,
-        tag2: Optional[bytes] = None
+        tag1: Optional[str] = None,
+        tag2: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Get reputation feedback for an agent from ERC-8004 Reputation Registry.
@@ -1292,8 +1292,8 @@ class ChaosChainAgentSDK:
         self,
         agent_id: Optional[int] = None,
         client_addresses: Optional[List[str]] = None,
-        tag1: Optional[bytes] = None,
-        tag2: Optional[bytes] = None
+        tag1: Optional[str] = None,
+        tag2: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get reputation summary for an agent (count and average score).
