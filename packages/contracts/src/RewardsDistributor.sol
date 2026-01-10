@@ -1104,33 +1104,35 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /**
-     * @notice Get the payment recipient for an agent (agentWallet routing)
-     * @dev ERC-8004 Jan 2026: Agents can set a separate wallet for receiving payments
+     * @notice Get the payment recipient for ANY agent (agentWallet routing)
+     * @dev ERC-8004 Jan 2026: ALL agents (workers, validators, clients) can set a separate 
+     *      wallet for receiving payments via setAgentWallet()
      * 
      * Use cases:
-     * - Team of agents sharing a treasury
-     * - Company routing agent rewards to corporate wallet
-     * - DAO-controlled agents
-     * - Security: operational wallet separate from reward wallet
+     * - Team of agents (workers + verifiers) sharing a treasury
+     * - Company routing ALL agent rewards to corporate wallet  
+     * - DAO-controlled agent fleets
+     * - Security: operational key separate from reward wallet
+     * - Validator pools sharing rewards
      * 
      * @param studioProxy The StudioProxy contract
-     * @param workerAddress The worker's registered address
-     * @return recipient The address to send payments to (agentWallet if set, otherwise worker)
+     * @param agentAddress The agent's registered address (worker, validator, or client)
+     * @return recipient The address to send payments to (agentWallet if set, otherwise original)
      */
     function _getPaymentRecipient(
         StudioProxy studioProxy,
-        address workerAddress
+        address agentAddress
     ) internal view returns (address recipient) {
-        // Get agent ID from studio registration
-        uint256 agentId = studioProxy.getAgentId(workerAddress);
+        // Get agent ID from studio registration (works for ALL agent types)
+        uint256 agentId = studioProxy.getAgentId(agentAddress);
         if (agentId == 0) {
-            return workerAddress; // Not registered, use original address
+            return agentAddress; // Not registered, use original address
         }
         
         // Try to get agentWallet from Identity Registry
         address identityRegistryAddr = registry.getIdentityRegistry();
         if (identityRegistryAddr == address(0)) {
-            return workerAddress; // No registry, use original address
+            return agentAddress; // No registry, use original address
         }
         
         // Check if registry has code
@@ -1139,10 +1141,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             size := extcodesize(identityRegistryAddr)
         }
         if (size == 0) {
-            return workerAddress; // Mock/test registry, use original address
+            return agentAddress; // Mock/test registry, use original address
         }
         
-        // Get agentWallet - if set, use it; otherwise use worker address
+        // Get agentWallet - if set, use it; otherwise use agent's registered address
         try IERC8004IdentityV1(identityRegistryAddr).getAgentWallet(agentId) returns (address agentWallet) {
             if (agentWallet != address(0)) {
                 return agentWallet; // Agent has a configured wallet!
@@ -1151,7 +1153,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             // getAgentWallet not implemented or failed, use original
         }
         
-        return workerAddress; // Fallback to worker address
+        return agentAddress; // Fallback to agent's registered address
     }
     
     /**
