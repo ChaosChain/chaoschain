@@ -103,10 +103,12 @@ interface IStudioProxy {
     function getEscrowBalance(address account) external view returns (uint256);
     
     /**
-     * @notice Get feedbackAuth for a work submission
-     * @param dataHash The work dataHash
-     * @param worker The worker address
-     * @return The feedbackAuth signature
+     * @notice DEPRECATED: Get feedbackAuth for a work submission
+     * @dev Jan 2026 ERC-8004 Update: feedbackAuth no longer required
+     * This function always returns empty bytes for backward compatibility
+     * @param dataHash The work dataHash (ignored)
+     * @param worker The worker address (ignored)
+     * @return Always returns empty bytes
      */
     function getFeedbackAuth(bytes32 dataHash, address worker) external view returns (bytes memory);
     

@@ -3,15 +3,17 @@ pragma solidity ^0.8.24;
 
 /**
  * @title IERC8004IdentityV1
- * @notice Minimal interface for ERC-8004 v1 IdentityRegistry (ERC-721 based)
- * @dev Based on ERC-8004 v1 spec where agents are ERC-721 NFTs
+ * @notice Interface for ERC-8004 IdentityRegistry (Jan 2026 Update)
+ * @dev Based on ERC-8004 spec where agents are ERC-721 NFTs
  * 
- * Key Changes from v0.4:
- * - Agents are now ERC-721 tokens (tokenId = agentId)
- * - Registration emits Transfer(0x0, owner, tokenId) not custom event
- * - Indexers should listen to Transfer events for mints
+ * KEY CHANGES (Jan 2026):
+ * - agentWallet is now a reserved on-chain metadata key
+ * - getAgentWallet() returns the verified wallet address
+ * - setAgentWallet() requires EIP-712 signature to prove wallet ownership
+ * - agentWallet resets to zero on NFT transfer
+ * - tokenURI renamed to agentURI in spec (we support both)
  * 
- * Full implementation: https://github.com/ChaosChain/trustless-agents-erc-ri
+ * Official contracts: https://github.com/erc-8004/erc-8004-contracts
  * 
  * @author ChaosChain Labs
  */
@@ -48,7 +50,7 @@ interface IERC8004IdentityV1 {
      */
     function getApproved(uint256 tokenId) external view returns (address operator);
     
-    // ============ ERC-8004 v1 Specific ============
+    // ============ ERC-8004 Agent URI ============
     
     /**
      * @notice Get the token URI for an agent (points to registration file)
@@ -70,7 +72,7 @@ interface IERC8004IdentityV1 {
      */
     function totalAgents() external view returns (uint256 count);
     
-    // ============ ERC-8004 v1 Registration Functions ============
+    // ============ ERC-8004 Registration Functions ============
     
     /**
      * @notice Register a new agent without tokenURI
@@ -93,38 +95,67 @@ interface IERC8004IdentityV1 {
      */
     function register(string memory tokenUri, MetadataEntry[] memory metadata) external returns (uint256 agentId);
     
-    // ============ ERC-8004 v1 Metadata Functions ============
+    // ============ ERC-8004 Metadata Functions ============
     
     /**
      * @notice Metadata entry structure
      */
     struct MetadataEntry {
-        string key;
-        bytes value;
+        string metadataKey;
+        bytes metadataValue;
     }
     
     /**
      * @notice Get metadata for an agent
      * @param agentId The agent ID
-     * @param key The metadata key
+     * @param metadataKey The metadata key
      * @return value The metadata value
      */
-    function getMetadata(uint256 agentId, string memory key) external view returns (bytes memory value);
+    function getMetadata(uint256 agentId, string memory metadataKey) external view returns (bytes memory value);
     
     /**
      * @notice Set metadata for an agent
+     * @dev Cannot set reserved key "agentWallet" - use setAgentWallet() instead
      * @param agentId The agent ID
-     * @param key The metadata key
-     * @param value The metadata value
+     * @param metadataKey The metadata key
+     * @param metadataValue The metadata value
      */
-    function setMetadata(uint256 agentId, string memory key, bytes memory value) external;
+    function setMetadata(uint256 agentId, string memory metadataKey, bytes memory metadataValue) external;
     
     /**
      * @notice Update agent URI
      * @param agentId The agent ID
      * @param newUri The new URI
      */
-    function setAgentUri(uint256 agentId, string calldata newUri) external;
+    function setAgentURI(uint256 agentId, string calldata newUri) external;
+    
+    // ============ ERC-8004 Agent Wallet (Jan 2026 Update) ============
+    
+    /**
+     * @notice Get the verified agent wallet address
+     * @dev Jan 2026 Update: agentWallet is now a reserved on-chain metadata key
+     * @param agentId The agent ID
+     * @return wallet The verified wallet address (address(0) if not set or after transfer)
+     */
+    function getAgentWallet(uint256 agentId) external view returns (address wallet);
+    
+    /**
+     * @notice Set the agent wallet with signature verification
+     * @dev Jan 2026 Update: Requires proof of wallet ownership
+     *      - For EOAs: EIP-712 signature
+     *      - For smart contracts: ERC-1271 signature
+     *      - Wallet resets to address(0) on NFT transfer
+     * @param agentId The agent ID
+     * @param newWallet The new wallet address
+     * @param deadline Signature expiration timestamp
+     * @param signature EIP-712 or ERC-1271 signature proving ownership of newWallet
+     */
+    function setAgentWallet(
+        uint256 agentId,
+        address newWallet,
+        uint256 deadline,
+        bytes calldata signature
+    ) external;
     
     // ============ Events (ERC-721 Standard) ============
     
@@ -144,21 +175,20 @@ interface IERC8004IdentityV1 {
      */
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
     
-    // ============ ERC-8004 v1 Specific Events ============
+    // ============ ERC-8004 Specific Events ============
     
     /**
      * @dev Emitted when an agent is registered
      */
-    event Registered(uint256 indexed agentId, string tokenURI, address indexed owner);
+    event Registered(uint256 indexed agentId, string agentURI, address indexed owner);
     
     /**
      * @dev Emitted when metadata is set
      */
-    event MetadataSet(uint256 indexed agentId, string indexed indexedKey, string key, bytes value);
+    event MetadataSet(uint256 indexed agentId, string indexed indexedMetadataKey, string metadataKey, bytes metadataValue);
     
     /**
      * @dev Emitted when URI is updated
      */
-    event UriUpdated(uint256 indexed agentId, string newUri, address indexed updatedBy);
+    event URIUpdated(uint256 indexed agentId, string newURI, address indexed updatedBy);
 }
-

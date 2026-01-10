@@ -256,6 +256,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     
     /**
      * @dev Publish per-worker reputation to ERC-8004 ReputationRegistry
+     * @dev Jan 2026 Update: feedbackAuth removed, using string tags, added endpoint
      * @param studio StudioProxy address
      * @param studioProxy StudioProxy contract
      * @param dataHash Work hash
@@ -277,30 +278,23 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address reputationRegistryAddr = registry.getReputationRegistry();
         if (reputationRegistryAddr == address(0)) return;
         
+        // Check if it's a real contract (has code)
+        uint256 size;
+        assembly {
+            size := extcodesize(reputationRegistryAddr)
+        }
+        if (size == 0) return; // Skip if not a contract
+        
         IERC8004Reputation reputationRegistry = IERC8004Reputation(reputationRegistryAddr);
         
-        // Get feedbackAuth from StudioProxy (keyed by dataHash + worker)
-        bytes memory feedbackAuth = studioProxy.getFeedbackAuth(dataHash, worker);
-        if (feedbackAuth.length < 65) return;
-        
-        // Check if feedbackAuth is valid (not all zeros)
-        bool isValid = false;
-        for (uint256 i = 0; i < 65; i++) {
-            if (feedbackAuth[i] != 0) {
-                isValid = true;
-                break;
-            }
-        }
-        if (!isValid) return;
-        
-        // Dimension names for reputation tags
+        // Dimension names for reputation tags (now strings per Jan 2026 spec)
         string[5] memory dimensionNames = ["Initiative", "Collaboration", "Reasoning", "Compliance", "Efficiency"];
+        
+        // Studio address as tag2 (converted to string)
+        string memory studioTag = _addressToString(studio);
         
         // Publish each dimension as separate reputation entry
         for (uint256 i = 0; i < 5 && i < consensusScores.length; i++) {
-            bytes32 tag1 = bytes32(bytes(dimensionNames[i]));
-            bytes32 tag2 = bytes32(uint256(uint160(studio))); // Studio address as tag2
-            
             // Create feedbackHash from consensus data
             bytes32 feedbackHash = keccak256(abi.encodePacked(
                 dataHash,
@@ -309,14 +303,15 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 consensusScores[i]
             ));
             
+            // Jan 2026 Update: No feedbackAuth required, string tags, endpoint added
             try reputationRegistry.giveFeedback(
                 agentId,
                 consensusScores[i],
-                tag1,
-                tag2,
-                string(abi.encodePacked("chaoschain://", _toHexString(dataHash))),
-                feedbackHash,
-                feedbackAuth
+                dimensionNames[i],                                          // tag1 (string)
+                studioTag,                                                  // tag2 (string)
+                "",                                                         // endpoint (optional)
+                string(abi.encodePacked("chaoschain://", _toHexString(dataHash))), // feedbackURI
+                feedbackHash
             ) {} catch {}
         }
     }
@@ -649,12 +644,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         avgScore = avgScore / consensusScores.length;
         
         // Try to publish validation response (may fail if mock)
+        // Jan 2026 Update: tag is now string
         try IERC8004Validation(validationRegistry).validationResponse(
             dataHash,                    // requestHash
             uint8(avgScore),            // response (0-100)
-            "",                         // responseUri (optional)
+            "",                         // responseURI (optional)
             bytes32(0),                 // responseHash (optional)
-            bytes32("CHAOSCHAIN_CONSENSUS") // tag
+            "CHAOSCHAIN_CONSENSUS"      // tag (string)
         ) {
             // Success - validation published
         } catch {
@@ -873,6 +869,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         return totalDistributed;
     }
     
+    /**
+     * @dev Publish worker reputation with detailed feedback
+     * @dev Jan 2026 Update: feedbackAuth removed, using string tags
+     */
     function _publishWorkerReputation(
         address studioProxy,
         uint256 workerAgentId,
@@ -901,32 +901,20 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return;
         }
         
-        // Get worker address from StudioProxy
-        address workerAddress = StudioProxy(payable(studioProxy)).getWorkSubmitter(dataHash);
-        if (workerAddress == address(0)) return; // Invalid worker
-        
-        // Get feedbackAuth from StudioProxy
-        bytes memory feedbackAuth = StudioProxy(payable(studioProxy)).getFeedbackAuth(dataHash, workerAddress);
-        if (feedbackAuth.length < 65) return; // Invalid feedbackAuth signature
-        
-        // Studio address as tag2 for filtering
-        bytes32 studioTag = bytes32(uint256(uint160(studioProxy)));
+        // Studio address as tag2 for filtering (now string per Jan 2026 spec)
+        string memory studioTag = _addressToString(studioProxy);
         
         // Publish one feedback per dimension
         for (uint256 i = 0; i < dimensionNames.length; i++) {
-            // Convert dimension name to bytes32 for tag1
-            bytes32 dimensionTag = _stringToBytes32(dimensionNames[i]);
-            
-            // Try to publish feedback with Triple-Verified Stack proofs
-            // feedbackUri contains: IntegrityProof (TEE attestation) + PaymentProof (x402) + XMTP thread
+            // Jan 2026 Update: No feedbackAuth required, string tags, endpoint added
             try IERC8004Reputation(reputationRegistry).giveFeedback(
                 workerAgentId,
                 scores[i],           // Score for this dimension (0-100)
-                dimensionTag,        // tag1: Dimension name (e.g., "INITIATIVE", "ACCURACY")
-                studioTag,           // tag2: Studio address (for filtering)
+                dimensionNames[i],   // tag1: Dimension name (string)
+                studioTag,           // tag2: Studio address (string)
+                "",                  // endpoint (optional)
                 feedbackUri,         // Contains full PoA analysis + proofs
-                feedbackHash,
-                feedbackAuth         // ← NOW USING REAL FEEDBACKAUTH!
+                feedbackHash
             ) {
                 // Success - reputation published for this dimension
             } catch {
@@ -938,6 +926,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     /**
      * @notice Publish VA performance scores to Reputation Registry
      * @dev Called after consensus to build global verifiable reputation (§4.3 protocol_spec_v0.1.md)
+     * @dev Jan 2026 Update: feedbackAuth removed, using string tags
      * 
      * Triple-Verified Stack Integration:
      * - feedbackUri contains IntegrityProof (Layer 2: Process Integrity)
@@ -966,27 +955,19 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         if (size == 0) return; // Skip if not a contract
         
-        // Prepare feedback data
-        bytes32 tag1 = bytes32("VALIDATOR_ACCURACY");
-        bytes32 tag2 = bytes32("CONSENSUS_MATCH");
-        
-        // Try to publish feedback with Triple-Verified Stack proofs
-        // feedbackUri contains: IntegrityProof (TEE attestation from validation process)
-        // Note: In production, this would use proper feedbackAuth signature
-        // For MVP, we're documenting the integration point
+        // Jan 2026 Update: Tags are now strings, no feedbackAuth required
         try IERC8004Reputation(reputationRegistry).giveFeedback(
             validatorAgentId,
             performanceScore,
-            tag1,
-            tag2,
+            "VALIDATOR_ACCURACY",  // tag1 (string)
+            "CONSENSUS_MATCH",     // tag2 (string)
+            "",                    // endpoint (optional)
             feedbackUri,           // ✅ Contains IntegrityProof
-            feedbackHash,          // ✅ Hash of feedback content
-            new bytes(0)           // feedbackAuth (would need proper signature)
+            feedbackHash           // ✅ Hash of feedback content
         ) {
             // Success - reputation published with Triple-Verified Stack proofs
         } catch {
-            // Failed - likely needs proper authorization or mock registry
-            // In production, RewardsDistributor would have authorization to post feedback
+            // Failed - likely a mock registry or contract issue
         }
     }
     
@@ -1115,20 +1096,21 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /**
-     * @notice Convert string to bytes32 (for ERC-8004 tags)
-     * @dev Truncates strings longer than 32 bytes
-     * @param source The string to convert
-     * @return result The bytes32 representation
+     * @notice Convert address to hex string (for ERC-8004 tags)
+     * @dev Jan 2026 Update: Tags are now strings, not bytes32
+     * @param addr The address to convert
+     * @return str The hex string representation (e.g., "0x1234...")
      */
-    function _stringToBytes32(string memory source) internal pure returns (bytes32 result) {
-        bytes memory tempBytes = bytes(source);
-        if (tempBytes.length == 0) {
-            return 0x0;
+    function _addressToString(address addr) internal pure returns (string memory str) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory data = new bytes(42);
+        data[0] = '0';
+        data[1] = 'x';
+        for (uint256 i = 0; i < 20; i++) {
+            data[2 + i * 2] = alphabet[uint8(uint160(addr) >> (8 * (19 - i)) >> 4)];
+            data[3 + i * 2] = alphabet[uint8(uint160(addr) >> (8 * (19 - i))) & 0x0f];
         }
-        
-        assembly {
-            result := mload(add(source, 32))
-        }
+        return string(data);
     }
     
     // NOTE: All consensus logic moved to Scoring library (libraries/Scoring.sol)
