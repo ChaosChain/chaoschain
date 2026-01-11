@@ -92,13 +92,13 @@ class ChaosAgent:
                 'validation_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed by ERC-8004 team
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts (Jan 2026 v5 - comprehensive array bounds fixes)
-                'chaos_registry': '0x053d56C852746f0cF59aeDAC550950e11c7D4529',
-                'chaos_core': '0x63F743bA8C41Ddb49A2fb4c14a89BcF2B5B863bb',
-                'rewards_distributor': '0x534E379A96D440827236a457273f91aC263bC9fd',
-                'studio_factory': '0x94006852AF4A15Be5da9C37E058B72543da82AA0',
+                # ChaosChain Protocol Contracts (Jan 2026 v6 - with debug traces)
+                'chaos_registry': '0x731de23b7C52223bEDe1997C7293d452fC15c471',
+                'chaos_core': '0xb07C93B4Af44420f7f760534e98a8D5F2F16fa7E',
+                'rewards_distributor': '0x0d365e4600531d00D0d347D00B72F11ACb30fA1F',
+                'studio_factory': '0x10E422FCe733b68436F8581b9EF0CC96475BC3B6',
                 # LogicModules
-                'finance_logic': '0x08ceb1D814B8891e924501eE41d61642d616a43e'
+                'finance_logic': '0x99E73Da44Da514FaBfDaFD5d4dB2BBa42B36bB9C'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -518,6 +518,7 @@ class ChaosAgent:
                 "type": "function"
             },
             # Events
+            # Jan 2026 Update: NewFeedback now has BOTH indexedTag1 (hashed) AND tag1 (readable)
             {
                 "anonymous": False,
                 "inputs": [
@@ -525,7 +526,8 @@ class ChaosAgent:
                     {"indexed": True, "name": "clientAddress", "type": "address"},
                     {"indexed": False, "name": "feedbackIndex", "type": "uint64"},
                     {"indexed": False, "name": "score", "type": "uint8"},
-                    {"indexed": True, "name": "tag1", "type": "string"},
+                    {"indexed": True, "name": "indexedTag1", "type": "string"},  # Hashed for filtering
+                    {"indexed": False, "name": "tag1", "type": "string"},        # Readable value
                     {"indexed": False, "name": "tag2", "type": "string"},
                     {"indexed": False, "name": "endpoint", "type": "string"},
                     {"indexed": False, "name": "feedbackURI", "type": "string"},

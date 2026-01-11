@@ -595,10 +595,10 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 
 | Contract | Address | Etherscan |
 |----------|---------|-----------|
-| **ChaosChainRegistry** | `0x053d56C852746f0cF59aeDAC550950e11c7D4529` | [View](https://sepolia.etherscan.io/address/0x053d56C852746f0cF59aeDAC550950e11c7D4529) |
-| **ChaosCore** | `0x63F743bA8C41Ddb49A2fb4c14a89BcF2B5B863bb` | [View](https://sepolia.etherscan.io/address/0x63F743bA8C41Ddb49A2fb4c14a89BcF2B5B863bb) |
-| **StudioProxyFactory** | `0x94006852AF4A15Be5da9C37E058B72543da82AA0` | [View](https://sepolia.etherscan.io/address/0x94006852AF4A15Be5da9C37E058B72543da82AA0) |
-| **RewardsDistributor** | `0x534E379A96D440827236a457273f91aC263bC9fd` | [View](https://sepolia.etherscan.io/address/0x534E379A96D440827236a457273f91aC263bC9fd) |
+| **ChaosChainRegistry** | `0x731de23b7C52223bEDe1997C7293d452fC15c471` | [View](https://sepolia.etherscan.io/address/0x731de23b7C52223bEDe1997C7293d452fC15c471) |
+| **ChaosCore** | `0xb07C93B4Af44420f7f760534e98a8D5F2F16fa7E` | [View](https://sepolia.etherscan.io/address/0xb07C93B4Af44420f7f760534e98a8D5F2F16fa7E) |
+| **StudioProxyFactory** | `0x10E422FCe733b68436F8581b9EF0CC96475BC3B6` | [View](https://sepolia.etherscan.io/address/0x10E422FCe733b68436F8581b9EF0CC96475BC3B6) |
+| **RewardsDistributor** | `0x0d365e4600531d00D0d347D00B72F11ACb30fA1F` | [View](https://sepolia.etherscan.io/address/0x0d365e4600531d00D0d347D00B72F11ACb30fA1F) |
 | **FinanceStudioLogic** | `0x0EaEd398f84EF5D5C907E9A8FD0d1682B0d8b335` | [View](https://sepolia.etherscan.io/address/0x0EaEd398f84EF5D5C907E9A8FD0d1682B0d8b335) |
 
 ### ERC-8004 Registries (Multi-Network)

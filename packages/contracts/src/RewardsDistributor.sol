@@ -32,6 +32,11 @@ import {Scoring} from "./libraries/Scoring.sol";
  */
 contract RewardsDistributor is Ownable, IRewardsDistributor {
     
+    // ============ Debug Events ============
+    /// @dev Temporary debug event - remove after fixing
+    event DebugTrace(string location, uint256 index, uint256 length);
+    event DebugScores(string location, uint256 validCount, uint256 totalValidators);
+    
     // ============ Constants ============
     
     /// @dev Precision for fixed-point math (6 decimals) - from Scoring library
@@ -122,8 +127,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             ScoreVector[] memory allValidatorScores = new ScoreVector[](validators.length);
             uint8[] memory overallConsensusScores;  // For validator accuracy calc
             
+            emit DebugTrace("participants_loop_start", participants.length, validators.length);
+            
             for (uint256 p = 0; p < participants.length; p++) {
                 address worker = participants[p];
+                emit DebugTrace("participant", p, participants.length);
                 
                 // Get contribution weight for this worker (from DKG analysis)
                 uint16 contributionWeight = studioProxy.getContributionWeight(dataHash, worker);
@@ -133,9 +141,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 uint256 validScores = 0;
                 
                 for (uint256 j = 0; j < validators.length; j++) {
+                    emit DebugTrace("validator_loop", j, validators.length);
+                    
                     // NEW: Get PER-WORKER scores (not per-dataHash)
                     (address[] memory scoreValidators, bytes[] memory scoreData) = 
                         studioProxy.getScoreVectorsForWorker(dataHash, worker);
+                    
+                    emit DebugTrace("scoreValidators_len", scoreValidators.length, scoreData.length);
                     
                     // Find this validator's score for this worker
                     bytes memory validatorScore;
@@ -149,11 +161,17 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     // Skip if no score from this validator for this worker
                     if (validatorScore.length == 0) continue;
                     
+                    emit DebugTrace("validatorScore_len", validatorScore.length, 0);
+                    
                     // Decode score vector
                     uint8[] memory scores = _decodeScoreVector(validatorScore);
                     
+                    emit DebugTrace("decoded_scores_len", scores.length, 0);
+                    
                     // Skip if decode returned empty (malformed or missing data)
                     if (scores.length == 0) continue;
+                    
+                    emit DebugTrace("before_workerScoreVectors", validScores, workerScoreVectors.length);
                     
                     workerScoreVectors[validScores] = ScoreVector({
                         validatorAgentId: 0,
@@ -167,12 +185,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     
                     // Track for validator accuracy - use FIRST score found for each validator
                     // (not just first worker, in case validator didn't score first worker)
+                    emit DebugTrace("before_allValidatorScores", j, allValidatorScores.length);
                     if (allValidatorScores[j].scores.length == 0) {
                         allValidatorScores[j] = workerScoreVectors[validScores - 1];
                     }
                 }
                 
                 // Require at least 1 validator scored this worker
+                emit DebugScores("before_require", validScores, validators.length);
                 require(validScores > 0, "No scores for worker");
                 
                 // Resize array to actual count
@@ -182,7 +202,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 }
                 
                 // Calculate consensus for THIS worker (Protocol Spec §2.2)
+                emit DebugScores("before_calculateConsensus", finalWorkerScores.length, validScores);
                 uint8[] memory workerConsensus = this.calculateConsensus(dataHash, finalWorkerScores);
+                emit DebugTrace("after_calculateConsensus", workerConsensus.length, 0);
                 
                 // Save for validator accuracy (use first worker's consensus)
                 if (p == 0) {
@@ -190,7 +212,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 }
                 
                 // Calculate quality scalar for this worker (Protocol Spec §4.1)
+                emit DebugTrace("before_calculateQualityScalar", workerConsensus.length, 0);
                 uint256 workerQuality = _calculateQualityScalar(studio, workerConsensus);
+                emit DebugTrace("after_calculateQualityScalar", workerQuality, 0);
                 
                 // Calculate this worker's share of rewards (Protocol Spec §4.2)
                 // payout = quality × contribution_weight × worker_pool
@@ -490,19 +514,24 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         bytes32 dataHash,
         ScoreVector[] calldata scoreVectors
     ) external override returns (uint8[] memory consensusScores) {
+        emit DebugTrace("calculateConsensus_entry", scoreVectors.length, 0);
         require(dataHash != bytes32(0), "Invalid dataHash");
         require(scoreVectors.length > 0, "No score vectors");
         
         // Filter out empty score vectors
         uint256 validCount = 0;
         for (uint256 i = 0; i < scoreVectors.length; i++) {
+            emit DebugTrace("filter_loop", i, scoreVectors[i].scores.length);
             if (scoreVectors[i].scores.length > 0) {
                 validCount++;
             }
         }
         
+        emit DebugScores("after_filter", validCount, scoreVectors.length);
+        
         // If no valid scores, return default scores
         if (validCount == 0) {
+            emit DebugTrace("returning_defaults", 0, 0);
             consensusScores = new uint8[](5);
             for (uint256 i = 0; i < 5; i++) {
                 consensusScores[i] = 50; // Default score
@@ -524,6 +553,12 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         
         // Use Scoring library for consensus calculation
+        emit DebugScores("before_Scoring_consensus", scores.length, stakes.length);
+        // Log first score vector dimensions
+        if (scores.length > 0) {
+            emit DebugTrace("first_score_dims", scores[0].length, 0);
+        }
+        
         Scoring.Params memory params = Scoring.Params({
             alpha: alpha,
             beta: beta,
