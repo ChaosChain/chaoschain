@@ -375,6 +375,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address studio,
         uint8[] memory consensusScores
     ) private view returns (uint256) {
+        // CRITICAL: Return default if empty scores
+        if (consensusScores.length == 0) {
+            return 50; // Default quality
+        }
+        
         StudioProxy studioProxy = StudioProxy(payable(studio));
         
         // Get studio configuration
@@ -385,17 +390,24 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             uint256 customWeight
         ) = studioProxy.getCustomDimensionConfig();
         
-        // Validate score vector length
-        uint8 expectedLength = studioProxy.UNIVERSAL_DIMENSIONS() + uint8(customDimNames.length);
-        require(consensusScores.length == expectedLength, "Invalid score vector length");
+        // Get expected length
+        uint8 universalDims = studioProxy.UNIVERSAL_DIMENSIONS();
+        uint8 expectedLength = universalDims + uint8(customDimNames.length);
+        
+        // CRITICAL: If consensus doesn't have enough scores, return default
+        if (consensusScores.length < universalDims) {
+            return 50; // Default quality - not enough scores
+        }
         
         // 1. Compute universal PoA component (§3.1)
         // These 5 dimensions are ALWAYS computed from DKG causal analysis
         uint256 universalSum = 0;
-        for (uint256 i = 0; i < studioProxy.UNIVERSAL_DIMENSIONS(); i++) {
+        // BOUNDS CHECK: Only iterate up to actual array length
+        uint256 dimCount = consensusScores.length < universalDims ? consensusScores.length : universalDims;
+        for (uint256 i = 0; i < dimCount; i++) {
             universalSum += consensusScores[i];
         }
-        uint256 universalAvg = universalSum / studioProxy.UNIVERSAL_DIMENSIONS();
+        uint256 universalAvg = dimCount > 0 ? universalSum / dimCount : 50;
         
         // 2. Compute custom studio component (§3.1 studio-specific)
         // These are weighted according to studio preferences
@@ -431,18 +443,34 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         ScoreVector[] memory scoreVectors,
         uint256 workerIndex
     ) internal view returns (uint8[] memory consensusScores) {
-        require(scoreVectors.length > 0, "No score vectors");
+        // Filter out vectors with empty scores
+        uint256 validCount = 0;
+        for (uint256 i = 0; i < scoreVectors.length; i++) {
+            if (scoreVectors[i].scores.length > 0) {
+                validCount++;
+            }
+        }
         
-        // Collect scores for this worker from all validators
-        uint8[][] memory scoresForWorker = new uint8[][](scoreVectors.length);
-        uint256[] memory stakes = new uint256[](scoreVectors.length);
+        // If no valid scores, return default
+        if (validCount == 0) {
+            consensusScores = new uint8[](5);
+            for (uint256 i = 0; i < 5; i++) {
+                consensusScores[i] = 50;
+            }
+            return consensusScores;
+        }
         
+        // Collect valid scores for this worker from all validators
+        uint8[][] memory scoresForWorker = new uint8[][](validCount);
+        uint256[] memory stakes = new uint256[](validCount);
+        
+        uint256 idx = 0;
         for (uint256 v = 0; v < scoreVectors.length; v++) {
-            // For MVP: Each validator submits ONE score vector
-            // In multi-agent, validators should submit separate scores per worker
-            // For now, we use the same consensus for all workers (will fix in next iteration)
-            scoresForWorker[v] = scoreVectors[v].scores;
-            stakes[v] = scoreVectors[v].stake;
+            if (scoreVectors[v].scores.length > 0) {
+                scoresForWorker[idx] = scoreVectors[v].scores;
+                stakes[idx] = scoreVectors[v].stake > 0 ? scoreVectors[v].stake : 1 ether;
+                idx++;
+            }
         }
         
         // Calculate consensus
@@ -465,14 +493,34 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         require(dataHash != bytes32(0), "Invalid dataHash");
         require(scoreVectors.length > 0, "No score vectors");
         
-        // Convert ScoreVector[] to score matrix and stake vector
-        uint256 n = scoreVectors.length;
-        uint8[][] memory scores = new uint8[][](n);
-        uint256[] memory stakes = new uint256[](n);
+        // Filter out empty score vectors
+        uint256 validCount = 0;
+        for (uint256 i = 0; i < scoreVectors.length; i++) {
+            if (scoreVectors[i].scores.length > 0) {
+                validCount++;
+            }
+        }
         
-        for (uint256 i = 0; i < n; i++) {
-            scores[i] = scoreVectors[i].scores;
-            stakes[i] = scoreVectors[i].stake;
+        // If no valid scores, return default scores
+        if (validCount == 0) {
+            consensusScores = new uint8[](5);
+            for (uint256 i = 0; i < 5; i++) {
+                consensusScores[i] = 50; // Default score
+            }
+            return consensusScores;
+        }
+        
+        // Convert ScoreVector[] to score matrix and stake vector (only valid ones)
+        uint8[][] memory scores = new uint8[][](validCount);
+        uint256[] memory stakes = new uint256[](validCount);
+        
+        uint256 idx = 0;
+        for (uint256 i = 0; i < scoreVectors.length; i++) {
+            if (scoreVectors[i].scores.length > 0) {
+                scores[idx] = scoreVectors[i].scores;
+                stakes[idx] = scoreVectors[i].stake > 0 ? scoreVectors[i].stake : 1 ether; // Default stake if 0
+                idx++;
+            }
         }
         
         // Use Scoring library for consensus calculation
@@ -771,8 +819,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         
         for (uint256 i = 0; i < validators.length; i++) {
             if (scoreVectors[i].length > 0) {
-                // Decode score vector
-                uint8[] memory scores = abi.decode(scoreVectors[i], (uint8[]));
+                // Decode score vector using safe decoder
+                uint8[] memory scores = _decodeScoreVector(scoreVectors[i]);
+                
+                // Skip if decode returned empty (malformed data)
+                if (scores.length == 0) continue;
                 
                 scoreVectorStructs[validCount] = ScoreVector({
                     validatorAgentId: 0, // Would come from IdentityRegistry

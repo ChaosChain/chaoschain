@@ -166,6 +166,10 @@ library Scoring {
     ) internal pure returns (uint256 median) {
         uint256 n = values.length;
         
+        // CRITICAL: Handle edge cases
+        if (n == 0) return 0;
+        if (n == 1) return values[0];
+        
         // Bubble sort (simple for MVP, optimize later)
         for (uint256 i = 0; i < n - 1; i++) {
             for (uint256 j = 0; j < n - i - 1; j++) {
