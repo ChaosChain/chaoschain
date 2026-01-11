@@ -92,8 +92,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             address[] memory participants = studioProxy.getWorkParticipants(dataHash);
             require(participants.length > 0, "No participants");
             
-            // Get validators who scored this work
-            address[] memory validators = _workValidators[dataHash];
+            // Get validators who scored this work - USE STUDIOPROXY'S ARRAY (single source of truth!)
+            // StudioProxy._validators is populated automatically when validators submit scores
+            address[] memory validators = studioProxy.getValidators(dataHash);
+            
+            // Fallback to owner-registered validators if StudioProxy has none
+            if (validators.length == 0) {
+                validators = _workValidators[dataHash];
+            }
             require(validators.length > 0, "No validators");
             
             // Get total budget for this work
@@ -146,6 +152,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     // Decode score vector
                     uint8[] memory scores = _decodeScoreVector(validatorScore);
                     
+                    // Skip if decode returned empty (malformed or missing data)
+                    if (scores.length == 0) continue;
+                    
                     workerScoreVectors[validScores] = ScoreVector({
                         validatorAgentId: 0,
                         dataHash: dataHash,
@@ -156,8 +165,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     });
                     validScores++;
                     
-                    // Also track for validator accuracy (first worker only to avoid duplication)
-                    if (p == 0) {
+                    // Track for validator accuracy - use FIRST score found for each validator
+                    // (not just first worker, in case validator didn't score first worker)
+                    if (allValidatorScores[j].scores.length == 0) {
                         allValidatorScores[j] = workerScoreVectors[validScores - 1];
                     }
                 }
@@ -241,6 +251,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
      * @return scores Decoded uint8 array
      */
     function _decodeScoreVector(bytes memory scoreData) private pure returns (uint8[] memory scores) {
+        // Handle empty bytes - return empty array (validator didn't score this worker)
+        if (scoreData.length == 0) {
+            return new uint8[](0);
+        }
+        
         // Try to decode as tuple of 5 uint8s (our standard format)
         if (scoreData.length >= 160) { // 5 * 32 bytes
             scores = new uint8[](5);
@@ -248,9 +263,12 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 scoreData,
                 (uint8, uint8, uint8, uint8, uint8)
             );
-        } else {
-            // Fallback: try dynamic array decode
+        } else if (scoreData.length >= 32) {
+            // Fallback: try dynamic array decode (only if we have at least 32 bytes)
             scores = abi.decode(scoreData, (uint8[]));
+        } else {
+            // Invalid data length - return empty
+            return new uint8[](0);
         }
         return scores;
     }
@@ -566,12 +584,27 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     ) internal returns (uint256 totalDistributed) {
         // Calculate error for each validator (§2.3)
         uint256[] memory errors = new uint256[](validators.length);
+        bool[] memory hasValidScores = new bool[](validators.length);
         uint256 totalWeight = 0;
+        uint256 validValidatorCount = 0;
         
         for (uint256 i = 0; i < validators.length; i++) {
+            // CRITICAL FIX: Skip validators with empty/missing scores
+            // This can happen if validator didn't score the first worker
+            if (i >= scoreVectors.length || scoreVectors[i].scores.length == 0) {
+                hasValidScores[i] = false;
+                continue;
+            }
+            hasValidScores[i] = true;
+            validValidatorCount++;
+            
             // Calculate L2 distance from consensus
             uint256 errorSquared = 0;
-            for (uint256 j = 0; j < consensusScores.length; j++) {
+            uint256 scoresToCompare = scoreVectors[i].scores.length < consensusScores.length 
+                ? scoreVectors[i].scores.length 
+                : consensusScores.length;
+            
+            for (uint256 j = 0; j < scoresToCompare; j++) {
                 int256 diff = int256(uint256(scoreVectors[i].scores[j])) - int256(uint256(consensusScores[j]));
                 errorSquared += uint256(diff * diff);
             }
@@ -583,8 +616,18 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             totalWeight += weight;
         }
         
+        // If no valid validators, return early
+        if (validValidatorCount == 0) {
+            return 0;
+        }
+        
         // Distribute rewards proportional to accuracy
         for (uint256 i = 0; i < validators.length; i++) {
+            // Skip validators without valid scores
+            if (!hasValidScores[i]) {
+                continue;
+            }
+            
             if (totalWeight > 0) {
                 uint256 weight = PRECISION / (PRECISION + errors[i]);
                 uint256 reward = (rewardPool * weight) / totalWeight;
@@ -602,7 +645,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 if (performanceScore > 100) performanceScore = 100;
                 
                 // Publish VA reputation to Reputation Registry (§4.3 protocol_spec_v0.1.md)
-                if (scoreVectors[i].validatorAgentId != 0) {
+                if (i < scoreVectors.length && scoreVectors[i].validatorAgentId != 0) {
                     // Note: In production, feedbackUri would be fetched from validation evidence
                     // For MVP, we pass empty strings (SDK handles feedback creation)
                     _publishValidatorReputation(
