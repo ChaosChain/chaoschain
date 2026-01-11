@@ -10,8 +10,8 @@ import {PredictionMarketLogic} from "../src/logic/PredictionMarketLogic.sol";
 
 /**
  * @title DeployCore
- * @notice Deployment script for ChaosChain MVP core protocol on Base Sepolia
- * @dev Usage: forge script script/DeployCore.s.sol --rpc-url base_sepolia --broadcast --verify
+ * @notice Deployment script for ChaosChain MVP core protocol
+ * @dev Usage: forge script script/DeployCore.s.sol --rpc-url <RPC_URL> --broadcast --verify
  * 
  * Prerequisites:
  * 1. Set DEPLOYER_PRIVATE_KEY in .env
@@ -52,7 +52,7 @@ contract DeployCore is Script {
         address validationRegistry = vm.envAddress("VALIDATION_REGISTRY");
         
         console.log("===========================================");
-        console.log("ChaosChain MVP Deployment - Base Sepolia");
+        console.log("ChaosChain MVP Deployment - Ethereum Sepolia");
         console.log("===========================================");
         console.log("");
         console.log("Deployer:", vm.addr(deployerPrivateKey));

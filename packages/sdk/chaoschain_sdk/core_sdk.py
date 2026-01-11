@@ -1242,19 +1242,56 @@ class ChaosChainAgentSDK:
         """
         return self.chaos_agent.request_validation(validator_agent_id, data_hash)
     
-    def submit_feedback(self, agent_id: AgentID, score: int, feedback: str) -> TransactionHash:
+    def submit_feedback(
+        self,
+        agent_id: AgentID,
+        score: int,
+        tag1: str = "",
+        tag2: str = "",
+        endpoint: str = "",
+        feedback_uri: str = "",
+        feedback_hash: Optional[str] = None
+    ) -> TransactionHash:
         """
-        Submit feedback for another agent via ERC-8004.
+        Submit feedback for another agent via ERC-8004 ReputationRegistry.
+        
+        Jan 2026 Update: feedbackAuth is NO LONGER required!
+        Tags are now strings (not bytes32).
         
         Args:
-            agent_id: Target agent ID
+            agent_id: Target agent ID receiving feedback
             score: Feedback score (0-100)
-            feedback: Feedback text
+            tag1: First categorization tag (e.g., dimension name like "INITIATIVE")
+            tag2: Second categorization tag (e.g., studio address)
+            endpoint: Optional endpoint URI related to this feedback
+            feedback_uri: Optional URI to detailed feedback data (IPFS, Arweave, etc.)
+            feedback_hash: Optional KECCAK-256 hash of file content
             
         Returns:
             Transaction hash
+            
+        Example:
+            ```python
+            # Submit per-dimension feedback (Jan 2026 style)
+            sdk.submit_feedback(
+                agent_id=42,
+                score=85,
+                tag1="INITIATIVE",
+                tag2="0x123...studio",
+                endpoint="https://agent.example.com/api/v1",
+                feedback_uri="ipfs://QmEvidence..."
+            )
+            ```
         """
-        return self.chaos_agent.submit_feedback(agent_id, score, feedback)
+        return self.chaos_agent.give_feedback(
+            agent_id=agent_id,
+            score=score,
+            tag1=tag1,
+            tag2=tag2,
+            endpoint=endpoint,
+            feedback_uri=feedback_uri,
+            feedback_hash=feedback_hash
+        )
     
     def submit_validation_response(self, data_hash: str, score: int) -> TransactionHash:
         """

@@ -86,21 +86,19 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                # ERC-8004 Registries (deployed by Nethermind)
-                'identity_registry': '0x8004a6090Cd10A7288092483047B097295Fb8847',
-                'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
-                'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
+                # ERC-8004 Jan 2026 Official Contracts (from https://github.com/erc-8004/erc-8004-contracts)
+                'identity_registry': '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+                'reputation_registry': '0x8004B663056A597Dffe9eCcC1965A193B7388713',
+                'validation_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed by ERC-8004 team
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol MVP v0.4.3 (deployed Dec 20, 2025)
-                # Features: Per-worker consensus, Multi-agent attribution, DKG-based scoring
-                # NEW: registerFeedbackAuth() for multi-agent reputation publishing
-                'chaos_registry': '0xB5Dba66ae57479190A7723518f8cA7ea8c40de53',
-                'chaos_core': '0x6660e8EF6baaAf847519dFd693D0033605b825f5',
-                'rewards_distributor': '0xA050527d38Fae9467730412d941560c8706F060A',
-                'studio_factory': '0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d',
+                # ChaosChain Protocol Contracts (Jan 2026 v4 - with critical array bounds fix)
+                'chaos_registry': '0x7d68aAd25AC0B9DEe5E5350589810E0cAAe12B09',
+                'chaos_core': '0xC6987BCe046F45E7e338EaF01A1f7cC6A0c23010',
+                'rewards_distributor': '0xE85518Eb0865a6a79ca6b5c6743e81aC10793E0d',
+                'studio_factory': '0x8a4db7B18E7500dA9cE258ab4C96bC813B6D2b05',
                 # LogicModules
-                'finance_logic': '0x2049f335A812b68aC488d4b687C3B701BF845f5b'
+                'finance_logic': '0xB6deD346742106C1c8c2D4f65d07caADdDc8C357'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -1932,7 +1930,7 @@ class ChaosAgent:
                 score_bytes
             ).build_transaction({
                 'from': account.address,
-                'nonce': self.w3.eth.get_transaction_count(account.address),
+                'nonce': self.w3.eth.get_transaction_count(account.address, 'pending'),
                 'gas': 200000,
                 'gasPrice': self.w3.eth.gas_price
             })
@@ -2056,7 +2054,7 @@ class ChaosAgent:
                 score_bytes
             ).build_transaction({
                 'from': account.address,
-                'nonce': self.w3.eth.get_transaction_count(account.address),
+                'nonce': self.w3.eth.get_transaction_count(account.address, 'pending'),
                 'gas': 250000,  # Slightly more gas for per-worker submission
                 'gasPrice': self.w3.eth.gas_price
             })

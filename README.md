@@ -595,17 +595,17 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 
 | Contract | Address | Etherscan |
 |----------|---------|-----------|
-| **ChaosChainRegistry** | `0xB5Dba66ae57479190A7723518f8cA7ea8c40de53` | [View](https://sepolia.etherscan.io/address/0xB5Dba66ae57479190A7723518f8cA7ea8c40de53) |
-| **ChaosCore** | `0x6660e8EF6baaAf847519dFd693D0033605b825f5` | [View](https://sepolia.etherscan.io/address/0x6660e8EF6baaAf847519dFd693D0033605b825f5) |
-| **StudioProxyFactory** | `0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d` | [View](https://sepolia.etherscan.io/address/0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d) |
-| **RewardsDistributor** | `0xA050527d38Fae9467730412d941560c8706F060A` | [View](https://sepolia.etherscan.io/address/0xA050527d38Fae9467730412d941560c8706F060A) |
-| **FinanceStudioLogic** | `0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C` | [View](https://sepolia.etherscan.io/address/0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C) |
+| **ChaosChainRegistry** | `0x7d68aAd25AC0B9DEe5E5350589810E0cAAe12B09` | [View](https://sepolia.etherscan.io/address/0x7d68aAd25AC0B9DEe5E5350589810E0cAAe12B09) |
+| **ChaosCore** | `0xC6987BCe046F45E7e338EaF01A1f7cC6A0c23010` | [View](https://sepolia.etherscan.io/address/0xC6987BCe046F45E7e338EaF01A1f7cC6A0c23010) |
+| **StudioProxyFactory** | `0x8a4db7B18E7500dA9cE258ab4C96bC813B6D2b05` | [View](https://sepolia.etherscan.io/address/0x8a4db7B18E7500dA9cE258ab4C96bC813B6D2b05) |
+| **RewardsDistributor** | `0xE85518Eb0865a6a79ca6b5c6743e81aC10793E0d` | [View](https://sepolia.etherscan.io/address/0xE85518Eb0865a6a79ca6b5c6743e81aC10793E0d) |
+| **FinanceStudioLogic** | `0x0EaEd398f84EF5D5C907E9A8FD0d1682B0d8b335` | [View](https://sepolia.etherscan.io/address/0x0EaEd398f84EF5D5C907E9A8FD0d1682B0d8b335) |
 
 ### ERC-8004 Registries (Multi-Network)
 
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
-| **Ethereum Sepolia** | 11155111 | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+| **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | *Not deployed yet* |
 | **Base Sepolia** | 84532 | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
 | **Linea Sepolia** | 59141 | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
 | **0G Testnet** | 16602 | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |

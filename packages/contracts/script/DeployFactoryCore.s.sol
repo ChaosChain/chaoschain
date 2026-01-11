@@ -13,9 +13,9 @@ import {FinanceStudioLogic} from "../src/logic/FinanceStudioLogic.sol";
  */
 contract DeployFactoryCore is Script {
     
-    // Existing deployed contracts on Sepolia
-    address constant REGISTRY = 0xB5Dba66ae57479190A7723518f8cA7ea8c40de53;
-    address constant REWARDS_DISTRIBUTOR = 0xA050527d38Fae9467730412d941560c8706F060A;
+    // ChaosChain Protocol Contracts on Ethereum Sepolia (Jan 2026 v3 - with validator scoring fix)
+    address constant REGISTRY = 0xA561eDa5Cf12e3ab44416A8b8C65E969E2ff523B;
+    address constant REWARDS_DISTRIBUTOR = 0x3A84c5082EaA726090F160A1cDF1d0c63033136F;
     
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");

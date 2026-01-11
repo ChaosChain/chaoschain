@@ -51,7 +51,8 @@ contract ChaosChainRegistry is Ownable, IChaosChainRegistry {
     ) Ownable(msg.sender) {
         require(identityRegistry_ != address(0), "Invalid identity registry");
         require(reputationRegistry_ != address(0), "Invalid reputation registry");
-        require(validationRegistry_ != address(0), "Invalid validation registry");
+        // ValidationRegistry is optional - ERC-8004 team hasn't deployed it yet
+        // require(validationRegistry_ != address(0), "Invalid validation registry");
         
         _identityRegistry = identityRegistry_;
         _reputationRegistry = reputationRegistry_;

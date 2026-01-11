@@ -461,11 +461,11 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 
 | Contract | Address | Etherscan |
 |----------|---------|-----------|
-| **ChaosChainRegistry** | `0xB5Dba66ae57479190A7723518f8cA7ea8c40de53` | [View](https://sepolia.etherscan.io/address/0xB5Dba66ae57479190A7723518f8cA7ea8c40de53) |
-| **ChaosCore** | `0x6660e8EF6baaAf847519dFd693D0033605b825f5` | [View](https://sepolia.etherscan.io/address/0x6660e8EF6baaAf847519dFd693D0033605b825f5) |
-| **StudioProxyFactory** | `0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d` | [View](https://sepolia.etherscan.io/address/0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d) |
-| **RewardsDistributor** | `0xA050527d38Fae9467730412d941560c8706F060A` | [View](https://sepolia.etherscan.io/address/0xA050527d38Fae9467730412d941560c8706F060A) |
-| **FinanceStudioLogic** | `0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C` | [View](https://sepolia.etherscan.io/address/0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C) |
+| **ChaosChainRegistry** | `0x7d68aAd25AC0B9DEe5E5350589810E0cAAe12B09` | [View](https://sepolia.etherscan.io/address/0x7d68aAd25AC0B9DEe5E5350589810E0cAAe12B09) |
+| **ChaosCore** | `0xC6987BCe046F45E7e338EaF01A1f7cC6A0c23010` | [View](https://sepolia.etherscan.io/address/0xC6987BCe046F45E7e338EaF01A1f7cC6A0c23010) |
+| **StudioProxyFactory** | `0x8a4db7B18E7500dA9cE258ab4C96bC813B6D2b05` | [View](https://sepolia.etherscan.io/address/0x8a4db7B18E7500dA9cE258ab4C96bC813B6D2b05) |
+| **RewardsDistributor** | `0xE85518Eb0865a6a79ca6b5c6743e81aC10793E0d` | [View](https://sepolia.etherscan.io/address/0xE85518Eb0865a6a79ca6b5c6743e81aC10793E0d) |
+| **FinanceStudioLogic** | `0x0EaEd398f84EF5D5C907E9A8FD0d1682B0d8b335` | [View](https://sepolia.etherscan.io/address/0x0EaEd398f84EF5D5C907E9A8FD0d1682B0d8b335) |
 
 ### ERC-8004 Registries (Pre-deployed on 7 testnets)
 
