@@ -356,12 +356,16 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address worker,
         uint8[] memory consensusScores
     ) private {
+        emit DebugTrace("_pubWorkerRep_ENTRY", consensusScores.length, 0);
+        
         // Get worker's agent ID from StudioProxy (registered when they joined)
         uint256 agentId = studioProxy.getAgentId(worker);
+        emit DebugTrace("_pubWorkerRep_agentId", agentId, 0);
         if (agentId == 0) return;
         
         // Get reputation registry
         address reputationRegistryAddr = registry.getReputationRegistry();
+        emit DebugTrace("_pubWorkerRep_gotRegistry", uint256(uint160(reputationRegistryAddr)), 0);
         if (reputationRegistryAddr == address(0)) return;
         
         // Check if it's a real contract (has code)
@@ -369,37 +373,63 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         assembly {
             size := extcodesize(reputationRegistryAddr)
         }
+        emit DebugTrace("_pubWorkerRep_codeSize", size, 0);
         if (size == 0) return; // Skip if not a contract
         
+        emit DebugTrace("_pubWorkerRep_beforeCast", 1, 0);
         IERC8004Reputation reputationRegistry = IERC8004Reputation(reputationRegistryAddr);
         
-        // Dimension names for reputation tags (now strings per Jan 2026 spec)
-        string[5] memory dimensionNames = ["Initiative", "Collaboration", "Reasoning", "Compliance", "Efficiency"];
-        
+        emit DebugTrace("_pubWorkerRep_beforeStudioTag", 2, 0);
         // Studio address as tag2 (converted to string)
         string memory studioTag = _addressToString(studio);
         
-        // Publish each dimension as separate reputation entry
-        for (uint256 i = 0; i < 5 && i < consensusScores.length; i++) {
-            // Create feedbackHash from consensus data
-            bytes32 feedbackHash = keccak256(abi.encodePacked(
-                dataHash,
-                worker,
-                dimensionNames[i],
-                consensusScores[i]
-            ));
-            
-            // Jan 2026 Update: No feedbackAuth required, string tags, endpoint added
-            try reputationRegistry.giveFeedback(
-                agentId,
-                consensusScores[i],
-                dimensionNames[i],                                          // tag1 (string)
-                studioTag,                                                  // tag2 (string)
-                "",                                                         // endpoint (optional)
-                string(abi.encodePacked("chaoschain://", _toHexString(dataHash))), // feedbackURI
-                feedbackHash
-            ) {} catch {}
+        emit DebugTrace("_pubWorkerRep_beforeLoop", consensusScores.length, 5);
+        
+        // Publish each dimension (use inline strings to avoid string[5] allocation issue)
+        // Only publish if we have scores
+        if (consensusScores.length == 0) {
+            emit DebugTrace("_pubWorkerRep_noScores", 0, 0);
+            return;
         }
+        
+        string memory feedbackUri = string(abi.encodePacked("chaoschain://", _toHexString(dataHash)));
+        
+        // Dimension 0: Initiative
+        if (consensusScores.length > 0) {
+            emit DebugTrace("_pubWorkerRep_dim0", 0, consensusScores[0]);
+            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Initiative", consensusScores[0]));
+            try reputationRegistry.giveFeedback(agentId, consensusScores[0], "Initiative", studioTag, "", feedbackUri, feedbackHash) {} catch {}
+        }
+        
+        // Dimension 1: Collaboration
+        if (consensusScores.length > 1) {
+            emit DebugTrace("_pubWorkerRep_dim1", 1, consensusScores[1]);
+            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Collaboration", consensusScores[1]));
+            try reputationRegistry.giveFeedback(agentId, consensusScores[1], "Collaboration", studioTag, "", feedbackUri, feedbackHash) {} catch {}
+        }
+        
+        // Dimension 2: Reasoning
+        if (consensusScores.length > 2) {
+            emit DebugTrace("_pubWorkerRep_dim2", 2, consensusScores[2]);
+            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Reasoning", consensusScores[2]));
+            try reputationRegistry.giveFeedback(agentId, consensusScores[2], "Reasoning", studioTag, "", feedbackUri, feedbackHash) {} catch {}
+        }
+        
+        // Dimension 3: Compliance
+        if (consensusScores.length > 3) {
+            emit DebugTrace("_pubWorkerRep_dim3", 3, consensusScores[3]);
+            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Compliance", consensusScores[3]));
+            try reputationRegistry.giveFeedback(agentId, consensusScores[3], "Compliance", studioTag, "", feedbackUri, feedbackHash) {} catch {}
+        }
+        
+        // Dimension 4: Efficiency
+        if (consensusScores.length > 4) {
+            emit DebugTrace("_pubWorkerRep_dim4", 4, consensusScores[4]);
+            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Efficiency", consensusScores[4]));
+            try reputationRegistry.giveFeedback(agentId, consensusScores[4], "Efficiency", studioTag, "", feedbackUri, feedbackHash) {} catch {}
+        }
+        
+        emit DebugTrace("_pubWorkerRep_done", 5, 0);
     }
     
     /**
