@@ -80,30 +80,49 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     
     /// @inheritdoc IRewardsDistributor
     function closeEpoch(address studio, uint64 epoch) external override onlyOwner {
+        emit DebugTrace("closeEpoch_ENTRY", uint256(uint160(studio)), epoch);
+        
         require(studio != address(0), "Invalid studio");
+        emit DebugTrace("after_studio_require", 1, 0);
         
         StudioProxy studioProxy = StudioProxy(payable(studio));
+        emit DebugTrace("after_studioProxy_cast", 2, 0);
+        
         bytes32[] memory workHashes = _epochWork[studio][epoch];
+        emit DebugTrace("workHashes_loaded", workHashes.length, epoch);
+        
         require(workHashes.length > 0, "No work in epoch");
+        emit DebugTrace("after_workHashes_require", workHashes.length, 0);
         
         uint256 totalWorkerRewards = 0;
         uint256 totalValidatorRewards = 0;
         
         // Process each work submission in the epoch
         for (uint256 i = 0; i < workHashes.length; i++) {
+            emit DebugTrace("work_loop_iteration", i, workHashes.length);
+            
             bytes32 dataHash = workHashes[i];
+            emit DebugTrace("dataHash_loaded", uint256(dataHash), 0);
             
             // Get all participants (multi-agent support, Protocol Spec §4.2)
+            emit DebugTrace("before_getWorkParticipants", 0, 0);
             address[] memory participants = studioProxy.getWorkParticipants(dataHash);
+            emit DebugTrace("participants_loaded", participants.length, 0);
+            
             require(participants.length > 0, "No participants");
+            emit DebugTrace("after_participants_require", participants.length, 0);
             
             // Get validators who scored this work - USE STUDIOPROXY'S ARRAY (single source of truth!)
             // StudioProxy._validators is populated automatically when validators submit scores
+            emit DebugTrace("before_getValidators", 0, 0);
             address[] memory validators = studioProxy.getValidators(dataHash);
+            emit DebugTrace("validators_loaded", validators.length, 0);
             
             // Fallback to owner-registered validators if StudioProxy has none
             if (validators.length == 0) {
+                emit DebugTrace("fallback_to_workValidators", 0, 0);
                 validators = _workValidators[dataHash];
+                emit DebugTrace("workValidators_loaded", validators.length, 0);
             }
             require(validators.length > 0, "No validators");
             
