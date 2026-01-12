@@ -408,11 +408,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             try reputationRegistry.giveFeedback(agentId, consensusScores[1], "Collaboration", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
-        // Dimension 2: Reasoning
+        // Dimension 2: Reasoning Depth (path length in DKG - Protocol Spec §3.1)
         if (consensusScores.length > 2) {
             emit DebugTrace("_pubWorkerRep_dim2", 2, consensusScores[2]);
-            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Reasoning", consensusScores[2]));
-            try reputationRegistry.giveFeedback(agentId, consensusScores[2], "Reasoning", studioTag, "", feedbackUri, feedbackHash) {} catch {}
+            bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Reasoning Depth", consensusScores[2]));
+            try reputationRegistry.giveFeedback(agentId, consensusScores[2], "Reasoning Depth", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
         // Dimension 3: Compliance
