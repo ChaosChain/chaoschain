@@ -92,13 +92,13 @@ class ChaosAgent:
                 'validation_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed by ERC-8004 team
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol Contracts (Jan 2026 v7 - with early debug traces)
-                'chaos_registry': '0xF1E90b0af36f9ea29EB220B8928AD5922AC4DFea',
-                'chaos_core': '0x91E71ff4ee5086078D39dC51bc7CBFF66e62f10c',
-                'rewards_distributor': '0x3bdf0fdaD165642556E737bb70D85b59E7E788Dc',
-                'studio_factory': '0xB37C87a325A6e4a824a10f5E9DE214C919434EDE',
+                # ChaosChain Protocol Contracts (Jan 2026 v8 - debug+no-modifier)
+                'chaos_registry': '0x8495E20dc8c012896e57BF166c28EF2B3740aF96',
+                'chaos_core': '0x284A46BCc66083C61E2A4243d2ba48c48aDC7164',
+                'rewards_distributor': '0xe8D6613b237A7A31DBba83079a6C663f7C4fbcaC',
+                'studio_factory': '0x9524849dB4de1d0E037b199Ee52cBC52Ce285F7D',
                 # LogicModules
-                'finance_logic': '0x056d4aD02597b24228935723DD7b2472c2563209'
+                'finance_logic': '0xCc93dDDA7B24c1609c108c1aD31Ce825951f03fE'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed

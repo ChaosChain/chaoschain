@@ -37,6 +37,19 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     event DebugTrace(string location, uint256 index, uint256 length);
     event DebugScores(string location, uint256 validCount, uint256 totalValidators);
     
+    // ============ Debug Functions ============
+    /// @dev Simple ping to verify contract can emit events
+    function debugPing() external {
+        emit DebugTrace("PING_SUCCESS", block.number, block.timestamp);
+    }
+    
+    /// @dev Check owner without modifier
+    function debugOwnerCheck() external view returns (address ownerAddr, address caller, bool isOwner) {
+        ownerAddr = owner();
+        caller = msg.sender;
+        isOwner = (ownerAddr == caller);
+    }
+    
     // ============ Constants ============
     
     /// @dev Precision for fixed-point math (6 decimals) - from Scoring library
@@ -79,7 +92,18 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     // ============ Core Functions ============
     
     /// @inheritdoc IRewardsDistributor
-    function closeEpoch(address studio, uint64 epoch) external override onlyOwner {
+    /// @dev TEMPORARY: Removed onlyOwner modifier for debugging
+    function closeEpoch(address studio, uint64 epoch) external override {
+        // FIRST THING - emit before ANY other code
+        emit DebugTrace("closeEpoch_FIRST_LINE", uint256(uint160(msg.sender)), block.number);
+        
+        // Manual owner check (was in modifier)
+        emit DebugTrace("before_owner_check", 0, 0);
+        address ownerAddr = owner();
+        emit DebugTrace("owner_loaded", uint256(uint160(ownerAddr)), 0);
+        require(msg.sender == ownerAddr, "Not owner");
+        emit DebugTrace("after_owner_check", 1, 0);
+        
         emit DebugTrace("closeEpoch_ENTRY", uint256(uint160(studio)), epoch);
         
         require(studio != address(0), "Invalid studio");
