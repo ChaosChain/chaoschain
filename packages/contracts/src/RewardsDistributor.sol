@@ -323,37 +323,33 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return new uint8[](0);
         }
         
-        // SAFE DECODE: Always return 5 elements (universal PoA dimensions)
+        // ULTRA-SAFE DECODE: Always return exactly 5 elements with defaults
         scores = new uint8[](5);
+        scores[0] = 50;
+        scores[1] = 50;
+        scores[2] = 50;
+        scores[3] = 50;
+        scores[4] = 50;
         
-        // Try to decode as tuple of 5 uint8s (standard ABI format: 5 * 32 bytes = 160)
+        // Only try to decode if we have the expected ABI format (160 bytes)
         if (scoreData.length >= 160) {
-            // Standard ABI format - each uint8 is at byte 31 of its 32-byte slot
-            scores[0] = uint8(scoreData[31]);
-            scores[1] = uint8(scoreData[63]);
-            scores[2] = uint8(scoreData[95]);
-            scores[3] = uint8(scoreData[127]);
-            scores[4] = uint8(scoreData[159]);
-        } else if (scoreData.length >= 5) {
-            // Fallback: Raw bytes format (5 bytes minimum)
-            scores[0] = uint8(scoreData[0]);
-            scores[1] = uint8(scoreData[1]);
-            scores[2] = uint8(scoreData[2]);
-            scores[3] = uint8(scoreData[3]);
-            scores[4] = uint8(scoreData[4]);
-        } else {
-            // Not enough data - return defaults (50 for each dimension)
-            scores[0] = 50;
-            scores[1] = 50;
-            scores[2] = 50;
-            scores[3] = 50;
-            scores[4] = 50;
+            // Standard ABI format: (uint8, uint8, uint8, uint8, uint8)
+            // Each uint8 is right-aligned in a 32-byte slot, so value is at byte 31 of each slot
+            // Using explicit bounds checks to be absolutely safe
+            uint256 len = scoreData.length;
+            if (len > 31) scores[0] = uint8(scoreData[31]);
+            if (len > 63) scores[1] = uint8(scoreData[63]);
+            if (len > 95) scores[2] = uint8(scoreData[95]);
+            if (len > 127) scores[3] = uint8(scoreData[127]);
+            if (len > 159) scores[4] = uint8(scoreData[159]);
         }
         
-        // Clamp scores to valid range (0-100)
-        for (uint256 i = 0; i < 5; i++) {
-            if (scores[i] > 100) scores[i] = 100;
-        }
+        // Clamp to 0-100
+        if (scores[0] > 100) scores[0] = 100;
+        if (scores[1] > 100) scores[1] = 100;
+        if (scores[2] > 100) scores[2] = 100;
+        if (scores[3] > 100) scores[3] = 100;
+        if (scores[4] > 100) scores[4] = 100;
         
         return scores;
     }
