@@ -323,20 +323,38 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return new uint8[](0);
         }
         
-        // Try to decode as tuple of 5 uint8s (our standard format)
-        if (scoreData.length >= 160) { // 5 * 32 bytes
-            scores = new uint8[](5);
-            (scores[0], scores[1], scores[2], scores[3], scores[4]) = abi.decode(
-                scoreData,
-                (uint8, uint8, uint8, uint8, uint8)
-            );
-        } else if (scoreData.length >= 32) {
-            // Fallback: try dynamic array decode (only if we have at least 32 bytes)
-            scores = abi.decode(scoreData, (uint8[]));
+        // SAFE DECODE: Always return 5 elements (universal PoA dimensions)
+        scores = new uint8[](5);
+        
+        // Try to decode as tuple of 5 uint8s (standard ABI format: 5 * 32 bytes = 160)
+        if (scoreData.length >= 160) {
+            // Standard ABI format - each uint8 is at byte 31 of its 32-byte slot
+            scores[0] = uint8(scoreData[31]);
+            scores[1] = uint8(scoreData[63]);
+            scores[2] = uint8(scoreData[95]);
+            scores[3] = uint8(scoreData[127]);
+            scores[4] = uint8(scoreData[159]);
+        } else if (scoreData.length >= 5) {
+            // Fallback: Raw bytes format (5 bytes minimum)
+            scores[0] = uint8(scoreData[0]);
+            scores[1] = uint8(scoreData[1]);
+            scores[2] = uint8(scoreData[2]);
+            scores[3] = uint8(scoreData[3]);
+            scores[4] = uint8(scoreData[4]);
         } else {
-            // Invalid data length - return empty
-            return new uint8[](0);
+            // Not enough data - return defaults (50 for each dimension)
+            scores[0] = 50;
+            scores[1] = 50;
+            scores[2] = 50;
+            scores[3] = 50;
+            scores[4] = 50;
         }
+        
+        // Clamp scores to valid range (0-100)
+        for (uint256 i = 0; i < 5; i++) {
+            if (scores[i] > 100) scores[i] = 100;
+        }
+        
         return scores;
     }
     

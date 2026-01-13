@@ -60,14 +60,23 @@ library Scoring {
         
         // Infer dimension count from first score vector
         uint256 dimensionCount = scores[0].length;
-        require(dimensionCount > 0, "No dimensions");
         
-        // Validate all vectors have same dimension count
+        // SAFETY: If no dimensions, return empty array
+        if (dimensionCount == 0) {
+            return new uint8[](0);
+        }
+        
+        // SAFETY: Find the MINIMUM dimension count to avoid array bounds issues
+        // This allows validators to submit different score vector lengths
         for (uint256 i = 1; i < validatorCount; i++) {
-            require(
-                scores[i].length == dimensionCount,
-                "Inconsistent score dimensions"
-            );
+            if (scores[i].length < dimensionCount) {
+                dimensionCount = scores[i].length;
+            }
+        }
+        
+        // SAFETY: If any validator has 0 dimensions, skip them or use minimum
+        if (dimensionCount == 0) {
+            return new uint8[](0);
         }
         
         // Calculate total stake
@@ -117,7 +126,12 @@ library Scoring {
         uint256[] memory dimStakes = new uint256[](n);
         
         for (uint256 i = 0; i < n; i++) {
-            dimScores[i] = uint256(scores[i][dimension]) * PRECISION;
+            // SAFETY: Bounds check before accessing scores[i][dimension]
+            if (dimension < scores[i].length) {
+                dimScores[i] = uint256(scores[i][dimension]) * PRECISION;
+            } else {
+                dimScores[i] = 50 * PRECISION; // Default score if dimension missing
+            }
             dimStakes[i] = stakes[i];
         }
         
