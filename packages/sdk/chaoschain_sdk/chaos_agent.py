@@ -789,7 +789,7 @@ class ChaosAgent:
             transaction = contract_call.build_transaction({
                 'from': self.address,
                 'gas': gas_limit,
-                'gasPrice': self.w3.eth.gas_price,
+                'gasPrice': int(self.w3.eth.gas_price * 1.5),
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
@@ -1128,7 +1128,7 @@ class ChaosAgent:
             transaction = contract_call.build_transaction({
                 'from': self.address,
                 'gas': gas_limit,
-                'gasPrice': self.w3.eth.gas_price,
+                'gasPrice': int(self.w3.eth.gas_price * 1.5),
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
@@ -1251,7 +1251,7 @@ class ChaosAgent:
             transaction = contract_call.build_transaction({
                 'from': self.address,
                 'gas': int(gas_estimate * 1.2),
-                'gasPrice': self.w3.eth.gas_price,
+                'gasPrice': int(self.w3.eth.gas_price * 1.5),
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
@@ -1344,7 +1344,7 @@ class ChaosAgent:
             transaction = contract_call.build_transaction({
                 'from': self.address,
                 'gas': int(gas_estimate * 1.2),
-                'gasPrice': self.w3.eth.gas_price,
+                'gasPrice': int(self.w3.eth.gas_price * 1.5),
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
@@ -1497,7 +1497,7 @@ class ChaosAgent:
             transaction = contract_call.build_transaction({
                 'from': self.address,
                 'gas': int(gas_estimate * 1.2),
-                'gasPrice': self.w3.eth.gas_price,
+                'gasPrice': int(self.w3.eth.gas_price * 1.5),
                 'nonce': self.w3.eth.get_transaction_count(self.address)
             })
             
@@ -1934,7 +1934,7 @@ class ChaosAgent:
                 'from': account.address,
                 'nonce': self.w3.eth.get_transaction_count(account.address, 'pending'),
                 'gas': 200000,
-                'gasPrice': self.w3.eth.gas_price
+                'gasPrice': int(self.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -2058,7 +2058,7 @@ class ChaosAgent:
                 'from': account.address,
                 'nonce': self.w3.eth.get_transaction_count(account.address, 'pending'),
                 'gas': 250000,  # Slightly more gas for per-worker submission
-                'gasPrice': self.w3.eth.gas_price
+                'gasPrice': int(self.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send

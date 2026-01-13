@@ -637,7 +637,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 200000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -1058,7 +1058,7 @@ class ChaosChainAgentSDK:
                 'to': to_address,
                 'value': amount_wei,
                 'gas': 21000,
-                'gasPrice': w3.eth.gas_price,
+                'gasPrice': int(w3.eth.gas_price * 1.5),
                 'chainId': w3.eth.chain_id
             }
             
@@ -1696,7 +1696,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 5000000,  # Increased for StudioProxy deployment
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign transaction
@@ -1806,7 +1806,7 @@ class ChaosChainAgentSDK:
                 'value': stake_amount,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 500000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -1907,7 +1907,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 500000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -2090,7 +2090,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 800000,  # Higher gas for multi-agent
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -2292,7 +2292,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 300000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -2380,7 +2380,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 500000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -2599,7 +2599,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 3000000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
@@ -2721,7 +2721,7 @@ class ChaosChainAgentSDK:
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
                 'gas': 300000,
-                'gasPrice': self.chaos_agent.w3.eth.gas_price
+                'gasPrice': int(self.chaos_agent.w3.eth.gas_price * 1.5)
             })
             
             # Sign and send
