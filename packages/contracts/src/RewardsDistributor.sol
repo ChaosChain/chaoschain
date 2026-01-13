@@ -491,7 +491,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         uint8 universalDims = studioProxy.UNIVERSAL_DIMENSIONS();
         uint8 expectedLength = universalDims + uint8(customDimNames.length);
         
-        // CRITICAL: If consensus doesn't have enough scores, return default
+        // CRITICAL: If consensus doesn't have enough scores for universal dimensions, return default
         if (consensusScores.length < universalDims) {
             return 50; // Default quality - not enough scores
         }
@@ -499,26 +499,32 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         // 1. Compute universal PoA component (§3.1)
         // These 5 dimensions are ALWAYS computed from DKG causal analysis
         uint256 universalSum = 0;
-        // BOUNDS CHECK: Only iterate up to actual array length
-        uint256 dimCount = consensusScores.length < universalDims ? consensusScores.length : universalDims;
-        for (uint256 i = 0; i < dimCount; i++) {
+        for (uint256 i = 0; i < universalDims; i++) {
             universalSum += consensusScores[i];
         }
-        uint256 universalAvg = dimCount > 0 ? universalSum / dimCount : 50;
+        uint256 universalAvg = universalSum / universalDims;
         
         // 2. Compute custom studio component (§3.1 studio-specific)
         // These are weighted according to studio preferences
+        // CRITICAL FIX: Only process custom dims if consensus has enough scores!
         uint256 customWeightedSum = 0;
         if (customDimNames.length > 0) {
-            for (uint256 i = 0; i < customDimNames.length; i++) {
-                uint8 customScore = consensusScores[studioProxy.UNIVERSAL_DIMENSIONS() + i];
-                uint256 weight = customDimWeights[i];
-                // Weighted sum: Σ (ρ_d × c_d)
-                customWeightedSum += (weight * customScore); // Both in fixed-point
+            // Check if consensus has ALL required dimensions (universal + custom)
+            uint256 totalExpected = uint256(universalDims) + customDimNames.length;
+            
+            if (consensusScores.length >= totalExpected) {
+                // We have full scores - compute weighted custom component
+                for (uint256 i = 0; i < customDimNames.length; i++) {
+                    uint256 customIndex = uint256(universalDims) + i;
+                    uint8 customScore = consensusScores[customIndex];
+                    uint256 weight = customDimWeights[i];
+                    customWeightedSum += (weight * customScore);
+                }
+                customWeightedSum = customWeightedSum / PRECISION;
+            } else {
+                // Not enough scores for custom dimensions - use default (50)
+                customWeightedSum = 50;
             }
-            // Normalize: customWeightedSum is in range [0, PRECISION * 100]
-            // We want it in range [0, 100]
-            customWeightedSum = customWeightedSum / PRECISION;
         }
         
         // 3. Combine components (§4.1)
