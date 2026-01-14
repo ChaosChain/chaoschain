@@ -179,6 +179,22 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 // Get contribution weight for this worker (from DKG analysis)
                 uint16 contributionWeight = studioProxy.getContributionWeight(dataHash, worker);
                 
+                // EFFICIENCY FIX: Get PER-WORKER scores ONCE (moved OUTSIDE validator loop)
+                (address[] memory scoreValidators, bytes[] memory scoreData) = 
+                    studioProxy.getScoreVectorsForWorker(dataHash, worker);
+                
+                emit DebugTrace("scoreValidators_len", scoreValidators.length, scoreData.length);
+                
+                // CRITICAL FIX: Emit warning if arrays mismatched (confirms root cause)
+                if (scoreValidators.length != scoreData.length) {
+                    emit DebugTrace("MISMATCH_scoreValidators_vs_scoreData", scoreValidators.length, scoreData.length);
+                }
+                
+                // CRITICAL FIX: Use min length to prevent OOB panics
+                uint256 safeScoreLen = scoreValidators.length < scoreData.length 
+                    ? scoreValidators.length 
+                    : scoreData.length;
+                
                 // Collect per-worker scores from all validators
                 ScoreVector[] memory workerScoreVectors = new ScoreVector[](validators.length);
                 uint256 validScores = 0;
@@ -186,15 +202,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 for (uint256 j = 0; j < validators.length; j++) {
                     emit DebugTrace("validator_loop", j, validators.length);
                     
-                    // NEW: Get PER-WORKER scores (not per-dataHash)
-                    (address[] memory scoreValidators, bytes[] memory scoreData) = 
-                        studioProxy.getScoreVectorsForWorker(dataHash, worker);
-                    
-                    emit DebugTrace("scoreValidators_len", scoreValidators.length, scoreData.length);
-                    
-                    // Find this validator's score for this worker
+                    // Find this validator's score for this worker (O(n) lookup, could be O(1) with mapping)
                     bytes memory validatorScore;
-                    for (uint256 k = 0; k < scoreValidators.length; k++) {
+                    for (uint256 k = 0; k < safeScoreLen; k++) {
                         if (scoreValidators[k] == validators[j]) {
                             validatorScore = scoreData[k];
                             break;
@@ -323,33 +333,37 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return new uint8[](0);
         }
         
-        // ULTRA-SAFE DECODE: Always return exactly 5 elements with defaults
+        // SAFE DECODE: Always return 5 elements (universal PoA dimensions)
         scores = new uint8[](5);
-        scores[0] = 50;
-        scores[1] = 50;
-        scores[2] = 50;
-        scores[3] = 50;
-        scores[4] = 50;
         
-        // Only try to decode if we have the expected ABI format (160 bytes)
+        // Try to decode as tuple of 5 uint8s (standard ABI format: 5 * 32 bytes = 160)
         if (scoreData.length >= 160) {
-            // Standard ABI format: (uint8, uint8, uint8, uint8, uint8)
-            // Each uint8 is right-aligned in a 32-byte slot, so value is at byte 31 of each slot
-            // Using explicit bounds checks to be absolutely safe
-            uint256 len = scoreData.length;
-            if (len > 31) scores[0] = uint8(scoreData[31]);
-            if (len > 63) scores[1] = uint8(scoreData[63]);
-            if (len > 95) scores[2] = uint8(scoreData[95]);
-            if (len > 127) scores[3] = uint8(scoreData[127]);
-            if (len > 159) scores[4] = uint8(scoreData[159]);
+            // Standard ABI format - each uint8 is at byte 31 of its 32-byte slot
+            scores[0] = uint8(scoreData[31]);
+            scores[1] = uint8(scoreData[63]);
+            scores[2] = uint8(scoreData[95]);
+            scores[3] = uint8(scoreData[127]);
+            scores[4] = uint8(scoreData[159]);
+        } else if (scoreData.length >= 5) {
+            // Fallback: Raw bytes format (5 bytes minimum)
+            scores[0] = uint8(scoreData[0]);
+            scores[1] = uint8(scoreData[1]);
+            scores[2] = uint8(scoreData[2]);
+            scores[3] = uint8(scoreData[3]);
+            scores[4] = uint8(scoreData[4]);
+        } else {
+            // Not enough data - return defaults (50 for each dimension)
+            scores[0] = 50;
+            scores[1] = 50;
+            scores[2] = 50;
+            scores[3] = 50;
+            scores[4] = 50;
         }
         
-        // Clamp to 0-100
-        if (scores[0] > 100) scores[0] = 100;
-        if (scores[1] > 100) scores[1] = 100;
-        if (scores[2] > 100) scores[2] = 100;
-        if (scores[3] > 100) scores[3] = 100;
-        if (scores[4] > 100) scores[4] = 100;
+        // Clamp scores to valid range (0-100)
+        for (uint256 i = 0; i < 5; i++) {
+            if (scores[i] > 100) scores[i] = 100;
+        }
         
         return scores;
     }
@@ -942,10 +956,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         
         // Build ScoreVector array for consensus calculation
-        ScoreVector[] memory scoreVectorStructs = new ScoreVector[](validators.length);
+        // CRITICAL FIX: Use min length to prevent array OOB
+        uint256 safeLen = validators.length < scoreVectors.length 
+            ? validators.length 
+            : scoreVectors.length;
+        ScoreVector[] memory scoreVectorStructs = new ScoreVector[](safeLen);
         uint256 validCount = 0;
         
-        for (uint256 i = 0; i < validators.length; i++) {
+        for (uint256 i = 0; i < safeLen; i++) {
             if (scoreVectors[i].length > 0) {
                 // Decode score vector using safe decoder
                 uint8[] memory scores = _decodeScoreVector(scoreVectors[i]);
