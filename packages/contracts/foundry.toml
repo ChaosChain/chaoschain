@@ -48,14 +48,14 @@ zerog = "${ZEROG_RPC}"
 arbitrum_sepolia = "${ARBITRUM_SEPOLIA_RPC}"
 arbitrum = "${ARBITRUM_RPC}"
 
-# Etherscan verification
-[etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.etherscan.io/api" }
-mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/api" }
-base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
-base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api" }
-optimism_sepolia = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", url = "https://api-sepolia-optimistic.etherscan.io/api" }
-optimism = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", url = "https://api-optimistic.etherscan.io/api" }
-arbitrum_sepolia = { key = "${ARBISCAN_API_KEY}", url = "https://api-sepolia.arbiscan.io/api" }
-arbitrum = { key = "${ARBISCAN_API_KEY}", url = "https://api.arbiscan.io/api" }
+# Etherscan verification (optional - set keys in .env for contract verification)
+# [etherscan]
+# sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.etherscan.io/api" }
+# mainnet = { key = "${ETHERSCAN_API_KEY}", url = "https://api.etherscan.io/api" }
+# base_sepolia = { key = "${BASESCAN_API_KEY}", url = "https://api-sepolia.basescan.org/api" }
+# base = { key = "${BASESCAN_API_KEY}", url = "https://api.basescan.org/api" }
+# optimism_sepolia = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", url = "https://api-sepolia-optimistic.etherscan.io/api" }
+# optimism = { key = "${OPTIMISM_ETHERSCAN_API_KEY}", url = "https://api-optimistic.etherscan.io/api" }
+# arbitrum_sepolia = { key = "${ARBISCAN_API_KEY}", url = "https://api-sepolia.arbiscan.io/api" }
+# arbitrum = { key = "${ARBISCAN_API_KEY}", url = "https://api.arbiscan.io/api" }
 # Mode and 0G use custom explorers (not etherscan compatible)
