@@ -155,18 +155,34 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             require(participants.length > 0, "No participants");
             _debug("after_participants_require", participants.length, 0);
             
-            // Get validators who scored this work - USE STUDIOPROXY'S ARRAY (single source of truth!)
-            // StudioProxy._validators is populated automatically when validators submit scores
+            // Get validators who scored this work
+            // PRIORITY 1: Try StudioProxy (populated when validators submit scores via submitScoreVector*)
+            // PRIORITY 2: Fall back to owner-registered validators (_workValidators)
             _debug("before_getValidators", 0, 0);
             address[] memory validators = studioProxy.getValidators(dataHash);
-            _debug("validators_loaded", validators.length, 0);
+            _debug("studioProxy_validators", validators.length, 0);
             
             // Fallback to owner-registered validators if StudioProxy has none
             if (validators.length == 0) {
-                _debug("fallback_to_workValidators", 0, 0);
+                _debug("trying_workValidators_fallback", 0, 0);
                 validators = _workValidators[dataHash];
                 _debug("workValidators_loaded", validators.length, 0);
             }
+            
+            // CRITICAL: If still no validators, check if scores were submitted directly
+            // This can happen if verifiers used submitScoreVectorForWorker but weren't tracked
+            if (validators.length == 0) {
+                // Try to get validators from per-worker scores
+                address[] memory participants = studioProxy.getWorkParticipants(dataHash);
+                if (participants.length > 0) {
+                    (address[] memory scoreValidators,) = studioProxy.getScoreVectorsForWorker(dataHash, participants[0]);
+                    if (scoreValidators.length > 0) {
+                        _debug("found_validators_from_scores", scoreValidators.length, 0);
+                        validators = scoreValidators;
+                    }
+                }
+            }
+            
             require(validators.length > 0, "No validators");
             
             // Get total budget for this work
