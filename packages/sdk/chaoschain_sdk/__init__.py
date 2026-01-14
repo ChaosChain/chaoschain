@@ -52,7 +52,7 @@ Example (With 0G):
     ```
 """
 
-__version__ = "0.4.22"
+__version__ = "0.4.23"
 __author__ = "ChaosChain"
 __email__ = "sumeet@chaoscha.in"
 

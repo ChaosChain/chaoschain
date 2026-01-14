@@ -168,6 +168,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             // ═══════════════════════════════════════════════════════════════════
             
             ScoreVector[] memory allValidatorScores = new ScoreVector[](validators.length);
+            bool[] memory validatorHasScore = new bool[](validators.length);  // CRITICAL: Track which validators have valid scores
             uint8[] memory overallConsensusScores;  // For validator accuracy calc
             
             emit DebugTrace("participants_loop_start", participants.length, validators.length);
@@ -239,8 +240,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     // Track for validator accuracy - use FIRST score found for each validator
                     // (not just first worker, in case validator didn't score first worker)
                     emit DebugTrace("before_allValidatorScores", j, allValidatorScores.length);
-                    if (allValidatorScores[j].scores.length == 0) {
+                    // CRITICAL FIX: Use explicit flag instead of checking .scores.length on uninitialized memory
+                    if (!validatorHasScore[j]) {
                         allValidatorScores[j] = workerScoreVectors[validScores - 1];
+                        validatorHasScore[j] = true;
                     }
                 }
                 
@@ -307,6 +310,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     studioProxy,
                     dataHash,
                     allValidatorScores,
+                    validatorHasScore,  // CRITICAL: Pass validity flags
                     overallConsensusScores,
                     validators,
                     validatorPool
@@ -768,24 +772,22 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         StudioProxy studioProxy,
         bytes32 dataHash,
         ScoreVector[] memory scoreVectors,
+        bool[] memory validatorHasScore,  // CRITICAL: Explicit validity flags from caller
         uint8[] memory consensusScores,
         address[] memory validators,
         uint256 rewardPool
     ) internal returns (uint256 totalDistributed) {
         // Calculate error for each validator (§2.3)
         uint256[] memory errors = new uint256[](validators.length);
-        bool[] memory hasValidScores = new bool[](validators.length);
         uint256 totalWeight = 0;
         uint256 validValidatorCount = 0;
         
         for (uint256 i = 0; i < validators.length; i++) {
-            // CRITICAL FIX: Skip validators with empty/missing scores
-            // This can happen if validator didn't score the first worker
-            if (i >= scoreVectors.length || scoreVectors[i].scores.length == 0) {
-                hasValidScores[i] = false;
+            // CRITICAL FIX: Use explicit validity flag - NEVER read from uninitialized structs
+            // Reading .scores.length from uninitialized memory causes Panic 0x32
+            if (i >= validatorHasScore.length || !validatorHasScore[i]) {
                 continue;
             }
-            hasValidScores[i] = true;
             validValidatorCount++;
             
             // Calculate L2 distance from consensus
@@ -813,8 +815,8 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         
         // Distribute rewards proportional to accuracy
         for (uint256 i = 0; i < validators.length; i++) {
-            // Skip validators without valid scores
-            if (!hasValidScores[i]) {
+            // CRITICAL FIX: Use explicit validity flag - NEVER read from uninitialized structs
+            if (i >= validatorHasScore.length || !validatorHasScore[i]) {
                 continue;
             }
             
@@ -835,7 +837,8 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 if (performanceScore > 100) performanceScore = 100;
                 
                 // Publish VA reputation to Reputation Registry (§4.3 protocol_spec_v0.1.md)
-                if (i < scoreVectors.length && scoreVectors[i].validatorAgentId != 0) {
+                // CRITICAL: Only access scoreVectors[i] after confirming validatorHasScore[i] == true
+                if (scoreVectors[i].validatorAgentId != 0) {
                     // Note: In production, feedbackUri would be fetched from validation evidence
                     // For MVP, we pass empty strings (SDK handles feedback creation)
                     _publishValidatorReputation(
