@@ -32,15 +32,34 @@ import {Scoring} from "./libraries/Scoring.sol";
  */
 contract RewardsDistributor is Ownable, IRewardsDistributor {
     
+    // ============ Debug Mode ============
+    /// @dev Debug mode flag - set to false for production to save gas
+    bool public debugMode = false;
+    
+    /// @dev Toggle debug mode (owner only)
+    function setDebugMode(bool enabled) external onlyOwner {
+        debugMode = enabled;
+    }
+    
     // ============ Debug Events ============
-    /// @dev Temporary debug event - remove after fixing
+    /// @dev Debug events - only emitted when debugMode is true
     event DebugTrace(string location, uint256 index, uint256 length);
     event DebugScores(string location, uint256 validCount, uint256 totalValidators);
+    
+    /// @dev Gated debug trace - only emits when debugMode is true (saves gas in production)
+    function _debug(string memory location, uint256 index, uint256 length) internal {
+        if (debugMode) _debug(location, index, length);
+    }
+    
+    /// @dev Gated debug scores - only emits when debugMode is true
+    function _debugScores(string memory location, uint256 validCount, uint256 totalValidators) internal {
+        if (debugMode) _debugScores(location, validCount, totalValidators);
+    }
     
     // ============ Debug Functions ============
     /// @dev Simple ping to verify contract can emit events
     function debugPing() external {
-        emit DebugTrace("PING_SUCCESS", block.number, block.timestamp);
+        _debug("PING_SUCCESS", block.number, block.timestamp);
     }
     
     /// @dev Check owner without modifier
@@ -95,62 +114,65 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     /// @dev TEMPORARY: Removed onlyOwner modifier for debugging
     function closeEpoch(address studio, uint64 epoch) external override {
         // FIRST THING - emit before ANY other code
-        emit DebugTrace("closeEpoch_FIRST_LINE", uint256(uint160(msg.sender)), block.number);
+        _debug("closeEpoch_FIRST_LINE", uint256(uint160(msg.sender)), block.number);
         
         // Manual owner check (was in modifier)
-        emit DebugTrace("before_owner_check", 0, 0);
+        _debug("before_owner_check", 0, 0);
         address ownerAddr = owner();
-        emit DebugTrace("owner_loaded", uint256(uint160(ownerAddr)), 0);
+        _debug("owner_loaded", uint256(uint160(ownerAddr)), 0);
         require(msg.sender == ownerAddr, "Not owner");
-        emit DebugTrace("after_owner_check", 1, 0);
+        _debug("after_owner_check", 1, 0);
         
-        emit DebugTrace("closeEpoch_ENTRY", uint256(uint160(studio)), epoch);
+        _debug("closeEpoch_ENTRY", uint256(uint160(studio)), epoch);
         
         require(studio != address(0), "Invalid studio");
-        emit DebugTrace("after_studio_require", 1, 0);
+        _debug("after_studio_require", 1, 0);
         
         StudioProxy studioProxy = StudioProxy(payable(studio));
-        emit DebugTrace("after_studioProxy_cast", 2, 0);
+        _debug("after_studioProxy_cast", 2, 0);
         
         bytes32[] memory workHashes = _epochWork[studio][epoch];
-        emit DebugTrace("workHashes_loaded", workHashes.length, epoch);
+        _debug("workHashes_loaded", workHashes.length, epoch);
         
         require(workHashes.length > 0, "No work in epoch");
-        emit DebugTrace("after_workHashes_require", workHashes.length, 0);
+        _debug("after_workHashes_require", workHashes.length, 0);
         
         uint256 totalWorkerRewards = 0;
         uint256 totalValidatorRewards = 0;
         
         // Process each work submission in the epoch
         for (uint256 i = 0; i < workHashes.length; i++) {
-            emit DebugTrace("work_loop_iteration", i, workHashes.length);
+            _debug("work_loop_iteration", i, workHashes.length);
             
             bytes32 dataHash = workHashes[i];
-            emit DebugTrace("dataHash_loaded", uint256(dataHash), 0);
+            _debug("dataHash_loaded", uint256(dataHash), 0);
             
             // Get all participants (multi-agent support, Protocol Spec §4.2)
-            emit DebugTrace("before_getWorkParticipants", 0, 0);
+            _debug("before_getWorkParticipants", 0, 0);
             address[] memory participants = studioProxy.getWorkParticipants(dataHash);
-            emit DebugTrace("participants_loaded", participants.length, 0);
+            _debug("participants_loaded", participants.length, 0);
             
             require(participants.length > 0, "No participants");
-            emit DebugTrace("after_participants_require", participants.length, 0);
+            _debug("after_participants_require", participants.length, 0);
             
             // Get validators who scored this work - USE STUDIOPROXY'S ARRAY (single source of truth!)
             // StudioProxy._validators is populated automatically when validators submit scores
-            emit DebugTrace("before_getValidators", 0, 0);
+            _debug("before_getValidators", 0, 0);
             address[] memory validators = studioProxy.getValidators(dataHash);
-            emit DebugTrace("validators_loaded", validators.length, 0);
+            _debug("validators_loaded", validators.length, 0);
             
             // Fallback to owner-registered validators if StudioProxy has none
             if (validators.length == 0) {
-                emit DebugTrace("fallback_to_workValidators", 0, 0);
+                _debug("fallback_to_workValidators", 0, 0);
                 validators = _workValidators[dataHash];
-                emit DebugTrace("workValidators_loaded", validators.length, 0);
+                _debug("workValidators_loaded", validators.length, 0);
             }
             require(validators.length > 0, "No validators");
             
             // Get total budget for this work
+            // INVARIANT: getTotalEscrow() must return consistent value for entire epoch closure.
+            // If releaseFunds() mutates escrow, each work MUST have independent budget tracking.
+            // Current design: Single escrow per studio, distributed proportionally across all work.
             uint256 totalBudget = studioProxy.getTotalEscrow();
             if (totalBudget == 0) {
                 emit EpochClosed(studio, epoch, 0, 0);
@@ -171,11 +193,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             bool[] memory validatorHasScore = new bool[](validators.length);  // CRITICAL: Track which validators have valid scores
             uint8[] memory overallConsensusScores;  // For validator accuracy calc
             
-            emit DebugTrace("participants_loop_start", participants.length, validators.length);
+            _debug("participants_loop_start", participants.length, validators.length);
             
             for (uint256 p = 0; p < participants.length; p++) {
                 address worker = participants[p];
-                emit DebugTrace("participant", p, participants.length);
+                _debug("participant", p, participants.length);
                 
                 // Get contribution weight for this worker (from DKG analysis)
                 uint16 contributionWeight = studioProxy.getContributionWeight(dataHash, worker);
@@ -184,11 +206,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 (address[] memory scoreValidators, bytes[] memory scoreData) = 
                     studioProxy.getScoreVectorsForWorker(dataHash, worker);
                 
-                emit DebugTrace("scoreValidators_len", scoreValidators.length, scoreData.length);
+                _debug("scoreValidators_len", scoreValidators.length, scoreData.length);
                 
                 // CRITICAL FIX: Emit warning if arrays mismatched (confirms root cause)
                 if (scoreValidators.length != scoreData.length) {
-                    emit DebugTrace("MISMATCH_scoreValidators_vs_scoreData", scoreValidators.length, scoreData.length);
+                    _debug("MISMATCH_scoreValidators_vs_scoreData", scoreValidators.length, scoreData.length);
                 }
                 
                 // CRITICAL FIX: Use min length to prevent OOB panics
@@ -201,7 +223,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 uint256 validScores = 0;
                 
                 for (uint256 j = 0; j < validators.length; j++) {
-                    emit DebugTrace("validator_loop", j, validators.length);
+                    _debug("validator_loop", j, validators.length);
                     
                     // Find this validator's score for this worker (O(n) lookup, could be O(1) with mapping)
                     bytes memory validatorScore;
@@ -215,17 +237,17 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     // Skip if no score from this validator for this worker
                     if (validatorScore.length == 0) continue;
                     
-                    emit DebugTrace("validatorScore_len", validatorScore.length, 0);
+                    _debug("validatorScore_len", validatorScore.length, 0);
                     
                     // Decode score vector
                     uint8[] memory scores = _decodeScoreVector(validatorScore);
                     
-                    emit DebugTrace("decoded_scores_len", scores.length, 0);
+                    _debug("decoded_scores_len", scores.length, 0);
                     
                     // Skip if decode returned empty (malformed or missing data)
                     if (scores.length == 0) continue;
                     
-                    emit DebugTrace("before_workerScoreVectors", validScores, workerScoreVectors.length);
+                    _debug("before_workerScoreVectors", validScores, workerScoreVectors.length);
                     
                     workerScoreVectors[validScores] = ScoreVector({
                         validatorAgentId: 0,
@@ -239,7 +261,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     
                     // Track for validator accuracy - use FIRST score found for each validator
                     // (not just first worker, in case validator didn't score first worker)
-                    emit DebugTrace("before_allValidatorScores", j, allValidatorScores.length);
+                    _debug("before_allValidatorScores", j, allValidatorScores.length);
                     // CRITICAL FIX: Use explicit flag instead of checking .scores.length on uninitialized memory
                     if (!validatorHasScore[j]) {
                         allValidatorScores[j] = workerScoreVectors[validScores - 1];
@@ -248,7 +270,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 }
                 
                 // Require at least 1 validator scored this worker
-                emit DebugScores("before_require", validScores, validators.length);
+                _debugScores("before_require", validScores, validators.length);
                 require(validScores > 0, "No scores for worker");
                 
                 // Resize array to actual count
@@ -258,9 +280,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 }
                 
                 // Calculate consensus for THIS worker (Protocol Spec §2.2)
-                emit DebugScores("before_calculateConsensus", finalWorkerScores.length, validScores);
-                uint8[] memory workerConsensus = this.calculateConsensus(dataHash, finalWorkerScores);
-                emit DebugTrace("after_calculateConsensus", workerConsensus.length, 0);
+                _debugScores("before_calculateConsensus", finalWorkerScores.length, validScores);
+                uint8[] memory workerConsensus = _calculateConsensusInternal(dataHash, finalWorkerScores);
+                _debug("after_calculateConsensus", workerConsensus.length, 0);
                 
                 // Save for validator accuracy (use first worker's consensus)
                 if (p == 0) {
@@ -268,9 +290,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 }
                 
                 // Calculate quality scalar for this worker (Protocol Spec §4.1)
-                emit DebugTrace("before_calculateQualityScalar", workerConsensus.length, 0);
+                _debug("before_calculateQualityScalar", workerConsensus.length, 0);
                 uint256 workerQuality = _calculateQualityScalar(studio, workerConsensus);
-                emit DebugTrace("after_calculateQualityScalar", workerQuality, 0);
+                _debug("after_calculateQualityScalar", workerQuality, 0);
                 
                 // Calculate this worker's share of rewards (Protocol Spec §4.2)
                 // payout = quality × contribution_weight × worker_pool
@@ -388,16 +410,16 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address worker,
         uint8[] memory consensusScores
     ) private {
-        emit DebugTrace("_pubWorkerRep_ENTRY", consensusScores.length, 0);
+        _debug("_pubWorkerRep_ENTRY", consensusScores.length, 0);
         
         // Get worker's agent ID from StudioProxy (registered when they joined)
         uint256 agentId = studioProxy.getAgentId(worker);
-        emit DebugTrace("_pubWorkerRep_agentId", agentId, 0);
+        _debug("_pubWorkerRep_agentId", agentId, 0);
         if (agentId == 0) return;
         
         // Get reputation registry
         address reputationRegistryAddr = registry.getReputationRegistry();
-        emit DebugTrace("_pubWorkerRep_gotRegistry", uint256(uint160(reputationRegistryAddr)), 0);
+        _debug("_pubWorkerRep_gotRegistry", uint256(uint160(reputationRegistryAddr)), 0);
         if (reputationRegistryAddr == address(0)) return;
         
         // Check if it's a real contract (has code)
@@ -405,22 +427,22 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         assembly {
             size := extcodesize(reputationRegistryAddr)
         }
-        emit DebugTrace("_pubWorkerRep_codeSize", size, 0);
+        _debug("_pubWorkerRep_codeSize", size, 0);
         if (size == 0) return; // Skip if not a contract
         
-        emit DebugTrace("_pubWorkerRep_beforeCast", 1, 0);
+        _debug("_pubWorkerRep_beforeCast", 1, 0);
         IERC8004Reputation reputationRegistry = IERC8004Reputation(reputationRegistryAddr);
         
-        emit DebugTrace("_pubWorkerRep_beforeStudioTag", 2, 0);
+        _debug("_pubWorkerRep_beforeStudioTag", 2, 0);
         // Studio address as tag2 (converted to string)
         string memory studioTag = _addressToString(studio);
         
-        emit DebugTrace("_pubWorkerRep_beforeLoop", consensusScores.length, 5);
+        _debug("_pubWorkerRep_beforeLoop", consensusScores.length, 5);
         
         // Publish each dimension (use inline strings to avoid string[5] allocation issue)
         // Only publish if we have scores
         if (consensusScores.length == 0) {
-            emit DebugTrace("_pubWorkerRep_noScores", 0, 0);
+            _debug("_pubWorkerRep_noScores", 0, 0);
             return;
         }
         
@@ -428,40 +450,40 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         
         // Dimension 0: Initiative
         if (consensusScores.length > 0) {
-            emit DebugTrace("_pubWorkerRep_dim0", 0, consensusScores[0]);
+            _debug("_pubWorkerRep_dim0", 0, consensusScores[0]);
             bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Initiative", consensusScores[0]));
             try reputationRegistry.giveFeedback(agentId, consensusScores[0], "Initiative", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
         // Dimension 1: Collaboration
         if (consensusScores.length > 1) {
-            emit DebugTrace("_pubWorkerRep_dim1", 1, consensusScores[1]);
+            _debug("_pubWorkerRep_dim1", 1, consensusScores[1]);
             bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Collaboration", consensusScores[1]));
             try reputationRegistry.giveFeedback(agentId, consensusScores[1], "Collaboration", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
         // Dimension 2: Reasoning Depth (path length in DKG - Protocol Spec §3.1)
         if (consensusScores.length > 2) {
-            emit DebugTrace("_pubWorkerRep_dim2", 2, consensusScores[2]);
+            _debug("_pubWorkerRep_dim2", 2, consensusScores[2]);
             bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Reasoning Depth", consensusScores[2]));
             try reputationRegistry.giveFeedback(agentId, consensusScores[2], "Reasoning Depth", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
         // Dimension 3: Compliance
         if (consensusScores.length > 3) {
-            emit DebugTrace("_pubWorkerRep_dim3", 3, consensusScores[3]);
+            _debug("_pubWorkerRep_dim3", 3, consensusScores[3]);
             bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Compliance", consensusScores[3]));
             try reputationRegistry.giveFeedback(agentId, consensusScores[3], "Compliance", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
         // Dimension 4: Efficiency
         if (consensusScores.length > 4) {
-            emit DebugTrace("_pubWorkerRep_dim4", 4, consensusScores[4]);
+            _debug("_pubWorkerRep_dim4", 4, consensusScores[4]);
             bytes32 feedbackHash = keccak256(abi.encodePacked(dataHash, worker, "Efficiency", consensusScores[4]));
             try reputationRegistry.giveFeedback(agentId, consensusScores[4], "Efficiency", studioTag, "", feedbackUri, feedbackHash) {} catch {}
         }
         
-        emit DebugTrace("_pubWorkerRep_done", 5, 0);
+        _debug("_pubWorkerRep_done", 5, 0);
     }
     
     /**
@@ -568,81 +590,47 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     
     /// @inheritdoc IRewardsDistributor
     /**
-     * @notice Calculate consensus for a specific worker
-     * @dev Extracts scores for one worker from all validators
-     * @param scoreVectors Array of score vectors from validators
-     * @param workerIndex Index of the worker in the participants array
-     * @return consensusScores Consensus scores for this worker
+     * @notice External wrapper for consensus calculation (for interface compliance)
+     * @dev Delegates to internal implementation to avoid external self-calls
      */
-    function _calculateConsensusForWorker(
-        ScoreVector[] memory scoreVectors,
-        uint256 workerIndex
-    ) internal view returns (uint8[] memory consensusScores) {
-        // Filter out vectors with empty scores
-        uint256 validCount = 0;
-        for (uint256 i = 0; i < scoreVectors.length; i++) {
-            if (scoreVectors[i].scores.length > 0) {
-                validCount++;
-            }
-        }
-        
-        // If no valid scores, return default
-        if (validCount == 0) {
-            consensusScores = new uint8[](5);
-            for (uint256 i = 0; i < 5; i++) {
-                consensusScores[i] = 50;
-            }
-            return consensusScores;
-        }
-        
-        // Collect valid scores for this worker from all validators
-        uint8[][] memory scoresForWorker = new uint8[][](validCount);
-        uint256[] memory stakes = new uint256[](validCount);
-        
-        uint256 idx = 0;
-        for (uint256 v = 0; v < scoreVectors.length; v++) {
-            if (scoreVectors[v].scores.length > 0) {
-                scoresForWorker[idx] = scoreVectors[v].scores;
-                stakes[idx] = scoreVectors[v].stake > 0 ? scoreVectors[v].stake : 1 ether;
-                idx++;
-            }
-        }
-        
-        // Calculate consensus
-        Scoring.Params memory params = Scoring.Params({
-            alpha: alpha,
-            beta: beta,
-            kappa: kappa,
-            tau: tau
-        });
-        
-        consensusScores = Scoring.consensus(scoresForWorker, stakes, params);
-        
-        return consensusScores;
-    }
-    
     function calculateConsensus(
         bytes32 dataHash,
         ScoreVector[] calldata scoreVectors
     ) external override returns (uint8[] memory consensusScores) {
-        emit DebugTrace("calculateConsensus_entry", scoreVectors.length, 0);
+        // Copy calldata to memory for internal function
+        ScoreVector[] memory memoryVectors = new ScoreVector[](scoreVectors.length);
+        for (uint256 i = 0; i < scoreVectors.length; i++) {
+            memoryVectors[i] = scoreVectors[i];
+        }
+        return _calculateConsensusInternal(dataHash, memoryVectors);
+    }
+    
+    /**
+     * @notice Internal consensus calculation - avoids expensive external self-calls
+     * @dev This is the actual implementation; external function is just a wrapper
+     */
+    function _calculateConsensusInternal(
+        bytes32 dataHash,
+        ScoreVector[] memory scoreVectors
+    ) internal returns (uint8[] memory consensusScores) {
+        _debug("calculateConsensus_entry", scoreVectors.length, 0);
         require(dataHash != bytes32(0), "Invalid dataHash");
         require(scoreVectors.length > 0, "No score vectors");
         
         // Filter out empty score vectors
         uint256 validCount = 0;
         for (uint256 i = 0; i < scoreVectors.length; i++) {
-            emit DebugTrace("filter_loop", i, scoreVectors[i].scores.length);
+            _debug("filter_loop", i, scoreVectors[i].scores.length);
             if (scoreVectors[i].scores.length > 0) {
                 validCount++;
             }
         }
         
-        emit DebugScores("after_filter", validCount, scoreVectors.length);
+        _debugScores("after_filter", validCount, scoreVectors.length);
         
         // If no valid scores, return default scores
         if (validCount == 0) {
-            emit DebugTrace("returning_defaults", 0, 0);
+            _debug("returning_defaults", 0, 0);
             consensusScores = new uint8[](5);
             for (uint256 i = 0; i < 5; i++) {
                 consensusScores[i] = 50; // Default score
@@ -664,10 +652,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         
         // Use Scoring library for consensus calculation
-        emit DebugScores("before_Scoring_consensus", scores.length, stakes.length);
+        _debugScores("before_Scoring_consensus", scores.length, stakes.length);
         // Log first score vector dimensions
         if (scores.length > 0) {
-            emit DebugTrace("first_score_dims", scores[0].length, 0);
+            _debug("first_score_dims", scores[0].length, 0);
         }
         
         Scoring.Params memory params = Scoring.Params({
@@ -679,14 +667,25 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         
         consensusScores = Scoring.consensus(scores, stakes, params);
         
-        // Emit EvidenceAnchored event
-        emit EvidenceAnchored(
-            scoreVectors[0].validatorAgentId, // Use first validator's agentId (should be work agentId)
-            dataHash,
-            bytes32(0), // evidenceCid would come from work submission
-            uint64(block.chainid),
-            uint64(block.timestamp)
-        );
+        // CRITICAL FIX: Find first valid agentId safely (never access [0] directly)
+        uint256 anchoringAgentId = 0;
+        for (uint256 i = 0; i < scoreVectors.length; i++) {
+            if (scoreVectors[i].validatorAgentId != 0) {
+                anchoringAgentId = scoreVectors[i].validatorAgentId;
+                break;
+            }
+        }
+        
+        // Only emit if we found a valid agent
+        if (anchoringAgentId != 0) {
+            emit EvidenceAnchored(
+                anchoringAgentId,
+                dataHash,
+                bytes32(0), // evidenceCid would come from work submission
+                uint64(block.chainid),
+                uint64(block.timestamp)
+            );
+        }
         
         return consensusScores;
     }
@@ -995,7 +994,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             }
             
             // Calculate consensus for this worker
-            consensusScores = this.calculateConsensus(dataHash, validScoreVectors);
+            consensusScores = _calculateConsensusInternal(dataHash, validScoreVectors);
         } else {
             consensusScores = new uint8[](0);
         }
