@@ -86,21 +86,20 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                # ERC-8004 Registries (deployed by Nethermind)
-                'identity_registry': '0x8004a6090Cd10A7288092483047B097295Fb8847',
-                'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
+                # Official ERC-8004 Registries (Jan 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
+                'identity_registry': '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+                'reputation_registry': '0x8004B663056A597Dffe9eCcC1965A193B7388713',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol MVP v0.4.3 (deployed Dec 20, 2025)
-                # Features: Per-worker consensus, Multi-agent attribution, DKG-based scoring
-                # NEW: registerFeedbackAuth() for multi-agent reputation publishing
-                'chaos_registry': '0xB5Dba66ae57479190A7723518f8cA7ea8c40de53',
-                'chaos_core': '0x6660e8EF6baaAf847519dFd693D0033605b825f5',
-                'rewards_distributor': '0xA050527d38Fae9467730412d941560c8706F060A',
-                'studio_factory': '0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d',
+                # ChaosChain Protocol v0.4.27 (deployed Jan 16, 2026)
+                # ERC-8004 Jan 2026 compatible: No feedbackAuth, string tags, endpoint parameter
+                'chaos_registry': '0xEb8a6952ead49F1b2430d7219343C4b379aD0364',
+                'chaos_core': '0xefEC959De912F6b888507A8e33E1b71aEf3d3D31',
+                'rewards_distributor': '0x0DC34e0D8D7045ce562464E8D793913735c1A628',
+                'studio_factory': '0xF69BF886E7aEF6E3D24F1fA22934a9caE516cE12',
                 # LogicModules
-                'finance_logic': '0x2049f335A812b68aC488d4b687C3B701BF845f5b'
+                'prediction_logic': '0x3cE4E5B34979565e2dAc1456BdF2368EF2E6c5fe'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
