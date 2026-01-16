@@ -72,10 +72,13 @@ interface IStudioProxy {
     function upgradeLogicModule(address newLogic) external;
     
     /**
-     * @notice Submit work evidence (§1.4 protocol spec)
+     * @notice Submit work evidence (§1.4 protocol spec, ERC-8004 Jan 2026 compatible)
+     * @dev feedbackAuth parameter kept for backward compatibility but is now OPTIONAL
+     * Per ERC-8004 Jan 2026: feedback submission is permissionless, no pre-authorization needed
      * @param dataHash The EIP-712 DataHash (computed from studio, epoch, demandHash, threadRoot, evidenceRoot, paramsHash)
      * @param threadRoot VLC/Merkle root of XMTP thread
      * @param evidenceRoot Merkle root of Irys payloads
+     * @param feedbackAuth DEPRECATED: kept for backward compatibility only
      */
     function submitWork(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, bytes calldata feedbackAuth) external;
     
@@ -103,10 +106,12 @@ interface IStudioProxy {
     function getEscrowBalance(address account) external view returns (uint256);
     
     /**
-     * @notice Get feedbackAuth for a work submission
+     * @notice DEPRECATED: Get feedbackAuth for a work submission
+     * @dev ERC-8004 Jan 2026 removed feedbackAuth requirement - feedback is now permissionless
+     * This function is kept for backward compatibility but feedbackAuth is no longer required.
      * @param dataHash The work dataHash
      * @param worker The worker address
-     * @return The feedbackAuth signature
+     * @return The feedbackAuth signature (may be empty under Jan 2026 spec)
      */
     function getFeedbackAuth(bytes32 dataHash, address worker) external view returns (bytes memory);
     

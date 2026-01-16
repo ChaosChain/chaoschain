@@ -3,13 +3,18 @@ pragma solidity ^0.8.24;
 
 /**
  * @title IERC8004IdentityV1
- * @notice Minimal interface for ERC-8004 v1 IdentityRegistry (ERC-721 based)
- * @dev Based on ERC-8004 v1 spec where agents are ERC-721 NFTs
+ * @notice Minimal interface for ERC-8004 Jan 2026 IdentityRegistry (ERC-721 based)
+ * @dev Based on ERC-8004 Jan 2026 spec where agents are ERC-721 NFTs
  * 
- * Key Changes from v0.4:
- * - Agents are now ERC-721 tokens (tokenId = agentId)
- * - Registration emits Transfer(0x0, owner, tokenId) not custom event
- * - Indexers should listen to Transfer events for mints
+ * Key Changes from Oct 2025:
+ * - agentRegistry: formal format "{namespace}:{chainId}:{identityRegistry}"
+ * - tokenURI renamed to agentURI in spec; setAgentURI function added
+ * - Reserved metadata key "agentWallet" with signature verification:
+ *   - Cannot be set via setMetadata() or during register()
+ *   - Initially set to owner's address
+ *   - Changed via setAgentWallet() with EIP-712/ERC-1271 signature
+ *   - Reset to zero address on transfer
+ * - Optional endpoint domain verification via /.well-known/agent-registration.json
  * 
  * Full implementation: https://github.com/ChaosChain/trustless-agents-erc-ri
  * 
@@ -120,11 +125,22 @@ interface IERC8004IdentityV1 {
     function setMetadata(uint256 agentId, string memory key, bytes memory value) external;
     
     /**
-     * @notice Update agent URI
+     * @notice Update agent URI (Jan 2026: renamed from setTokenURI to setAgentURI)
      * @param agentId The agent ID
      * @param newUri The new URI
      */
     function setAgentUri(uint256 agentId, string calldata newUri) external;
+    
+    /**
+     * @notice Set agent wallet with signature verification (Jan 2026 NEW)
+     * @dev Reserved key "agentWallet" cannot be set via setMetadata()
+     * Agent owner must prove control of new wallet via EIP-712 (EOA) or ERC-1271 (smart contract)
+     * @param agentId The agent ID
+     * @param newWallet The new wallet address
+     * @param deadline Signature deadline
+     * @param signature EIP-712/ERC-1271 signature proving control of newWallet
+     */
+    function setAgentWallet(uint256 agentId, address newWallet, uint256 deadline, bytes calldata signature) external;
     
     // ============ Events (ERC-721 Standard) ============
     
@@ -157,7 +173,12 @@ interface IERC8004IdentityV1 {
     event MetadataSet(uint256 indexed agentId, string indexed indexedKey, string key, bytes value);
     
     /**
-     * @dev Emitted when URI is updated
+     * @dev Emitted when URI is updated (Jan 2026: renamed from TokenURIUpdated to URIUpdated)
+     */
+    event URIUpdated(uint256 indexed agentId, string newURI, address indexed updatedBy);
+    
+    /**
+     * @dev DEPRECATED: Kept for backward compatibility
      */
     event UriUpdated(uint256 indexed agentId, string newUri, address indexed updatedBy);
 }

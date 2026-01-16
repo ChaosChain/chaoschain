@@ -255,7 +255,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /**
-     * @dev Publish per-worker reputation to ERC-8004 ReputationRegistry
+     * @dev Publish per-worker reputation to ERC-8004 ReputationRegistry (Jan 2026 spec)
+     * @notice ERC-8004 Jan 2026 Changes:
+     * - feedbackAuth parameter REMOVED - feedback is now permissionless
+     * - endpoint parameter ADDED
+     * - tags changed from bytes32 to string
      * @param studio StudioProxy address
      * @param studioProxy StudioProxy contract
      * @param dataHash Work hash
@@ -277,29 +281,28 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         address reputationRegistryAddr = registry.getReputationRegistry();
         if (reputationRegistryAddr == address(0)) return;
         
+        // Check if it's a real contract (has code) - skip for mock addresses in tests
+        uint256 size;
+        assembly {
+            size := extcodesize(reputationRegistryAddr)
+        }
+        if (size == 0) return; // Skip if not a contract
+        
         IERC8004Reputation reputationRegistry = IERC8004Reputation(reputationRegistryAddr);
         
-        // Get feedbackAuth from StudioProxy (keyed by dataHash + worker)
-        bytes memory feedbackAuth = studioProxy.getFeedbackAuth(dataHash, worker);
-        if (feedbackAuth.length < 65) return;
+        // NOTE: ERC-8004 Jan 2026 removed feedbackAuth requirement
+        // Feedback is now permissionless - any clientAddress can submit directly
+        // We no longer need to check for feedbackAuth validity
         
-        // Check if feedbackAuth is valid (not all zeros)
-        bool isValid = false;
-        for (uint256 i = 0; i < 65; i++) {
-            if (feedbackAuth[i] != 0) {
-                isValid = true;
-                break;
-            }
-        }
-        if (!isValid) return;
-        
-        // Dimension names for reputation tags
+        // Dimension names for reputation tags (now strings per Jan 2026 spec)
         string[5] memory dimensionNames = ["Initiative", "Collaboration", "Reasoning", "Compliance", "Efficiency"];
         
         // Publish each dimension as separate reputation entry
         for (uint256 i = 0; i < 5 && i < consensusScores.length; i++) {
-            bytes32 tag1 = bytes32(bytes(dimensionNames[i]));
-            bytes32 tag2 = bytes32(uint256(uint160(studio))); // Studio address as tag2
+            // Jan 2026 spec: tags are now string type
+            string memory tag1 = dimensionNames[i];
+            string memory tag2 = _addressToString(studio); // Studio address as tag2
+            string memory endpoint = ""; // Optional endpoint (studio endpoint could go here)
             
             // Create feedbackHash from consensus data
             bytes32 feedbackHash = keccak256(abi.encodePacked(
@@ -309,16 +312,32 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 consensusScores[i]
             ));
             
+            // Jan 2026 spec: No feedbackAuth parameter - permissionless feedback
             try reputationRegistry.giveFeedback(
                 agentId,
                 consensusScores[i],
                 tag1,
                 tag2,
-                string(abi.encodePacked("chaoschain://", _toHexString(dataHash))),
-                feedbackHash,
-                feedbackAuth
+                endpoint,                                                          // NEW: endpoint parameter
+                string(abi.encodePacked("chaoschain://", _toHexString(dataHash))), // feedbackURI
+                feedbackHash
             ) {} catch {}
         }
+    }
+    
+    /**
+     * @dev Helper to convert address to string for Jan 2026 spec compatibility
+     */
+    function _addressToString(address _addr) private pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory str = new bytes(42);
+        str[0] = "0";
+        str[1] = "x";
+        for (uint256 i = 0; i < 20; i++) {
+            str[2 + i * 2] = alphabet[uint8(uint160(_addr) >> (8 * (19 - i)) >> 4) & 0x0f];
+            str[3 + i * 2] = alphabet[uint8(uint160(_addr) >> (8 * (19 - i))) & 0x0f];
+        }
+        return string(str);
     }
     
     /**
@@ -873,6 +892,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         return totalDistributed;
     }
     
+    /**
+     * @dev Publish worker reputation (ERC-8004 Jan 2026 compatible)
+     * @notice ERC-8004 Jan 2026 Changes:
+     * - feedbackAuth parameter REMOVED - feedback is now permissionless
+     * - endpoint parameter ADDED
+     * - tags changed from bytes32 to string
+     */
     function _publishWorkerReputation(
         address studioProxy,
         uint256 workerAgentId,
@@ -901,32 +927,28 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             return;
         }
         
-        // Get worker address from StudioProxy
-        address workerAddress = StudioProxy(payable(studioProxy)).getWorkSubmitter(dataHash);
-        if (workerAddress == address(0)) return; // Invalid worker
+        // NOTE: ERC-8004 Jan 2026 removed feedbackAuth requirement
+        // Feedback is now permissionless - no need to check for feedbackAuth
         
-        // Get feedbackAuth from StudioProxy
-        bytes memory feedbackAuth = StudioProxy(payable(studioProxy)).getFeedbackAuth(dataHash, workerAddress);
-        if (feedbackAuth.length < 65) return; // Invalid feedbackAuth signature
-        
-        // Studio address as tag2 for filtering
-        bytes32 studioTag = bytes32(uint256(uint160(studioProxy)));
+        // Studio address as string tag2 for filtering (Jan 2026: string tags)
+        string memory studioTag = _addressToString(studioProxy);
+        string memory endpoint = ""; // Optional endpoint
         
         // Publish one feedback per dimension
         for (uint256 i = 0; i < dimensionNames.length; i++) {
-            // Convert dimension name to bytes32 for tag1
-            bytes32 dimensionTag = _stringToBytes32(dimensionNames[i]);
+            // Jan 2026 spec: tags are now string type (no conversion needed)
+            string memory dimensionTag = dimensionNames[i];
             
             // Try to publish feedback with Triple-Verified Stack proofs
-            // feedbackUri contains: IntegrityProof (TEE attestation) + PaymentProof (x402) + XMTP thread
+            // Jan 2026 spec: No feedbackAuth parameter - permissionless feedback
             try IERC8004Reputation(reputationRegistry).giveFeedback(
                 workerAgentId,
                 scores[i],           // Score for this dimension (0-100)
-                dimensionTag,        // tag1: Dimension name (e.g., "INITIATIVE", "ACCURACY")
-                studioTag,           // tag2: Studio address (for filtering)
+                dimensionTag,        // tag1: Dimension name (string)
+                studioTag,           // tag2: Studio address (string)
+                endpoint,            // NEW: endpoint parameter (Jan 2026)
                 feedbackUri,         // Contains full PoA analysis + proofs
-                feedbackHash,
-                feedbackAuth         // ← NOW USING REAL FEEDBACKAUTH!
+                feedbackHash
             ) {
                 // Success - reputation published for this dimension
             } catch {
@@ -936,8 +958,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /**
-     * @notice Publish VA performance scores to Reputation Registry
+     * @notice Publish VA performance scores to Reputation Registry (ERC-8004 Jan 2026 compatible)
      * @dev Called after consensus to build global verifiable reputation (§4.3 protocol_spec_v0.1.md)
+     * 
+     * ERC-8004 Jan 2026 Changes:
+     * - feedbackAuth parameter REMOVED - feedback is now permissionless
+     * - endpoint parameter ADDED
+     * - tags changed from bytes32 to string
      * 
      * Triple-Verified Stack Integration:
      * - feedbackUri contains IntegrityProof (Layer 2: Process Integrity)
@@ -966,27 +993,25 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         if (size == 0) return; // Skip if not a contract
         
-        // Prepare feedback data
-        bytes32 tag1 = bytes32("VALIDATOR_ACCURACY");
-        bytes32 tag2 = bytes32("CONSENSUS_MATCH");
+        // Prepare feedback data (Jan 2026 spec: string tags)
+        string memory tag1 = "VALIDATOR_ACCURACY";
+        string memory tag2 = "CONSENSUS_MATCH";
+        string memory endpoint = ""; // Optional endpoint
         
         // Try to publish feedback with Triple-Verified Stack proofs
-        // feedbackUri contains: IntegrityProof (TEE attestation from validation process)
-        // Note: In production, this would use proper feedbackAuth signature
-        // For MVP, we're documenting the integration point
+        // Jan 2026 spec: No feedbackAuth parameter - permissionless feedback
         try IERC8004Reputation(reputationRegistry).giveFeedback(
             validatorAgentId,
             performanceScore,
             tag1,
             tag2,
-            feedbackUri,           // ✅ Contains IntegrityProof
-            feedbackHash,          // ✅ Hash of feedback content
-            new bytes(0)           // feedbackAuth (would need proper signature)
+            endpoint,              // NEW: endpoint parameter (Jan 2026)
+            feedbackUri,           // Contains IntegrityProof
+            feedbackHash           // Hash of feedback content
         ) {
             // Success - reputation published with Triple-Verified Stack proofs
         } catch {
-            // Failed - likely needs proper authorization or mock registry
-            // In production, RewardsDistributor would have authorization to post feedback
+            // Failed - likely a mock registry or other issue
         }
     }
     
@@ -1114,22 +1139,8 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
     }
     
-    /**
-     * @notice Convert string to bytes32 (for ERC-8004 tags)
-     * @dev Truncates strings longer than 32 bytes
-     * @param source The string to convert
-     * @return result The bytes32 representation
-     */
-    function _stringToBytes32(string memory source) internal pure returns (bytes32 result) {
-        bytes memory tempBytes = bytes(source);
-        if (tempBytes.length == 0) {
-            return 0x0;
-        }
-        
-        assembly {
-            result := mload(add(source, 32))
-        }
-    }
+    // NOTE: _stringToBytes32 REMOVED in ERC-8004 Jan 2026 update
+    // Tags are now string type, no conversion needed
     
     // NOTE: All consensus logic moved to Scoring library (libraries/Scoring.sol)
     // This keeps the RewardsDistributor focused on orchestration and the Scoring

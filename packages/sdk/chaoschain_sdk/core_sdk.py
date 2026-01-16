@@ -1717,26 +1717,31 @@ class ChaosChainAgentSDK:
             if not agent_id or agent_id == 0:
                 raise ContractError("Agent not registered. Call register_agent() first.")
             
-            # Generate feedbackAuth signature
+            # NOTE: ERC-8004 Jan 2026 removed feedbackAuth requirement
+            # Feedback is now permissionless - feedbackAuth is kept for backward compatibility
+            # but will emit deprecation warning
+            import warnings
             rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
-            if not rewards_distributor:
-                raise ContractError("RewardsDistributor address not configured")
+            feedback_auth = b''  # Empty by default (Jan 2026 spec)
             
-            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature...")
-            feedback_auth = self.chaos_agent._generate_feedback_auth(
-                agent_id,
-                rewards_distributor
-            )
-            rprint(f"[dim]   Signature length: {len(feedback_auth)} bytes[/dim]")
+            if rewards_distributor:
+                # Generate feedbackAuth for backward compatibility (DEPRECATED)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    feedback_auth = self.chaos_agent._generate_feedback_auth(
+                        agent_id,
+                        rewards_distributor
+                    )
+                rprint(f"[dim]   (feedbackAuth included for backward compatibility)[/dim]")
             
-            # StudioProxy ABI (with feedbackAuth)
+            # StudioProxy ABI (feedbackAuth kept for backward compatibility)
             studio_proxy_abi = [
                 {
                     "inputs": [
                         {"name": "dataHash", "type": "bytes32"},
                         {"name": "threadRoot", "type": "bytes32"},
                         {"name": "evidenceRoot", "type": "bytes32"},
-                        {"name": "feedbackAuth", "type": "bytes"}
+                        {"name": "feedbackAuth", "type": "bytes"}  # DEPRECATED in Jan 2026
                     ],
                     "name": "submitWork",
                     "outputs": [],
@@ -1759,7 +1764,7 @@ class ChaosChainAgentSDK:
             rprint(f"[dim]   ThreadRoot: {thread_root.hex() if isinstance(thread_root, bytes) else thread_root}[/dim]")
             rprint(f"[dim]   EvidenceRoot: {evidence_root.hex() if isinstance(evidence_root, bytes) else evidence_root}[/dim]")
             
-            # Build transaction with feedbackAuth
+            # Build transaction (feedbackAuth for backward compatibility)
             tx = studio.functions.submitWork(
                 data_hash,
                 thread_root,
@@ -1904,25 +1909,30 @@ class ChaosChainAgentSDK:
             if not agent_id or agent_id == 0:
                 raise ContractError("Agent not registered. Call register_agent() first.")
             
-            # Generate feedbackAuth signature
+            # NOTE: ERC-8004 Jan 2026 removed feedbackAuth requirement
+            # Feedback is now permissionless - feedbackAuth is kept for backward compatibility
+            import warnings
             rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
-            if not rewards_distributor:
-                raise ContractError("RewardsDistributor address not configured")
+            feedback_auth = b''  # Empty by default (Jan 2026 spec)
             
-            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature...")
-            feedback_auth = self.chaos_agent._generate_feedback_auth(
-                agent_id,
-                rewards_distributor
-            )
+            if rewards_distributor:
+                # Generate feedbackAuth for backward compatibility (DEPRECATED)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    feedback_auth = self.chaos_agent._generate_feedback_auth(
+                        agent_id,
+                        rewards_distributor
+                    )
+                rprint(f"[dim]   (feedbackAuth included for backward compatibility)[/dim]")
             
-            # StudioProxy ABI for multi-agent submission
+            # StudioProxy ABI for multi-agent submission (feedbackAuth DEPRECATED)
             studio_proxy_abi = [
                 {
                     "inputs": [
                         {"name": "dataHash", "type": "bytes32"},
                         {"name": "threadRoot", "type": "bytes32"},
                         {"name": "evidenceRoot", "type": "bytes32"},
-                        {"name": "feedbackAuth", "type": "bytes"},
+                        {"name": "feedbackAuth", "type": "bytes"},  # DEPRECATED in Jan 2026
                         {"name": "participants", "type": "address[]"},
                         {"name": "contributionWeights", "type": "uint16[]"},
                         {"name": "evidenceCID", "type": "string"}
@@ -1992,16 +2002,13 @@ class ChaosChainAgentSDK:
         data_hash: bytes
     ) -> str:
         """
-        Register feedbackAuth for a multi-agent work submission.
+        DEPRECATED: Register feedbackAuth for a multi-agent work submission.
         
-        This allows participants (who didn't submit the work) to register their
-        feedbackAuth so they can receive reputation when the epoch closes.
+        ERC-8004 Jan 2026 REMOVED the feedbackAuth requirement.
+        Feedback submission is now permissionless - any clientAddress can submit directly.
         
-        Flow:
-        1. Alice submits multi-agent work (her feedbackAuth is stored)
-        2. Dave calls register_feedback_auth(data_hash) → Dave can receive reputation
-        3. Eve calls register_feedback_auth(data_hash) → Eve can receive reputation
-        4. Epoch closes → ALL participants receive reputation!
+        This method is kept for backward compatibility with existing contracts
+        but is no longer required for Jan 2026 compliant systems.
         
         Args:
             studio_address: Address of the Studio proxy
@@ -2010,17 +2017,17 @@ class ChaosChainAgentSDK:
         Returns:
             Transaction hash
             
-        Example:
-            # After Alice submits multi-agent work including Dave:
-            tx = dave_sdk.register_feedback_auth(
-                studio_address="0x...",
-                data_hash=data_hash  # From Alice's submission
-            )
-            print(f"Dave registered feedbackAuth: {tx}")
-            
         Raises:
             ContractError: If not a participant or already registered
         """
+        import warnings
+        warnings.warn(
+            "register_feedback_auth is DEPRECATED. "
+            "ERC-8004 Jan 2026 removed feedbackAuth - feedback is now permissionless.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         try:
             from rich import print as rprint
             
@@ -2032,18 +2039,20 @@ class ChaosChainAgentSDK:
             if not agent_id or agent_id == 0:
                 raise ContractError("Agent not registered. Call register_agent() first.")
             
-            # Generate feedbackAuth signature
+            # Generate feedbackAuth signature (DEPRECATED)
             rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
             if not rewards_distributor:
                 raise ContractError("RewardsDistributor address not configured")
             
-            rprint(f"[cyan]🔐[/cyan] Generating feedbackAuth signature for multi-agent work...")
-            feedback_auth = self.chaos_agent._generate_feedback_auth(
-                agent_id,
-                rewards_distributor
-            )
+            rprint(f"[yellow]⚠️  DEPRECATED: feedbackAuth no longer required (Jan 2026 spec)[/yellow]")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                feedback_auth = self.chaos_agent._generate_feedback_auth(
+                    agent_id,
+                    rewards_distributor
+                )
             
-            # StudioProxy ABI for registerFeedbackAuth
+            # StudioProxy ABI for registerFeedbackAuth (DEPRECATED)
             studio_proxy_abi = [
                 {
                     "inputs": [
@@ -2075,7 +2084,7 @@ class ChaosChainAgentSDK:
             ).build_transaction({
                 'from': account.address,
                 'nonce': self.chaos_agent.w3.eth.get_transaction_count(account.address),
-                'gas': 500000,  # Higher gas for feedbackAuth storage
+                'gas': 500000,
                 'gasPrice': self.chaos_agent.w3.eth.gas_price
             })
             
@@ -2091,8 +2100,7 @@ class ChaosChainAgentSDK:
             if receipt['status'] != 1:
                 raise ContractError("FeedbackAuth registration failed")
             
-            rprint(f"[green]✓[/green] FeedbackAuth registered successfully!")
-            rprint(f"[green]  You will now receive reputation when epoch closes![/green]")
+            rprint(f"[green]✓[/green] FeedbackAuth registered (DEPRECATED - not needed in Jan 2026)")
             return tx_hash.hex()
             
         except Exception as e:
