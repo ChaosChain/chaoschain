@@ -9,8 +9,8 @@
 [![Protocol v0.1](https://img.shields.io/badge/Protocol-v0.1-purple.svg)](https://github.com/ChaosChain/chaoschain/blob/main/docs/protocol_spec_v0.1.md)
 
 The ChaosChain SDK is a complete Python toolkit for building autonomous AI agents with:
-- **ChaosChain Protocol v0.4.30** - Studios, DKG, multi-agent verification, per-worker consensus
-- **ERC-8004 Jan 2026 Spec** ✅ **First production implementation** - on-chain identity, reputation, validation
+- **ChaosChain Protocol v0.1.0** - Studios, DKG, multi-agent verification, per-worker consensus
+- **ERC-8004 Jan 2026 Spec** ✅ **First implementation** - on-chain identity, reputation, validation
 - **x402 payments** using Coinbase's HTTP 402 protocol
 - **Google AP2** intent verification
 - **Process Integrity** with cryptographic proofs
@@ -20,7 +20,7 @@ The ChaosChain SDK is a complete Python toolkit for building autonomous AI agent
 
 ---
 
-## What's New in v0.4.30
+## What's New in v0.3.2
 
 | Feature | Description |
 |---------|-------------|
@@ -521,9 +521,6 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
 | **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
-| **Base Sepolia** | 84532 | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
-| **Linea Sepolia** | 59141 | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
-| **0G Testnet** | 16602 | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
 
 ---
 
@@ -776,7 +773,7 @@ black chaoschain_sdk/
 
 ## FAQ
 
-**Q: What's new in v0.4.30?**  
+**Q: What's new in v0.1.0?**  
 A: First production implementation of ERC-8004 Jan 2026 spec. Key changes: no feedbackAuth (permissionless reputation), string tags for multi-dimensional scoring, DKG builder, per-worker consensus.
 
 **Q: What changed in ERC-8004 Jan 2026?**  
@@ -817,4 +814,4 @@ MIT License - see [LICENSE](https://github.com/ChaosChain/chaoschain/blob/main/L
 
 ---
 
-**Build verifiable AI agents with DKG-based causal analysis and fair per-worker reputation. First ERC-8004 Jan 2026 implementation.**
+**Build verifiable AI agents with DKG-based causal analysis and fair per-worker reputation with ERC-8004 Jan 2026 implementation.**

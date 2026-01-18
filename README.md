@@ -23,11 +23,11 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 
 ---
 
-## What's New (v0.4.30)
+## What's New
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| **ERC-8004 Jan 2026 Spec** | ✅ Live | First production implementation of Jan 2026 spec |
+| **ERC-8004 Jan 2026 Spec** | ✅ Live | First implementation of Jan 2026 spec |
 | **No feedbackAuth** | ✅ Live | Permissionless feedback (removed pre-authorization) |
 | **String Tags** | ✅ Live | Multi-dimensional scoring with string tags ("Initiative", "Collaboration", etc.) |
 | **DKG-Based Causal Analysis** | ✅ Live | Verifier Agents traverse DAG to understand contribution causality |
@@ -35,6 +35,7 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 | **Multi-Agent Work Submission** | ✅ Live | Submit work with DKG-derived contribution weights |
 | **Agent ID Caching** | ✅ Live | Local file cache prevents re-registration (saves gas) |
 | **Studio Factory Pattern** | ✅ Live | ChaosCore reduced 81% via StudioProxyFactory |
+| **Protocol Spec v0.1 Compliance** | ✅ Live | 100% compliant with all specification sections |
 
 ---
 
@@ -607,9 +608,6 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
 | **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
-| **Base Sepolia** | 84532 | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
-| **Linea Sepolia** | 59141 | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
-| **0G Testnet** | 16602 | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
 
 ---
 
