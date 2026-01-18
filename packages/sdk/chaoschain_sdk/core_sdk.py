@@ -1909,30 +1909,14 @@ class ChaosChainAgentSDK:
             if not agent_id or agent_id == 0:
                 raise ContractError("Agent not registered. Call register_agent() first.")
             
-            # NOTE: ERC-8004 Jan 2026 removed feedbackAuth requirement
-            # Feedback is now permissionless - feedbackAuth is kept for backward compatibility
-            import warnings
-            rewards_distributor = self.chaos_agent.contract_addresses.rewards_distributor
-            feedback_auth = b''  # Empty by default (Jan 2026 spec)
-            
-            if rewards_distributor:
-                # Generate feedbackAuth for backward compatibility (DEPRECATED)
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", DeprecationWarning)
-                    feedback_auth = self.chaos_agent._generate_feedback_auth(
-                        agent_id,
-                        rewards_distributor
-                    )
-                rprint(f"[dim]   (feedbackAuth included for backward compatibility)[/dim]")
-            
-            # StudioProxy ABI for multi-agent submission (feedbackAuth DEPRECATED)
+            # ERC-8004 Jan 2026: feedbackAuth REMOVED - feedback is now permissionless
+            # StudioProxy ABI for multi-agent submission (Jan 2026 compliant - NO feedbackAuth)
             studio_proxy_abi = [
                 {
                     "inputs": [
                         {"name": "dataHash", "type": "bytes32"},
                         {"name": "threadRoot", "type": "bytes32"},
                         {"name": "evidenceRoot", "type": "bytes32"},
-                        {"name": "feedbackAuth", "type": "bytes"},  # DEPRECATED in Jan 2026
                         {"name": "participants", "type": "address[]"},
                         {"name": "contributionWeights", "type": "uint16[]"},
                         {"name": "evidenceCID", "type": "string"}
@@ -1961,12 +1945,11 @@ class ChaosChainAgentSDK:
             if evidence_cid:
                 rprint(f"[dim]   Evidence: ipfs://{evidence_cid}[/dim]")
             
-            # Build transaction
+            # Build transaction (Jan 2026: no feedbackAuth parameter!)
             tx = studio.functions.submitWorkMultiAgent(
                 data_hash,
                 thread_root,
                 evidence_root,
-                feedback_auth,
                 participants_checksummed,
                 weights_bp,
                 evidence_cid

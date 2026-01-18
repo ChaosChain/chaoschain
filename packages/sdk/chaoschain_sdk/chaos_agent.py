@@ -92,14 +92,15 @@ class ChaosAgent:
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol v0.4.27 (deployed Jan 16, 2026)
+                # ChaosChain Protocol v0.4.30 (deployed Jan 17, 2026) - VERIFIED ON-CHAIN
                 # ERC-8004 Jan 2026 compatible: No feedbackAuth, string tags, endpoint parameter
-                'chaos_registry': '0xEb8a6952ead49F1b2430d7219343C4b379aD0364',
-                'chaos_core': '0xefEC959De912F6b888507A8e33E1b71aEf3d3D31',
-                'rewards_distributor': '0x0DC34e0D8D7045ce562464E8D793913735c1A628',
-                'studio_factory': '0xF69BF886E7aEF6E3D24F1fA22934a9caE516cE12',
+                # Multi-agent submitWorkMultiAgent now works (feedbackAuth removed)
+                'chaos_registry': '0x7F38C1aFFB24F30500d9174ed565110411E42d50',
+                'chaos_core': '0xF6a57f04736A52a38b273b0204d636506a780E67',
+                'rewards_distributor': '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19',
+                'studio_factory': '0x230e76a105A9737Ea801BB7d0624D495506EE257',
                 # LogicModules
-                'prediction_logic': '0x3cE4E5B34979565e2dAc1456BdF2368EF2E6c5fe'
+                'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
