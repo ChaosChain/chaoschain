@@ -27,10 +27,12 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 
 | Feature | Status | Description |
 |---------|--------|-------------|
+| **ERC-8004 Jan 2026 Spec** | ✅ Live | First implementation of Jan 2026 spec |
+| **No feedbackAuth** | ✅ Live | Permissionless feedback (removed pre-authorization) |
+| **String Tags** | ✅ Live | Multi-dimensional scoring with string tags ("Initiative", "Collaboration", etc.) |
 | **DKG-Based Causal Analysis** | ✅ Live | Verifier Agents traverse DAG to understand contribution causality |
 | **Per-Worker Consensus** | ✅ Live | Each worker gets individual reputation (no more averaged scores!) |
 | **Multi-Agent Work Submission** | ✅ Live | Submit work with DKG-derived contribution weights |
-| **Multi-Worker Reputation** | ✅ Live | ALL participants get on-chain reputation (via `feedbackAuth`) |
 | **Agent ID Caching** | ✅ Live | Local file cache prevents re-registration (saves gas) |
 | **Studio Factory Pattern** | ✅ Live | ChaosCore reduced 81% via StudioProxyFactory |
 | **Protocol Spec v0.1 Compliance** | ✅ Live | 100% compliant with all specification sections |
@@ -305,10 +307,11 @@ Agency is the composite of proactive initiative, contextual reasoning, and purpo
 │  ║     dataHash,                                                          ║ │
 │  ║     threadRoot,                    // VLC/Merkle root of XMTP DAG      ║ │
 │  ║     evidenceRoot,                  // Merkle root of artifacts         ║ │
-│  ║     feedbackAuth,                  // For reputation publishing        ║ │
 │  ║     participants: [Alice, Dave, Eve],                                  ║ │
-│  ║     contributionWeights: [3000, 4500, 2500]  // From DKG analysis!     ║ │
+│  ║     contributionWeights: [3000, 4500, 2500],  // From DKG analysis!    ║ │
+│  ║     evidenceCID                    // IPFS/Arweave CID                 ║ │
 │  ║   )                                                                    ║ │
+│  ║   // ERC-8004 Jan 2026: No feedbackAuth - reputation is permissionless ║ │
 │  ║                                                                        ║ │
 │  ╚════════════════════════════════════════════════════════════════════════╝ │
 │                                    │                                        │
@@ -543,7 +546,6 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 │   │  • Agent stakes                • submitWork()           │             ││
 │   │  • Work submissions            • scoring logic ─────────┘             ││
 │   │  • Score vectors               • domain-specific rules                ││
-│   │  • feedbackAuths                                                      ││
 │   └─────────────────────────────────────────────────────────┬─────────────┘│
 │                                                             │              │
 │                                                             ▼              │
@@ -591,24 +593,21 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 
 ## Deployed Contracts
 
-### ChaosChain Protocol (Ethereum Sepolia)
+### ChaosChain Protocol v0.4.30 (Ethereum Sepolia)
 
 | Contract | Address | Etherscan |
 |----------|---------|-----------|
-| **ChaosChainRegistry** | `0xB5Dba66ae57479190A7723518f8cA7ea8c40de53` | [View](https://sepolia.etherscan.io/address/0xB5Dba66ae57479190A7723518f8cA7ea8c40de53) |
-| **ChaosCore** | `0x6660e8EF6baaAf847519dFd693D0033605b825f5` | [View](https://sepolia.etherscan.io/address/0x6660e8EF6baaAf847519dFd693D0033605b825f5) |
-| **StudioProxyFactory** | `0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d` | [View](https://sepolia.etherscan.io/address/0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d) |
-| **RewardsDistributor** | `0xA050527d38Fae9467730412d941560c8706F060A` | [View](https://sepolia.etherscan.io/address/0xA050527d38Fae9467730412d941560c8706F060A) |
-| **FinanceStudioLogic** | `0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C` | [View](https://sepolia.etherscan.io/address/0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C) |
+| **ChaosChainRegistry** | `0x7F38C1aFFB24F30500d9174ed565110411E42d50` | [View](https://sepolia.etherscan.io/address/0x7F38C1aFFB24F30500d9174ed565110411E42d50) |
+| **ChaosCore** | `0xF6a57f04736A52a38b273b0204d636506a780E67` | [View](https://sepolia.etherscan.io/address/0xF6a57f04736A52a38b273b0204d636506a780E67) |
+| **StudioProxyFactory** | `0x230e76a105A9737Ea801BB7d0624D495506EE257` | [View](https://sepolia.etherscan.io/address/0x230e76a105A9737Ea801BB7d0624D495506EE257) |
+| **RewardsDistributor** | `0x0549772a3fF4F095C57AEFf655B3ed97B7925C19` | [View](https://sepolia.etherscan.io/address/0x0549772a3fF4F095C57AEFf655B3ed97B7925C19) |
+| **PredictionMarketLogic** | `0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3` | [View](https://sepolia.etherscan.io/address/0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3) |
 
-### ERC-8004 Registries (Multi-Network)
+### ERC-8004 Registries (Jan 2026 Spec)
 
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
-| **Ethereum Sepolia** | 11155111 | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
-| **Base Sepolia** | 84532 | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
-| **Linea Sepolia** | 59141 | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
-| **0G Testnet** | 16602 | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
+| **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
 
 ---
 

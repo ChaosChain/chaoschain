@@ -109,7 +109,10 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     /// @dev Agent stakes: agentId => stake amount
     mapping(uint256 => uint256) private _agentStakes;
     
-    /// @dev FeedbackAuth signatures: dataHash => workerAddress => feedbackAuth
+    // NOTE: FeedbackAuth storage REMOVED in ERC-8004 Jan 2026 spec update
+    // Feedback submission is now permissionless - any clientAddress can submit directly
+    // This mapping is kept for backward compatibility but will be deprecated
+    /// @dev DEPRECATED: FeedbackAuth signatures (ERC-8004 Jan 2026 removed feedbackAuth requirement)
     mapping(bytes32 => mapping(address => bytes)) private _feedbackAuths;
     
     // ============ Custom Dimensions (Protocol Spec §3.1, §4.1) ============
@@ -240,7 +243,8 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     );
     
     /**
-     * @dev Emitted when a participant registers their feedbackAuth
+     * @dev DEPRECATED: Emitted when a participant registers their feedbackAuth
+     * NOTE: ERC-8004 Jan 2026 removed feedbackAuth requirement - feedback is now permissionless
      */
     event FeedbackAuthRegistered(
         bytes32 indexed dataHash,
@@ -310,11 +314,16 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     }
     
     /// @inheritdoc IStudioProxy
+    /**
+     * @notice Submit work to the Studio (ERC-8004 Jan 2026 compatible)
+     * @dev feedbackAuth parameter kept for backward compatibility but is now IGNORED
+     * Per Jan 2026 spec: feedback submission is permissionless, no pre-authorization needed
+     */
     function submitWork(
         bytes32 dataHash,
         bytes32 threadRoot,
         bytes32 evidenceRoot,
-        bytes calldata feedbackAuth
+        bytes calldata /* feedbackAuth - IGNORED per Jan 2026 spec */
     ) external override {
         // Call internal multi-agent version with single participant
         address[] memory participants = new address[](1);
@@ -323,19 +332,16 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         uint16[] memory weights = new uint16[](1);
         weights[0] = 10000; // 100% contribution
         
-        bytes[] memory feedbackAuths = new bytes[](1);
-        feedbackAuths[0] = feedbackAuth;
-        
-        _submitWorkInternalWithAuths(dataHash, threadRoot, evidenceRoot, feedbackAuths, participants, weights, "");
+        // ERC-8004 Jan 2026: feedbackAuth is ignored - feedback is now permissionless
+        _submitWorkInternal(dataHash, threadRoot, evidenceRoot, participants, weights, "");
     }
     
     /**
      * @notice Submit work with multi-agent attribution (Protocol Spec §4.2)
-     * @dev DEPRECATED: Use submitWorkMultiAgentWithAuths for proper reputation publishing
+     * @dev ERC-8004 Jan 2026: feedbackAuth parameter REMOVED - feedback is now permissionless
      * @param dataHash The work data hash
      * @param threadRoot The XMTP thread root
      * @param evidenceRoot The evidence Merkle root
-     * @param feedbackAuth The feedback authorization signature (submitter only)
      * @param participants Array of participant addresses (from DKG analysis)
      * @param contributionWeights Array of contribution weights in basis points (sum = 10000)
      * @param evidenceCID IPFS/Arweave CID of evidence package
@@ -344,54 +350,21 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         bytes32 dataHash,
         bytes32 threadRoot,
         bytes32 evidenceRoot,
-        bytes calldata feedbackAuth,
         address[] calldata participants,
         uint16[] calldata contributionWeights,
         string calldata evidenceCID
     ) external {
-        // Convert single feedbackAuth to array (only submitter gets reputation)
-        bytes[] memory feedbackAuths = new bytes[](participants.length);
-        for (uint256 i = 0; i < participants.length; i++) {
-            if (participants[i] == msg.sender) {
-                feedbackAuths[i] = feedbackAuth;
-            } else {
-                feedbackAuths[i] = new bytes(0); // Empty for non-submitters
-            }
-        }
-        _submitWorkInternalWithAuths(dataHash, threadRoot, evidenceRoot, feedbackAuths, participants, contributionWeights, evidenceCID);
+        _submitWorkInternal(dataHash, threadRoot, evidenceRoot, participants, contributionWeights, evidenceCID);
     }
     
     /**
-     * @notice Submit work with multi-agent attribution and ALL participants' feedbackAuths
-     * @dev This is the PROPER method - ALL participants can receive reputation
-     * @param dataHash The work data hash
-     * @param threadRoot The XMTP thread root
-     * @param evidenceRoot The evidence Merkle root
-     * @param feedbackAuths Array of feedback authorization signatures (one per participant)
-     * @param participants Array of participant addresses (from DKG analysis)
-     * @param contributionWeights Array of contribution weights in basis points (sum = 10000)
-     * @param evidenceCID IPFS/Arweave CID of evidence package
+     * @dev Internal work submission with multi-agent support
+     * @notice ERC-8004 Jan 2026: feedbackAuths REMOVED - feedback is now permissionless
      */
-    function submitWorkMultiAgentWithAuths(
+    function _submitWorkInternal(
         bytes32 dataHash,
         bytes32 threadRoot,
         bytes32 evidenceRoot,
-        bytes[] calldata feedbackAuths,
-        address[] calldata participants,
-        uint16[] calldata contributionWeights,
-        string calldata evidenceCID
-    ) external {
-        _submitWorkInternalWithAuths(dataHash, threadRoot, evidenceRoot, feedbackAuths, participants, contributionWeights, evidenceCID);
-    }
-    
-    /**
-     * @dev Internal work submission with multi-agent support and per-participant feedbackAuths
-     */
-    function _submitWorkInternalWithAuths(
-        bytes32 dataHash,
-        bytes32 threadRoot,
-        bytes32 evidenceRoot,
-        bytes[] memory feedbackAuths,
         address[] memory participants,
         uint16[] memory contributionWeights,
         string memory evidenceCID
@@ -402,7 +375,6 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         require(_workSubmissions[dataHash] == address(0), "Work already submitted");
         require(participants.length > 0, "No participants");
         require(participants.length == contributionWeights.length, "Length mismatch");
-        require(participants.length == feedbackAuths.length, "FeedbackAuths length mismatch");
         
         // Verify submitter is in participants list
         bool isParticipant = false;
@@ -436,12 +408,8 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         // Store work submission
         _workSubmissions[dataHash] = msg.sender;
         
-        // Store feedbackAuth for EACH participant (crucial for reputation publishing!)
-        for (uint256 i = 0; i < participants.length; i++) {
-            if (feedbackAuths[i].length >= 65) {
-                _feedbackAuths[dataHash][participants[i]] = feedbackAuths[i];
-            }
-        }
+        // NOTE: ERC-8004 Jan 2026 - feedbackAuth REMOVED
+        // Feedback is now permissionless - no need to store feedbackAuths
         
         // Store participants and weights
         _workParticipants[dataHash] = participants;
@@ -631,35 +599,33 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     }
     
     /**
-     * @notice Register feedbackAuth for a multi-agent work submission
-     * @dev Allows participants to register their feedbackAuth AFTER work is submitted
-     * This enables proper reputation publishing for ALL participants in multi-agent work.
+     * @notice DEPRECATED: Register feedbackAuth for a multi-agent work submission
+     * @dev ERC-8004 Jan 2026 removed feedbackAuth requirement - feedback is now permissionless
+     * This function is kept for backward compatibility but is no longer required.
      * 
-     * Flow:
-     * 1. Alice submits multi-agent work (her feedbackAuth is stored)
-     * 2. Dave calls registerFeedbackAuth(dataHash, daveFeedbackAuth)
-     * 3. Eve calls registerFeedbackAuth(dataHash, eveFeedbackAuth)
-     * 4. Epoch closes → ALL participants receive reputation!
+     * Per Jan 2026 spec: Any clientAddress can submit feedback directly without pre-authorization.
+     * Spam mitigation is handled via filtering by reviewer/clientAddress off-chain.
      * 
      * @param dataHash The work dataHash
-     * @param feedbackAuth The signed feedbackAuth (65 bytes ECDSA signature)
+     * @param feedbackAuth The signed feedbackAuth (kept for backward compatibility)
      */
     function registerFeedbackAuth(bytes32 dataHash, bytes calldata feedbackAuth) external {
         require(_workSubmissions[dataHash] != address(0), "Work not found");
         require(_contributionWeights[dataHash][msg.sender] > 0, "Not a participant");
-        require(feedbackAuth.length >= 65, "Invalid feedbackAuth");
-        require(_feedbackAuths[dataHash][msg.sender].length == 0, "FeedbackAuth already registered");
-        
-        _feedbackAuths[dataHash][msg.sender] = feedbackAuth;
-        
-        emit FeedbackAuthRegistered(dataHash, msg.sender);
+        // NOTE: feedbackAuth validation relaxed - Jan 2026 spec makes this optional
+        if (feedbackAuth.length >= 65) {
+            _feedbackAuths[dataHash][msg.sender] = feedbackAuth;
+            emit FeedbackAuthRegistered(dataHash, msg.sender);
+        }
     }
     
     /**
-     * @notice Get feedbackAuth signature for a work submission
+     * @notice DEPRECATED: Get feedbackAuth signature for a work submission
+     * @dev ERC-8004 Jan 2026 removed feedbackAuth requirement - feedback is now permissionless
+     * This function is kept for backward compatibility but feedbackAuth is no longer required.
      * @param dataHash The work dataHash
      * @param worker The worker address
-     * @return feedbackAuth The EIP-712 signed feedbackAuth
+     * @return feedbackAuth The stored feedbackAuth (may be empty under Jan 2026 spec)
      */
     function getFeedbackAuth(bytes32 dataHash, address worker) external view returns (bytes memory feedbackAuth) {
         return _feedbackAuths[dataHash][worker];
@@ -1130,8 +1096,13 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
     }
     
     /**
-     * @notice Publish client reputation after task completion
+     * @notice Publish client reputation after task completion (ERC-8004 Jan 2026 compatible)
      * @dev Called internally after task completion
+     * 
+     * ERC-8004 Jan 2026 Changes:
+     * - feedbackAuth parameter REMOVED - feedback is now permissionless
+     * - endpoint parameter ADDED for the service endpoint being reviewed
+     * - tags changed from bytes32 to string
      * 
      * Triple-Verified Stack Integration:
      * - feedbackUri contains PaymentProof (Layer 3: x402 payments)
@@ -1165,21 +1136,21 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         // Clear requirements (task completed successfully)
         if (task.completed) score += 50;
         
-        // Prepare feedback data
-        bytes32 tag1 = bytes32("CLIENT_RELIABILITY");
-        bytes32 tag2 = task.dataHash; // Link to specific work
+        // Prepare feedback data (Jan 2026 spec: string tags, no feedbackAuth)
+        string memory tag1 = "CLIENT_RELIABILITY";
+        string memory tag2 = _bytes32ToString(task.dataHash); // Link to specific work
+        string memory endpoint = ""; // Studio endpoint (optional)
         
         // Try to publish feedback with x402 PaymentProof
-        // feedbackUri contains: PaymentProof (x402 transaction details)
-        // Note: In production, this would use proper feedbackAuth signature
+        // Jan 2026 spec: No feedbackAuth required - permissionless feedback
         try reputationRegistry.giveFeedback(
             task.clientAgentId,
             score,
             tag1,
             tag2,
-            task.paymentProofUri,     // ✅ Contains x402 PaymentProof
-            task.paymentProofHash,    // ✅ Hash of payment proof
-            new bytes(0)              // feedbackAuth (would need proper signature)
+            endpoint,                 // NEW: endpoint parameter (Jan 2026)
+            task.paymentProofUri,     // Contains x402 PaymentProof
+            task.paymentProofHash     // Hash of payment proof
         ) {
             emit ClientReputationPublished(
                 task.clientAgentId,
@@ -1188,8 +1159,22 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
                 task.paymentProofUri
             );
         } catch {
-            // Failed - likely needs proper authorization or mock registry
+            // Failed - likely mock registry or other issue
         }
+    }
+    
+    /**
+     * @dev Helper to convert bytes32 to string for Jan 2026 spec compatibility
+     */
+    function _bytes32ToString(bytes32 _bytes32) internal pure returns (string memory) {
+        bytes memory bytesArray = new bytes(64);
+        for (uint256 i = 0; i < 32; i++) {
+            uint8 _f = uint8(_bytes32[i] >> 4);
+            uint8 _l = uint8(_bytes32[i] & 0x0f);
+            bytesArray[i*2] = _f < 10 ? bytes1(_f + 48) : bytes1(_f + 87);
+            bytesArray[i*2+1] = _l < 10 ? bytes1(_l + 48) : bytes1(_l + 87);
+        }
+        return string(bytesArray);
     }
     
     /**

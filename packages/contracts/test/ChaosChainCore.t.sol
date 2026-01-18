@@ -73,6 +73,10 @@ contract MockIdentityRegistry is IERC8004IdentityV1 {
     function setMetadata(uint256, string memory, bytes memory) external override {}
     
     function setAgentUri(uint256, string calldata) external override {}
+    
+    function setAgentWallet(uint256, address, uint256, bytes calldata) external override {
+        // No-op for testing - in production this would verify signature and update wallet
+    }
 }
 
 /**

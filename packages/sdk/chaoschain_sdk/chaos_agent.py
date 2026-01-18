@@ -86,21 +86,21 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                # ERC-8004 Registries (deployed by Nethermind)
-                'identity_registry': '0x8004a6090Cd10A7288092483047B097295Fb8847',
-                'reputation_registry': '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
+                # Official ERC-8004 Registries (Jan 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
+                'identity_registry': '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+                'reputation_registry': '0x8004B663056A597Dffe9eCcC1965A193B7388713',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol MVP v0.4.3 (deployed Dec 20, 2025)
-                # Features: Per-worker consensus, Multi-agent attribution, DKG-based scoring
-                # NEW: registerFeedbackAuth() for multi-agent reputation publishing
-                'chaos_registry': '0xB5Dba66ae57479190A7723518f8cA7ea8c40de53',
-                'chaos_core': '0x6660e8EF6baaAf847519dFd693D0033605b825f5',
-                'rewards_distributor': '0xA050527d38Fae9467730412d941560c8706F060A',
-                'studio_factory': '0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d',
+                # ChaosChain Protocol v0.4.30 (deployed Jan 17, 2026) - VERIFIED ON-CHAIN
+                # ERC-8004 Jan 2026 compatible: No feedbackAuth, string tags, endpoint parameter
+                # Multi-agent submitWorkMultiAgent now works (feedbackAuth removed)
+                'chaos_registry': '0x7F38C1aFFB24F30500d9174ed565110411E42d50',
+                'chaos_core': '0xF6a57f04736A52a38b273b0204d636506a780E67',
+                'rewards_distributor': '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19',
+                'studio_factory': '0x230e76a105A9737Ea801BB7d0624D495506EE257',
                 # LogicModules
-                'finance_logic': '0x2049f335A812b68aC488d4b687C3B701BF845f5b'
+                'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3'
             },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
@@ -394,31 +394,32 @@ class ChaosAgent:
     
     def _get_reputation_registry_abi(self) -> list:
         """
-        Get embedded Reputation Registry ABI for ERC-8004 v1.0.
+        Get embedded Reputation Registry ABI for ERC-8004 Jan 2026.
         
-        v1.0 uses cryptographic signatures (EIP-191/ERC-1271) for feedback authorization.
-        Key changes:
-        - giveFeedback() with signature-based authorization
-        - On-chain scores (0-100) with tags
-        - revokeFeedback() support
-        - appendResponse() for audit trails
+        Jan 2026 KEY CHANGES from Oct 2025:
+        - REMOVED feedbackAuth parameter - feedback is now permissionless
+        - ADDED endpoint parameter for endpoint being reviewed
+        - CHANGED tag1, tag2 from bytes32 to string
+        - ADDED feedbackIndex to NewFeedback event
+        - readFeedback returns string tags and feedbackIndex parameter renamed
         """
         return [
-            # Core Functions
-                {
-                    "inputs": [
+            # Core Functions (Jan 2026 spec)
+            {
+                "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "score", "type": "uint8"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"},
-                    {"name": "feedbackUri", "type": "string"},
-                    {"name": "feedbackHash", "type": "bytes32"},
-                    {"name": "feedbackAuth", "type": "bytes"}
-                    ],
+                    {"name": "tag1", "type": "string"},        # CHANGED: bytes32 -> string
+                    {"name": "tag2", "type": "string"},        # CHANGED: bytes32 -> string
+                    {"name": "endpoint", "type": "string"},    # NEW: endpoint parameter
+                    {"name": "feedbackURI", "type": "string"}, # RENAMED: feedbackUri -> feedbackURI
+                    {"name": "feedbackHash", "type": "bytes32"}
+                    # REMOVED: feedbackAuth parameter
+                ],
                 "name": "giveFeedback",
-                    "outputs": [],
-                    "stateMutability": "nonpayable",
-                    "type": "function"
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
             },
             {
                 "inputs": [
@@ -435,7 +436,7 @@ class ChaosAgent:
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddress", "type": "address"},
                     {"name": "feedbackIndex", "type": "uint64"},
-                    {"name": "responseUri", "type": "string"},
+                    {"name": "responseURI", "type": "string"},  # RENAMED: responseUri -> responseURI
                     {"name": "responseHash", "type": "bytes32"}
                 ],
                 "name": "appendResponse",
@@ -443,13 +444,13 @@ class ChaosAgent:
                 "stateMutability": "nonpayable",
                 "type": "function"
             },
-            # Read Functions
+            # Read Functions (Jan 2026 spec)
             {
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddresses", "type": "address[]"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"}
+                    {"name": "tag1", "type": "string"},  # CHANGED: bytes32 -> string
+                    {"name": "tag2", "type": "string"}   # CHANGED: bytes32 -> string
                 ],
                 "name": "getSummary",
                 "outputs": [
@@ -463,13 +464,13 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddress", "type": "address"},
-                    {"name": "index", "type": "uint64"}
+                    {"name": "feedbackIndex", "type": "uint64"}  # RENAMED: index -> feedbackIndex
                 ],
                 "name": "readFeedback",
                 "outputs": [
                     {"name": "score", "type": "uint8"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "tag1", "type": "string"},   # CHANGED: bytes32 -> string
+                    {"name": "tag2", "type": "string"},   # CHANGED: bytes32 -> string
                     {"name": "isRevoked", "type": "bool"}
                 ],
                 "stateMutability": "view",
@@ -479,16 +480,17 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddresses", "type": "address[]"},
-                    {"name": "tag1", "type": "bytes32"},
-                    {"name": "tag2", "type": "bytes32"},
+                    {"name": "tag1", "type": "string"},   # CHANGED: bytes32 -> string
+                    {"name": "tag2", "type": "string"},   # CHANGED: bytes32 -> string
                     {"name": "includeRevoked", "type": "bool"}
                 ],
                 "name": "readAllFeedback",
                 "outputs": [
-                    {"name": "clients", "type": "address[]"},
+                    {"name": "clientAddresses_", "type": "address[]"},
+                    {"name": "feedbackIndexes", "type": "uint64[]"},  # NEW: feedbackIndexes
                     {"name": "scores", "type": "uint8[]"},
-                    {"name": "tag1s", "type": "bytes32[]"},
-                    {"name": "tag2s", "type": "bytes32[]"},
+                    {"name": "tag1s", "type": "string[]"},   # CHANGED: bytes32[] -> string[]
+                    {"name": "tag2s", "type": "string[]"},   # CHANGED: bytes32[] -> string[]
                     {"name": "revokedStatuses", "type": "bool[]"}
                 ],
                 "stateMutability": "view",
@@ -518,16 +520,18 @@ class ChaosAgent:
                 "stateMutability": "view",
                 "type": "function"
             },
-            # Events
+            # Events (Jan 2026 spec)
             {
                 "anonymous": False,
                 "inputs": [
                     {"indexed": True, "name": "agentId", "type": "uint256"},
                     {"indexed": True, "name": "clientAddress", "type": "address"},
+                    {"indexed": False, "name": "feedbackIndex", "type": "uint64"},  # NEW
                     {"indexed": False, "name": "score", "type": "uint8"},
-                    {"indexed": True, "name": "tag1", "type": "bytes32"},
-                    {"indexed": False, "name": "tag2", "type": "bytes32"},
-                    {"indexed": False, "name": "feedbackUri", "type": "string"},
+                    {"indexed": True, "name": "tag1", "type": "string"},   # CHANGED: bytes32 -> string
+                    {"indexed": False, "name": "tag2", "type": "string"},  # CHANGED: bytes32 -> string
+                    {"indexed": False, "name": "endpoint", "type": "string"},       # NEW
+                    {"indexed": False, "name": "feedbackURI", "type": "string"},    # RENAMED
                     {"indexed": False, "name": "feedbackHash", "type": "bytes32"}
                 ],
                 "name": "NewFeedback",
@@ -540,7 +544,7 @@ class ChaosAgent:
                     {"indexed": True, "name": "clientAddress", "type": "address"},
                     {"indexed": False, "name": "feedbackIndex", "type": "uint64"},
                     {"indexed": True, "name": "responder", "type": "address"},
-                    {"indexed": False, "name": "responseUri", "type": "string"},
+                    {"indexed": False, "name": "responseURI", "type": "string"},  # RENAMED
                     {"indexed": False, "name": "responseHash", "type": "bytes32"}
                 ],
                 "name": "ResponseAppended",
@@ -1375,10 +1379,13 @@ class ChaosAgent:
         expiry: int
     ) -> bytes:
         """
-        Generate EIP-191 signed feedback authorization (ERC-8004 v1.0).
+        DEPRECATED: Generate EIP-191 signed feedback authorization.
         
-        This signature allows a client to submit feedback to an agent's reputation.
-        The agent owner signs to authorize the client to give feedback up to a certain index.
+        ERC-8004 Jan 2026 REMOVED the feedbackAuth requirement.
+        Feedback submission is now permissionless - any clientAddress can submit directly.
+        
+        This method is kept for backward compatibility only.
+        New code should call give_feedback() directly without authorization.
         
         Args:
             agent_id: Target agent ID receiving feedback
@@ -1387,11 +1394,19 @@ class ChaosAgent:
             expiry: Unix timestamp when authorization expires
             
         Returns:
-            Signed feedbackAuth bytes for use in giveFeedback()
+            Signed feedbackAuth bytes (DEPRECATED - not used by Jan 2026 spec)
         """
+        import warnings
+        warnings.warn(
+            "generate_feedback_authorization is DEPRECATED. "
+            "ERC-8004 Jan 2026 removed feedbackAuth - feedback is now permissionless. "
+            "Call give_feedback() directly without authorization.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         try:
-            # Pack the FeedbackAuth struct (7 fields)
-            # As per ERC-8004 v1.0 spec: (agentId, clientAddress, indexLimit, expiry, chainId, identityRegistry, signerAddress)
+            # Pack the FeedbackAuth struct (7 fields) - DEPRECATED
             feedback_auth_data = self.w3.solidity_keccak(
                 ['uint256', 'address', 'uint64', 'uint256', 'uint256', 'address', 'address'],
                 [
@@ -1413,17 +1428,16 @@ class ChaosAgent:
             
             # Sign with agent's private key
             account = self.wallet_manager.wallets[self.agent_name]
-            # Use sign_message for LocalAccount (web3.py)
             from eth_account.messages import encode_defunct
             signed_message = account.sign_message(encode_defunct(hexstr=message_hash.hex()))
-            signature_bytes = bytes(signed_message.signature)  # Already 65 bytes (r + s + v)
+            signature_bytes = bytes(signed_message.signature)
             
             # Pack struct data + signature (224 bytes + 65 bytes = 289 bytes)
             struct_bytes = (
                 agent_id.to_bytes(32, 'big') +
                 bytes.fromhex(client_address[2:].zfill(40)) +
                 index_limit.to_bytes(8, 'big') +
-                bytes(24) +  # Padding for uint64 in uint256 slot
+                bytes(24) +
                 expiry.to_bytes(32, 'big') +
                 self.chain_id.to_bytes(32, 'big') +
                 bytes.fromhex(self.contract_addresses.identity_registry[2:].zfill(40)) +
@@ -1439,26 +1453,31 @@ class ChaosAgent:
         self,
         agent_id: AgentID,
         score: int,
-        feedback_auth: bytes,
         tag1: str = "",
         tag2: str = "",
-        file_uri: str = "",
-        file_hash: Optional[str] = None
+        endpoint: str = "",
+        feedback_uri: str = "",
+        feedback_hash: Optional[str] = None
     ) -> TransactionHash:
         """
-        Submit feedback for another agent (ERC-8004 v1.0).
+        Submit feedback for another agent (ERC-8004 Jan 2026).
         
-        v1.0: Uses cryptographic signatures for feedback authorization.
-        The agent owner must have pre-authorized this feedback via generate_feedback_authorization().
+        Jan 2026 KEY CHANGES:
+        - REMOVED feedbackAuth parameter - feedback is now permissionless
+        - ADDED endpoint parameter for the endpoint being reviewed
+        - tags are now string type (not bytes32)
+        
+        Any clientAddress can submit feedback directly without pre-authorization.
+        Spam mitigation is handled via filtering by reviewer/clientAddress off-chain.
         
         Args:
             agent_id: Target agent ID receiving feedback
             score: Feedback score (0-100)
-            feedback_auth: Signed authorization from agent owner
-            tag1: Optional first tag for categorization
-            tag2: Optional second tag for categorization
-            file_uri: Optional URI to detailed feedback data (IPFS, 0G Storage, etc.)
-            file_hash: Optional KECCAK-256 hash of file content
+            tag1: Optional first tag for categorization (string)
+            tag2: Optional second tag for categorization (string)
+            endpoint: Optional endpoint URI being reviewed
+            feedback_uri: Optional URI to detailed feedback data (IPFS, etc.)
+            feedback_hash: Optional KECCAK-256 hash of feedback content
             
         Returns:
             Transaction hash
@@ -1467,37 +1486,29 @@ class ChaosAgent:
             # Validate score
             score = min(100, max(0, int(score)))
             
-            # Convert tags to bytes32
-            tag1_bytes = b'\x00' * 32
-            if tag1:
-                tag1_encoded = tag1.encode()[:32]
-                tag1_bytes = tag1_encoded + b'\x00' * (32 - len(tag1_encoded))
+            # Jan 2026: Tags are now string type (no bytes32 conversion needed)
             
-            tag2_bytes = b'\x00' * 32
-            if tag2:
-                tag2_encoded = tag2.encode()[:32]
-                tag2_bytes = tag2_encoded + b'\x00' * (32 - len(tag2_encoded))
-            
-            # Convert file hash to bytes32 if provided
-            file_hash_bytes = b'\x00' * 32
-            if file_hash:
-                if isinstance(file_hash, str):
-                    if file_hash.startswith('0x'):
-                        file_hash_bytes = bytes.fromhex(file_hash[2:])
+            # Convert feedback hash to bytes32 if provided
+            feedback_hash_bytes = b'\x00' * 32
+            if feedback_hash:
+                if isinstance(feedback_hash, str):
+                    if feedback_hash.startswith('0x'):
+                        feedback_hash_bytes = bytes.fromhex(feedback_hash[2:])
                     else:
-                        file_hash_bytes = bytes.fromhex(file_hash)
+                        feedback_hash_bytes = bytes.fromhex(feedback_hash)
             
             rprint(f"[yellow]💬 Submitting feedback: {score}/100 for agent #{agent_id}[/yellow]")
             
-            # v1.0: giveFeedback(agentId, score, tag1, tag2, fileuri, filehash, feedbackAuth)
+            # Jan 2026: giveFeedback(agentId, score, tag1, tag2, endpoint, feedbackURI, feedbackHash)
+            # NO feedbackAuth parameter - permissionless feedback
             contract_call = self.reputation_registry.functions.giveFeedback(
                 agent_id,
                 score,
-                tag1_bytes,
-                tag2_bytes,
-                file_uri,
-                file_hash_bytes,
-                feedback_auth
+                tag1,           # string
+                tag2,           # string
+                endpoint,       # NEW: endpoint parameter
+                feedback_uri,   # string
+                feedback_hash_bytes
             )
             
             # Build and send transaction
@@ -1532,40 +1543,48 @@ class ChaosAgent:
         self,
         agent_id: AgentID,
         score: int,
-        feedback_auth: bytes,
         payment_proof: Optional['PaymentProof'] = None,
         tag1: str = "",
         tag2: str = "",
+        endpoint: str = "",
         skill: Optional[str] = None,
         task: Optional[str] = None,
+        domain: Optional[str] = None,
         capability: Optional[str] = None,
         mcp_tool_name: Optional[str] = None,
         **additional_fields
     ) -> Tuple[str, str]:
         """
-        Create ERC-8004 v1.0 compliant feedback JSON with optional payment proof.
+        Create ERC-8004 Jan 2026 compliant feedback JSON with optional payment proof.
+        
+        Jan 2026 KEY CHANGES:
+        - REMOVED feedbackAuth from feedback structure (permissionless feedback)
+        - ADDED endpoint parameter for endpoint being reviewed
+        - ADDED domain field (as-defined-by-OASF)
+        - RENAMED proof_of_payment to proofOfPayment
         
         This is a convenience method that:
-        1. Generates the feedback JSON structure per ERC-8004 v1.0 spec
+        1. Generates the feedback JSON structure per ERC-8004 Jan 2026 spec
         2. Optionally includes x402 payment proof
         3. Uploads to storage (IPFS/0G)
-        4. Returns (file_uri, file_hash) ready for give_feedback()
+        4. Returns (feedback_uri, feedback_hash) ready for give_feedback()
         
         Args:
             agent_id: Target agent ID receiving feedback
             score: Feedback score (0-100)
-            feedback_auth: Signed authorization from agent owner
             payment_proof: Optional PaymentProof from payment execution
             tag1: Optional first tag for categorization
             tag2: Optional second tag for categorization
-            skill: Optional A2A skill identifier
+            endpoint: Optional endpoint URI being reviewed
+            skill: Optional A2A/OASF skill identifier
             task: Optional A2A task identifier
+            domain: Optional OASF domain identifier
             capability: Optional MCP capability ("prompts", "resources", "tools", "completions")
             mcp_tool_name: Optional MCP tool/prompt/resource name
             **additional_fields: Any additional custom fields
         
         Returns:
-            Tuple of (file_uri, file_hash) ready for give_feedback()
+            Tuple of (feedback_uri, feedback_hash) ready for give_feedback()
         
         Example:
             # Execute payment
@@ -1576,51 +1595,54 @@ class ChaosAgent:
                 service_description="Data analysis"
             )
             
-            # Create feedback with payment proof (automatic formatting!)
+            # Create feedback with payment proof (Jan 2026 compliant - NO feedbackAuth!)
             uri, hash = agent.create_feedback_with_payment(
                 agent_id=server_agent_id,
                 score=100,
-                feedback_auth=auth,
-                payment_proof=payment_proof,  # ✅ Automatically ERC-8004 v1.0 compliant
+                payment_proof=payment_proof,
                 skill="data-analysis",
-                task="market-research"
+                task="market-research",
+                endpoint="https://agent.example.com/api"
             )
             
-            # Submit feedback (URI already includes payment proof!)
-            agent.give_feedback(agent_id, score, auth, file_uri=uri, file_hash=hash)
+            # Submit feedback (permissionless - no authorization needed!)
+            agent.give_feedback(agent_id, score, tag1="quality", endpoint=endpoint, feedback_uri=uri, feedback_hash=hash)
         """
         from datetime import datetime, timezone
         import json
         import hashlib
         
-        # Build ERC-8004 v1.0 compliant feedback structure
+        # Build ERC-8004 Jan 2026 compliant feedback structure
         feedback_data = {
-            # MUST fields (per ERC-8004 v1.0 spec)
+            # MUST fields (per Jan 2026 spec)
             "agentRegistry": f"eip155:{self.network.value.chain_id}:{self.identity_registry.address}",
             "agentId": int(agent_id),
             "clientAddress": f"eip155:{self.network.value.chain_id}:{self.address}",
             "createdAt": datetime.now(timezone.utc).isoformat(),
-            "feedbackAuth": feedback_auth.hex() if isinstance(feedback_auth, bytes) else feedback_auth,
+            # NOTE: feedbackAuth REMOVED in Jan 2026 spec
             "score": min(100, max(0, int(score))),
         }
         
-        # MAY fields (optional per spec)
+        # ALL OPTIONAL fields (per Jan 2026 spec)
         if tag1:
             feedback_data["tag1"] = tag1
         if tag2:
             feedback_data["tag2"] = tag2
+        if endpoint:
+            feedback_data["endpoint"] = endpoint  # NEW in Jan 2026
         if skill:
-            feedback_data["skill"] = skill
+            feedback_data["skill"] = skill  # "as-defined-by-A2A-or-OASF"
         if task:
             feedback_data["task"] = task
+        if domain:
+            feedback_data["domain"] = domain  # NEW in Jan 2026 (as-defined-by-OASF)
         if capability:
             feedback_data["capability"] = capability
         if mcp_tool_name:
             feedback_data["name"] = mcp_tool_name
         
-        # ✅ Add payment proof if provided (ERC-8004 v1.0 compliant format)
+        # Add payment proof if provided (Jan 2026: renamed to proofOfPayment)
         if payment_proof:
-            # Extract addresses from payment proof
             from_address = self.address  # Client wallet
             
             # Get to_address from payment proof
@@ -1632,17 +1654,17 @@ class ChaosAgent:
             chain_id = str(self.network.value.chain_id)
             if hasattr(payment_proof, 'network'):
                 if isinstance(payment_proof.network, str):
-                    # Extract chain ID from network string if present
                     if ':' in payment_proof.network:
                         chain_id = payment_proof.network.split(':')[-1]
                 elif hasattr(payment_proof.network, 'value') and hasattr(payment_proof.network.value, 'chain_id'):
                     chain_id = str(payment_proof.network.value.chain_id)
             
-            feedback_data["proof_of_payment"] = {
+            # RENAMED: proof_of_payment -> proofOfPayment (Jan 2026 spec)
+            feedback_data["proofOfPayment"] = {
                 "fromAddress": from_address,
                 "toAddress": to_address,
                 "chainId": chain_id,
-                "txHash": payment_proof.transaction_hash  # ✅ On-chain verifiable
+                "txHash": payment_proof.transaction_hash
             }
             
             rprint(f"[cyan]💳 Including payment proof: {payment_proof.transaction_hash[:10]}...[/cyan]")
@@ -1657,10 +1679,8 @@ class ChaosAgent:
         
         # Upload to storage (IPFS or 0G)
         try:
-            # Import storage provider if not already available
             from .providers.storage import LocalIPFSStorage
             
-            # Create storage provider if needed
             if not hasattr(self, '_feedback_storage'):
                 self._feedback_storage = LocalIPFSStorage()
             
@@ -1672,7 +1692,7 @@ class ChaosAgent:
             if not storage_result.success:
                 raise Exception(f"Storage failed: {storage_result.error}")
             
-            # Compute file hash (KECCAK-256 for ERC-8004 v1.0 compatibility)
+            # Compute file hash (KECCAK-256 for ERC-8004 compatibility)
             file_hash = '0x' + hashlib.sha3_256(feedback_json.encode('utf-8')).hexdigest()
             
             rprint(f"[green]✅ Feedback uploaded: {storage_result.uri}[/green]")
@@ -2086,37 +2106,46 @@ class ChaosAgent:
         rewards_distributor: str
     ) -> bytes:
         """
-        Generate EIP-712 signed feedbackAuth for reputation publishing.
+        DEPRECATED: Generate EIP-712 signed feedbackAuth for reputation publishing.
         
-        This authorizes RewardsDistributor to publish reputation on behalf of the agent
-        when work is completed and consensus is reached.
+        ERC-8004 Jan 2026 REMOVED the feedbackAuth requirement.
+        Feedback submission is now permissionless - any clientAddress can submit directly.
+        
+        This method is kept for backward compatibility with existing contracts
+        but will be removed in a future version.
         
         Args:
             agent_id: The agent's ERC-8004 identity ID
             rewards_distributor: Address of RewardsDistributor contract
             
         Returns:
-            bytes: Full feedbackAuth (289 bytes: encoded struct + signature)
-                   - First 224 bytes: ABI-encoded struct (agentId, clientAddress, etc.)
-                   - Last 65 bytes: EIP-712 signature (r, s, v)
+            bytes: Full feedbackAuth (289 bytes) - DEPRECATED, not needed by Jan 2026 spec
             
         Raises:
             ContractError: If signature generation fails
         """
+        import warnings
+        warnings.warn(
+            "_generate_feedback_auth is DEPRECATED. "
+            "ERC-8004 Jan 2026 removed feedbackAuth - feedback is now permissionless.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         try:
             # Get account
             account = self.wallet_manager.wallets[self.agent_name]
             
-            # FeedbackAuth parameters
+            # FeedbackAuth parameters (DEPRECATED)
             agent_id_param = agent_id
             client_address_param = self.w3.to_checksum_address(rewards_distributor)
-            index_limit = 1000  # Allow many feedbacks
-            expiry = int(time.time()) + (365 * 24 * 60 * 60)  # 1 year
+            index_limit = 1000
+            expiry = int(time.time()) + (365 * 24 * 60 * 60)
             chain_id = self.w3.eth.chain_id
             identity_registry_param = self.contract_addresses.identity_registry
             signer_address = account.address
             
-            # Encode the struct (224 bytes) - must match contract's abi.encode()
+            # Encode the struct (224 bytes)
             encoded_struct = abi_encode(
                 ['uint256', 'address', 'uint64', 'uint256', 'uint256', 'address', 'address'],
                 [
@@ -2130,11 +2159,8 @@ class ChaosAgent:
                 ]
             )
             
-            # Hash the encoded struct
             message_hash = self.w3.keccak(encoded_struct)
             
-            # Sign using Ethereum signed message format (NOT EIP-712!)
-            # This adds "\x19Ethereum Signed Message:\n32" prefix
             from eth_account.messages import encode_defunct
             signable_message = encode_defunct(message_hash)
             signed_message = self.w3.eth.account.sign_message(
@@ -2142,9 +2168,6 @@ class ChaosAgent:
                 private_key=account.key
             )
             
-            # Build full feedbackAuth (289 bytes):
-            # First 224 bytes: ABI-encoded struct
-            # Last 65 bytes: Signature (r, s, v)
             full_feedback_auth = encoded_struct + signed_message.signature
             
             return full_feedback_auth

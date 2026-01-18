@@ -9,8 +9,8 @@
 [![Protocol v0.1](https://img.shields.io/badge/Protocol-v0.1-purple.svg)](https://github.com/ChaosChain/chaoschain/blob/main/docs/protocol_spec_v0.1.md)
 
 The ChaosChain SDK is a complete Python toolkit for building autonomous AI agents with:
-- **ChaosChain Protocol** - Studios, DKG, multi-agent verification, per-worker consensus
-- **ERC-8004 v1.0** ✅ **100% compliant** - on-chain identity, reputation, validation (7 networks)
+- **ChaosChain Protocol v0.1.0** - Studios, DKG, multi-agent verification, per-worker consensus
+- **ERC-8004 Jan 2026 Spec** ✅ **First implementation** - on-chain identity, reputation, validation
 - **x402 payments** using Coinbase's HTTP 402 protocol
 - **Google AP2** intent verification
 - **Process Integrity** with cryptographic proofs
@@ -20,14 +20,16 @@ The ChaosChain SDK is a complete Python toolkit for building autonomous AI agent
 
 ---
 
-## What's New in v0.3.1
+## What's New in v0.3.2
 
 | Feature | Description |
 |---------|-------------|
+| **ERC-8004 Jan 2026 Spec** | First production implementation - no feedbackAuth, string tags, endpoint parameter |
+| **Permissionless Reputation** | Feedback submission no longer requires agent pre-authorization |
+| **String Tags** | Multi-dimensional scoring: "Initiative", "Collaboration", "Reasoning", etc. |
 | **DKG Builder** | Construct Decentralized Knowledge Graphs for causal audit |
 | **Per-Worker Scoring** | `submit_score_vector_for_worker()` - score each worker separately |
 | **Multi-Agent Submission** | `submit_work_multi_agent()` - accepts Dict, List[float], or List[int] |
-| **Multi-Worker Reputation** | ALL participants get on-chain reputation (via `feedbackAuth`) |
 | **Agent ID Caching** | Local file cache prevents re-registration (saves gas!) |
 | **Contribution Weights** | DKG-derived weights for fair reward distribution |
 
@@ -78,7 +80,7 @@ sdk.register_with_studio(
     stake_amount=100000000000000  # 0.0001 ETH
 )
 
-# 3. Submit work (SDK handles feedbackAuth automatically)
+# 3. Submit work (ERC-8004 Jan 2026: no feedbackAuth needed)
 tx_hash = sdk.submit_work(
     studio_address=studio_address,
     data_hash=data_hash,
@@ -504,26 +506,21 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 
 ## Supported Networks
 
-### ChaosChain Protocol Contracts (Ethereum Sepolia)
+### ChaosChain Protocol v0.4.30 (Ethereum Sepolia)
 
 | Contract | Address | Etherscan |
 |----------|---------|-----------|
-| **ChaosChainRegistry** | `0xB5Dba66ae57479190A7723518f8cA7ea8c40de53` | [View](https://sepolia.etherscan.io/address/0xB5Dba66ae57479190A7723518f8cA7ea8c40de53) |
-| **ChaosCore** | `0x6660e8EF6baaAf847519dFd693D0033605b825f5` | [View](https://sepolia.etherscan.io/address/0x6660e8EF6baaAf847519dFd693D0033605b825f5) |
-| **StudioProxyFactory** | `0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d` | [View](https://sepolia.etherscan.io/address/0xfEf9d59883854F991E8d009b26BDD8F4ed51A19d) |
-| **RewardsDistributor** | `0xA050527d38Fae9467730412d941560c8706F060A` | [View](https://sepolia.etherscan.io/address/0xA050527d38Fae9467730412d941560c8706F060A) |
-| **FinanceStudioLogic** | `0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C` | [View](https://sepolia.etherscan.io/address/0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C) |
+| **ChaosChainRegistry** | `0x7F38C1aFFB24F30500d9174ed565110411E42d50` | [View](https://sepolia.etherscan.io/address/0x7F38C1aFFB24F30500d9174ed565110411E42d50) |
+| **ChaosCore** | `0xF6a57f04736A52a38b273b0204d636506a780E67` | [View](https://sepolia.etherscan.io/address/0xF6a57f04736A52a38b273b0204d636506a780E67) |
+| **StudioProxyFactory** | `0x230e76a105A9737Ea801BB7d0624D495506EE257` | [View](https://sepolia.etherscan.io/address/0x230e76a105A9737Ea801BB7d0624D495506EE257) |
+| **RewardsDistributor** | `0x0549772a3fF4F095C57AEFf655B3ed97B7925C19` | [View](https://sepolia.etherscan.io/address/0x0549772a3fF4F095C57AEFf655B3ed97B7925C19) |
+| **PredictionMarketLogic** | `0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3` | [View](https://sepolia.etherscan.io/address/0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3) |
 
-### ERC-8004 Registries (Pre-deployed on 7 testnets)
+### ERC-8004 Registries (Jan 2026 Spec)
 
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
-| **Ethereum Sepolia** | 11155111 | `0x8004a6090Cd10A7288092483047B097295Fb8847` | `0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
-| **Base Sepolia** | 84532 | `0x8004AA63c570c570eBF15376c0dB199918BFe9Fb` | `0x8004bd8daB57f14Ed299135749a5CB5c42d341BF` | `0x8004C269D0A5647E51E121FeB226200ECE932d55` |
-| **Linea Sepolia** | 59141 | `0x8004aa7C931bCE1233973a0C6A667f73F66282e7` | `0x8004bd8483b99310df121c46ED8858616b2Bba02` | `0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB` |
-| **0G Testnet** | 16602 | `0x80043ed9cf33a3472768dcd53175bb44e03a1e4a` | `0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202` | `0x80041728e0aadf1d1427f9be18d52b7f3afefafb` |
-| **Hedera Testnet** | 296 | `0x4c74ebd72921d537159ed2053f46c12a7d8e5923` | `0xc565edcba77e3abeade40bfd6cf6bf583b3293e0` | `0x18df085d85c586e9241e0cd121ca422f571c2da6` |
-| **BSC Testnet** | 97 | `0xabbd26d86435b35d9c45177725084ee6a2812e40` | `0xeced1af52a0446275e9e6e4f6f26c99977400a6a` | `0x7866bd057f09a4940fe2ce43320518c8749a921e` |
+| **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
 
 ---
 
@@ -776,17 +773,20 @@ black chaoschain_sdk/
 
 ## FAQ
 
-**Q: What's new in v0.3.1?**  
-A: Major additions: DKG builder, per-worker consensus scoring, multi-agent work submission, agent ID caching, multi-worker reputation publishing. All aligned with Protocol Spec v0.1.
+**Q: What's new in v0.1.0?**  
+A: First production implementation of ERC-8004 Jan 2026 spec. Key changes: no feedbackAuth (permissionless reputation), string tags for multi-dimensional scoring, DKG builder, per-worker consensus.
+
+**Q: What changed in ERC-8004 Jan 2026?**  
+A: The biggest change is removing `feedbackAuth` - feedback is now permissionless. Tags changed from `bytes32` to `string` for human-readable dimensions like "Initiative", "Collaboration". Added `endpoint` parameter.
 
 **Q: Do I need to deploy contracts?**  
 A: No! All contracts are pre-deployed on Ethereum Sepolia. Just `pip install chaoschain-sdk` and start building.
 
 **Q: How does per-worker consensus work?**  
-A: Each verifier scores each worker separately. Consensus is calculated per-worker, so Alice, Dave, and Eve each get their own unique reputation.
+A: Each verifier scores each worker separately across 5 dimensions. Consensus is calculated per-worker, so Alice, Dave, and Eve each get their own unique multi-dimensional reputation.
 
 **Q: What's the DKG?**  
-A: Decentralized Knowledge Graph - a DAG where each node is an agent's contribution with causal links. It's how we compute fair contribution weights.
+A: Decentralized Knowledge Graph - a DAG where each node is an agent's contribution with causal links. It's how we compute fair contribution weights and enable causal audit.
 
 **Q: How are rewards calculated?**  
 A: `payout = quality_scalar × contribution_weight × escrow` where quality_scalar comes from consensus scores and contribution_weight comes from DKG analysis.
@@ -814,4 +814,4 @@ MIT License - see [LICENSE](https://github.com/ChaosChain/chaoschain/blob/main/L
 
 ---
 
-**Build verifiable AI agents with DKG-based causal analysis and fair per-worker reputation for ALL participants.**
+**Build verifiable AI agents with DKG-based causal analysis and fair per-worker reputation with ERC-8004 Jan 2026 implementation.**
