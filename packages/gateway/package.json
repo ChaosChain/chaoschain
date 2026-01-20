@@ -14,6 +14,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "ethers": "^6.10.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
