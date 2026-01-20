@@ -9,7 +9,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { WorkflowEngine } from '../workflows/engine.js';
 import { WorkflowPersistence } from '../workflows/persistence.js';
 import { createWorkSubmissionWorkflow } from '../workflows/work-submission.js';
-import { WorkSubmissionInput, WorkflowRecord } from '../workflows/index.js';
+import { createScoreSubmissionWorkflow } from '../workflows/score-submission.js';
+import { WorkSubmissionInput, ScoreSubmissionInput, WorkflowRecord } from '../workflows/index.js';
 import { Logger } from '../utils/logger.js';
 
 // =============================================================================
@@ -24,6 +25,16 @@ interface CreateWorkSubmissionRequest {
   thread_root: string;
   evidence_root: string;
   evidence_content: string; // base64 encoded
+  signer_address: string;
+}
+
+interface CreateScoreSubmissionRequest {
+  studio_address: string;
+  epoch: number;
+  validator_address: string;
+  data_hash: string;
+  scores: number[];  // Array of scores (0-10000 basis points)
+  salt: string;      // bytes32 hex
   signer_address: string;
 }
 
@@ -85,6 +96,25 @@ function validateBase64(value: unknown, fieldName: string): Buffer {
   }
 }
 
+function validateScoresArray(value: unknown, fieldName: string): number[] {
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${fieldName} must be an array`);
+  }
+  if (value.length === 0) {
+    throw new ValidationError(`${fieldName} must not be empty`);
+  }
+  for (let i = 0; i < value.length; i++) {
+    const score = value[i];
+    if (typeof score !== 'number' || !Number.isInteger(score)) {
+      throw new ValidationError(`${fieldName}[${i}] must be an integer`);
+    }
+    if (score < 0 || score > 10000) {
+      throw new ValidationError(`${fieldName}[${i}] must be between 0 and 10000`);
+    }
+  }
+  return value as number[];
+}
+
 class ValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -127,6 +157,48 @@ export function createRoutes(
 
         // Create workflow record
         const workflow = createWorkSubmissionWorkflow(input);
+
+        logger.info({ workflowId: workflow.id, type: workflow.type }, 'Creating workflow');
+
+        // Persist and start
+        await engine.createWorkflow(workflow);
+        
+        // Start workflow (non-blocking - engine runs it)
+        engine.startWorkflow(workflow.id).catch((err) => {
+          logger.error({ workflowId: workflow.id, error: err }, 'Workflow execution failed');
+        });
+
+        // Return created workflow
+        res.status(201).json(toWorkflowResponse(workflow));
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  // ===========================================================================
+  // POST /workflows/score-submission
+  // Create a new ScoreSubmission workflow (commit-reveal pattern)
+  // ===========================================================================
+  router.post(
+    '/workflows/score-submission',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const body = req.body as CreateScoreSubmissionRequest;
+
+        // Validate input
+        const input: ScoreSubmissionInput = {
+          studio_address: validateAddress(body.studio_address, 'studio_address'),
+          epoch: validatePositiveInteger(body.epoch, 'epoch'),
+          validator_address: validateAddress(body.validator_address, 'validator_address'),
+          data_hash: validateBytes32(body.data_hash, 'data_hash'),
+          scores: validateScoresArray(body.scores, 'scores'),
+          salt: validateBytes32(body.salt, 'salt'),
+          signer_address: validateAddress(body.signer_address, 'signer_address'),
+        };
+
+        // Create workflow record
+        const workflow = createScoreSubmissionWorkflow(input);
 
         logger.info({ workflowId: workflow.id, type: workflow.type }, 'Creating workflow');
 

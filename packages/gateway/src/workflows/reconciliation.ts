@@ -13,10 +13,13 @@
  */
 
 import {
+  WorkflowRecord,
   WorkSubmissionRecord,
+  ScoreSubmissionRecord,
   ArweaveStatus,
 } from './types.js';
 import { TxQueue } from './tx-queue.js';
+import { ScoreChainStateAdapter } from './score-submission.js';
 
 // =============================================================================
 // CHAIN STATE ADAPTER INTERFACE
@@ -78,26 +81,42 @@ export class WorkflowReconciler {
   private chainState: ChainStateAdapter;
   private arweave: ArweaveAdapter;
   private txQueue: TxQueue;
+  private scoreChainState?: ScoreChainStateAdapter;
 
   constructor(
     chainState: ChainStateAdapter,
     arweave: ArweaveAdapter,
-    txQueue: TxQueue
+    txQueue: TxQueue,
+    scoreChainState?: ScoreChainStateAdapter
   ) {
     this.chainState = chainState;
     this.arweave = arweave;
     this.txQueue = txQueue;
+    this.scoreChainState = scoreChainState;
   }
 
   /**
-   * Reconcile a WorkSubmission workflow.
+   * Reconcile a workflow (routes based on type).
    * 
-   * Determines true state by querying:
-   * 1. On-chain work submission existence
-   * 2. Transaction status (if tx hash is known)
-   * 3. Arweave confirmation status (if tx id is known)
+   * Determines true state by querying on-chain state.
+   * Works for both WorkSubmission and ScoreSubmission workflows.
    */
   async reconcileWorkSubmission(
+    workflow: WorkflowRecord
+  ): Promise<ReconciliationResult> {
+    // Route to type-specific reconciliation
+    if (workflow.type === 'ScoreSubmission') {
+      return this.reconcileScoreSubmissionInternal(workflow as ScoreSubmissionRecord);
+    }
+
+    // Default: WorkSubmission
+    return this.reconcileWorkSubmissionInternal(workflow as WorkSubmissionRecord);
+  }
+
+  /**
+   * Internal: Reconcile WorkSubmission workflow.
+   */
+  private async reconcileWorkSubmissionInternal(
     workflow: WorkSubmissionRecord
   ): Promise<ReconciliationResult> {
     const { input, progress, step } = workflow;
@@ -198,14 +217,144 @@ export class WorkflowReconciler {
   }
 
   /**
+   * Internal: Reconcile ScoreSubmission workflow.
+   */
+  private async reconcileScoreSubmissionInternal(
+    workflow: ScoreSubmissionRecord
+  ): Promise<ReconciliationResult> {
+    const { input, progress } = workflow;
+
+    if (!this.scoreChainState) {
+      // No score chain state adapter, skip reconciliation
+      return { action: 'NO_CHANGE' };
+    }
+
+    // ==========================================================================
+    // RULE 1: Check if reveal already exists (highest priority - workflow done)
+    // ==========================================================================
+    const revealExists = await this.scoreChainState.revealExists(
+      input.studio_address,
+      input.data_hash,
+      input.validator_address
+    );
+
+    if (revealExists) {
+      return { action: 'COMPLETE' };
+    }
+
+    // ==========================================================================
+    // RULE 2: Check reveal tx status (if we have a reveal tx hash)
+    // ==========================================================================
+    if (progress.reveal_tx_hash) {
+      const receipt = await this.txQueue.checkTxStatus(progress.reveal_tx_hash);
+
+      if (receipt === null) {
+        return { action: 'NO_CHANGE' };
+      }
+
+      switch (receipt.status) {
+        case 'confirmed':
+          const revealDoubleCheck = await this.scoreChainState.revealExists(
+            input.studio_address,
+            input.data_hash,
+            input.validator_address
+          );
+          if (revealDoubleCheck) {
+            return { action: 'COMPLETE' };
+          }
+          return { action: 'FAIL', reason: 'reveal_tx_confirmed_but_reveal_not_found' };
+
+        case 'reverted':
+          return { action: 'FAIL', reason: `reveal_tx_reverted: ${receipt.revertReason}` };
+
+        case 'pending':
+          return { action: 'NO_CHANGE' };
+
+        case 'not_found':
+          // Clear reveal tx hash and retry
+          return { 
+            action: 'UPDATE_PROGRESS', 
+            updates: { reveal_tx_hash: undefined } 
+          };
+      }
+    }
+
+    // ==========================================================================
+    // RULE 3: Check if commit already exists
+    // ==========================================================================
+    const commitExists = await this.scoreChainState.commitExists(
+      input.studio_address,
+      input.data_hash,
+      input.validator_address
+    );
+
+    if (commitExists && !progress.commit_confirmed) {
+      // Commit exists but we don't have it recorded, update progress
+      return {
+        action: 'UPDATE_PROGRESS',
+        updates: { commit_confirmed: true, commit_confirmed_at: Date.now() }
+      };
+    }
+
+    // ==========================================================================
+    // RULE 4: Check commit tx status (if we have a commit tx hash)
+    // ==========================================================================
+    if (progress.commit_tx_hash && !progress.commit_confirmed) {
+      const receipt = await this.txQueue.checkTxStatus(progress.commit_tx_hash);
+
+      if (receipt === null) {
+        return { action: 'NO_CHANGE' };
+      }
+
+      switch (receipt.status) {
+        case 'confirmed':
+          const commitDoubleCheck = await this.scoreChainState.commitExists(
+            input.studio_address,
+            input.data_hash,
+            input.validator_address
+          );
+          if (commitDoubleCheck) {
+            return {
+              action: 'UPDATE_PROGRESS',
+              updates: { 
+                commit_confirmed: true, 
+                commit_block: receipt.blockNumber,
+                commit_confirmed_at: Date.now() 
+              }
+            };
+          }
+          return { action: 'FAIL', reason: 'commit_tx_confirmed_but_commit_not_found' };
+
+        case 'reverted':
+          return { action: 'FAIL', reason: `commit_tx_reverted: ${receipt.revertReason}` };
+
+        case 'pending':
+          return { action: 'NO_CHANGE' };
+
+        case 'not_found':
+          // Clear commit tx hash and retry
+          return { 
+            action: 'UPDATE_PROGRESS', 
+            updates: { commit_tx_hash: undefined } 
+          };
+      }
+    }
+
+    // ==========================================================================
+    // RULE 5: No reconciliation needed
+    // ==========================================================================
+    return { action: 'NO_CHANGE' };
+  }
+
+  /**
    * Apply reconciliation result to workflow.
    * Returns updated workflow record (or original if no change).
    */
   applyReconciliationResult(
-    workflow: WorkSubmissionRecord,
+    workflow: WorkflowRecord,
     result: ReconciliationResult
   ): {
-    workflow: WorkSubmissionRecord;
+    workflow: WorkflowRecord;
     stateChanged: boolean;
   } {
     switch (result.action) {
@@ -242,7 +391,7 @@ export class WorkflowReconciler {
 
       case 'CLEAR_TX_HASH_AND_RETRY':
         // Clear tx hash from progress, reset attempts
-        const clearedProgress = { ...workflow.progress };
+        const clearedProgress = { ...(workflow.progress as Record<string, unknown>) };
         delete clearedProgress.onchain_tx_hash;
         return {
           workflow: {
@@ -258,7 +407,7 @@ export class WorkflowReconciler {
         return {
           workflow: {
             ...workflow,
-            progress: { ...workflow.progress, ...result.updates },
+            progress: { ...(workflow.progress as Record<string, unknown>), ...result.updates },
             updated_at: Date.now(),
           },
           stateChanged: true,

@@ -28,6 +28,12 @@ export {
   WorkflowError,
   WorkflowRecord,
   WorkSubmissionRecord,
+  // ScoreSubmission types
+  ScoreSubmissionStep,
+  ScoreSubmissionInput,
+  ScoreSubmissionProgress,
+  ScoreSubmissionRecord,
+  // Common types
   FailureCategory,
   ClassifiedError,
   TxStatus,
@@ -81,3 +87,15 @@ export {
   createWorkSubmissionDefinition,
 } from './work-submission.js';
 
+// ScoreSubmission Workflow
+export {
+  ScoreContractEncoder,
+  ScoreChainStateAdapter,
+  CommitScoreStep,
+  AwaitCommitConfirmStep,
+  RevealScoreStep,
+  AwaitRevealConfirmStep,
+  createScoreSubmissionWorkflow,
+  createScoreSubmissionDefinition,
+  DefaultScoreContractEncoder,
+} from './score-submission.js';

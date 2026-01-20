@@ -60,6 +60,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /workflows/score-submission:
+    post:
+      summary: Create a score submission workflow
+      description: |
+        Creates a commit-reveal score submission workflow.
+        Validators use this to submit scores for worker submissions.
+        The workflow handles the commit phase, then reveal phase.
+      operationId: createScoreSubmission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScoreSubmissionRequest'
+      responses:
+        '201':
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /workflows/{id}:
     get:
       summary: Get workflow by ID
@@ -130,6 +158,51 @@ paths:
 
 components:
   schemas:
+    CreateScoreSubmissionRequest:
+      type: object
+      required:
+        - studio_address
+        - epoch
+        - validator_address
+        - data_hash
+        - scores
+        - salt
+        - signer_address
+      properties:
+        studio_address:
+          type: string
+          description: Ethereum address of the studio
+          example: "0x1234567890123456789012345678901234567890"
+        epoch:
+          type: integer
+          minimum: 0
+          description: Epoch number
+          example: 1
+        validator_address:
+          type: string
+          description: Ethereum address of the validator
+          example: "0x1234567890123456789012345678901234567890"
+        data_hash:
+          type: string
+          description: Bytes32 hash of the work being scored
+          example: "0x1234567890123456789012345678901234567890123456789012345678901234"
+        scores:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 10000
+          description: Array of dimension scores (0-10000 basis points)
+          example: [8000, 7500, 9000, 6500, 8500]
+        salt:
+          type: string
+          description: Bytes32 random salt for commit-reveal
+          example: "0x1234567890123456789012345678901234567890123456789012345678901234"
+        signer_address:
+          type: string
+          description: Ethereum address of the transaction signer
+          example: "0x1234567890123456789012345678901234567890"
+
     CreateWorkSubmissionRequest:
       type: object
       required:
@@ -184,7 +257,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [WorkSubmission]
+          enum: [WorkSubmission, ScoreSubmission]
         state:
           type: string
           enum: [CREATED, RUNNING, STALLED, COMPLETED, FAILED]

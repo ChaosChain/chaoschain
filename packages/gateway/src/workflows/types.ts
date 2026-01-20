@@ -38,6 +38,16 @@ export type WorkSubmissionStep =
   | 'AWAIT_TX_CONFIRM';
 
 // =============================================================================
+// SCORE SUBMISSION WORKFLOW STEPS
+// =============================================================================
+
+export type ScoreSubmissionStep =
+  | 'COMMIT_SCORE'
+  | 'AWAIT_COMMIT_CONFIRM'
+  | 'REVEAL_SCORE'
+  | 'AWAIT_REVEAL_CONFIRM';
+
+// =============================================================================
 // WORKFLOW INPUT (Immutable after creation)
 // =============================================================================
 
@@ -106,6 +116,41 @@ export interface WorkflowRecord<TInput = unknown, TProgress = unknown> {
 }
 
 export type WorkSubmissionRecord = WorkflowRecord<WorkSubmissionInput, WorkSubmissionProgress>;
+
+// =============================================================================
+// SCORE SUBMISSION INPUT (Immutable after creation)
+// =============================================================================
+
+export interface ScoreSubmissionInput {
+  studio_address: string;
+  epoch: number;
+  validator_address: string;   // The validator submitting scores
+  data_hash: string;           // bytes32 - which work is being scored
+  scores: number[];            // Array of dimension scores (0-10000 basis points)
+  salt: string;                // bytes32 - random salt for commit-reveal
+  signer_address: string;      // Which key signs on-chain txs
+}
+
+// =============================================================================
+// SCORE SUBMISSION PROGRESS (Mutable, append-only)
+// =============================================================================
+
+export interface ScoreSubmissionProgress {
+  // Commit phase
+  commit_hash?: string;        // Computed commit hash
+  commit_tx_hash?: string;
+  commit_confirmed?: boolean;
+  commit_block?: number;
+  commit_confirmed_at?: number;
+  
+  // Reveal phase
+  reveal_tx_hash?: string;
+  reveal_confirmed?: boolean;
+  reveal_block?: number;
+  reveal_confirmed_at?: number;
+}
+
+export type ScoreSubmissionRecord = WorkflowRecord<ScoreSubmissionInput, ScoreSubmissionProgress>;
 
 // =============================================================================
 // FAILURE CATEGORIES
