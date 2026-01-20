@@ -1,0 +1,261 @@
+/**
+ * Gateway Application
+ * 
+ * Bootstrap + lifecycle management.
+ * 
+ * Lifecycle:
+ * - On startup: resume all RUNNING and STALLED workflows
+ * - On shutdown: graceful cleanup (let in-flight txs reconcile on restart)
+ */
+
+import express, { Express } from 'express';
+import { Pool } from 'pg';
+
+import { WorkflowEngine } from './workflows/engine.js';
+import { WorkflowReconciler } from './workflows/reconciliation.js';
+import { TxQueue } from './workflows/tx-queue.js';
+import { createWorkSubmissionDefinition } from './workflows/work-submission.js';
+import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
+import { EthersChainAdapter, StudioProxyEncoder } from './adapters/chain-adapter.js';
+import { MockArweaveAdapter } from './adapters/arweave-adapter.js';
+import { createRoutes, errorHandler } from './http/index.js';
+import { createLogger, Logger } from './utils/index.js';
+
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
+
+export interface GatewayConfig {
+  // Server
+  port: number;
+  host: string;
+
+  // Database
+  databaseUrl: string;
+
+  // Chain
+  rpcUrl: string;
+  chainId: number;
+  confirmationBlocks: number;
+
+  // Logging
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+}
+
+export function loadConfigFromEnv(): GatewayConfig {
+  return {
+    port: parseInt(process.env.PORT ?? '3000', 10),
+    host: process.env.HOST ?? '0.0.0.0',
+    databaseUrl: process.env.DATABASE_URL ?? 'postgresql://localhost:5432/gateway',
+    rpcUrl: process.env.RPC_URL ?? 'http://localhost:8545',
+    chainId: parseInt(process.env.CHAIN_ID ?? '11155111', 10), // Sepolia
+    confirmationBlocks: parseInt(process.env.CONFIRMATION_BLOCKS ?? '2', 10),
+    logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
+  };
+}
+
+// =============================================================================
+// GATEWAY APPLICATION
+// =============================================================================
+
+export class Gateway {
+  private config: GatewayConfig;
+  private logger: Logger;
+  private app: Express;
+  private pool: Pool;
+  private engine: WorkflowEngine;
+  private server?: ReturnType<Express['listen']>;
+  private shutdownPromise?: Promise<void>;
+
+  constructor(config: GatewayConfig) {
+    this.config = config;
+    this.logger = createLogger({ level: config.logLevel, service: 'gateway' });
+    this.app = express();
+    this.pool = new Pool({ connectionString: config.databaseUrl });
+    this.engine = null!; // Initialized in start()
+  }
+
+  /**
+   * Start the Gateway.
+   * 
+   * 1. Initialize components
+   * 2. Register workflow definitions
+   * 3. Resume active workflows
+   * 4. Start HTTP server
+   */
+  async start(): Promise<void> {
+    this.logger.info({}, 'Starting Gateway...');
+
+    // Initialize persistence
+    const persistence = new PostgresWorkflowPersistence(this.pool);
+    this.logger.info({}, 'Database connection established');
+
+    // Initialize chain adapter
+    const chainAdapter = new EthersChainAdapter(
+      await this.createProvider(),
+      this.config.confirmationBlocks
+    );
+    this.logger.info({ rpcUrl: this.config.rpcUrl }, 'Chain adapter initialized');
+
+    // Initialize tx queue
+    const txQueue = new TxQueue(chainAdapter);
+
+    // Initialize arweave adapter (mock for now)
+    const arweaveAdapter = new MockArweaveAdapter();
+    this.logger.info({}, 'Arweave adapter initialized (mock)');
+
+    // Initialize reconciler
+    const reconciler = new WorkflowReconciler(chainAdapter, arweaveAdapter, txQueue);
+
+    // Initialize engine
+    this.engine = new WorkflowEngine(persistence, reconciler);
+
+    // Register workflow definitions
+    const contractEncoder = new StudioProxyEncoder();
+    const workSubmissionDef = createWorkSubmissionDefinition(
+      arweaveAdapter,
+      txQueue,
+      persistence,
+      contractEncoder
+    );
+    this.engine.registerWorkflow(workSubmissionDef);
+    this.logger.info({}, 'WorkSubmission workflow registered');
+
+    // Subscribe to engine events for logging
+    this.engine.onEvent((event) => {
+      const ctx = { workflowId: 'workflowId' in event ? event.workflowId : undefined };
+      
+      switch (event.type) {
+        case 'WORKFLOW_CREATED':
+          this.logger.info(ctx, 'Workflow created');
+          break;
+        case 'WORKFLOW_STARTED':
+          this.logger.info(ctx, 'Workflow started');
+          break;
+        case 'STEP_STARTED':
+          this.logger.info({ ...ctx, step: event.step }, 'Step started');
+          break;
+        case 'STEP_COMPLETED':
+          this.logger.info({ ...ctx, step: event.step, nextStep: event.nextStep }, 'Step completed');
+          break;
+        case 'STEP_RETRY':
+          this.logger.warn({ ...ctx, step: event.step, attempt: event.attempt, error: event.error.message }, 'Step retry');
+          break;
+        case 'WORKFLOW_STALLED':
+          this.logger.warn({ ...ctx, reason: event.reason }, 'Workflow stalled');
+          break;
+        case 'WORKFLOW_FAILED':
+          this.logger.error({ ...ctx, error: event.error }, 'Workflow failed');
+          break;
+        case 'WORKFLOW_COMPLETED':
+          this.logger.info(ctx, 'Workflow completed');
+          break;
+        case 'RECONCILIATION_RAN':
+          if (event.changed) {
+            this.logger.info(ctx, 'Reconciliation changed state');
+          }
+          break;
+      }
+    });
+
+    // Resume active workflows (startup reconciliation)
+    this.logger.info({}, 'Resuming active workflows...');
+    await this.engine.reconcileAllActive();
+    this.logger.info({}, 'Active workflows resumed');
+
+    // Setup HTTP server
+    this.app.use(express.json({ limit: '10mb' }));
+    this.app.use(createRoutes(this.engine, persistence, this.logger));
+    this.app.use(errorHandler(this.logger));
+
+    // Start listening
+    await new Promise<void>((resolve) => {
+      this.server = this.app.listen(this.config.port, this.config.host, () => {
+        this.logger.info(
+          { port: this.config.port, host: this.config.host },
+          'Gateway HTTP server started'
+        );
+        resolve();
+      });
+    });
+
+    // Setup shutdown handlers
+    this.setupShutdownHandlers();
+
+    this.logger.info({}, 'Gateway started successfully');
+  }
+
+  /**
+   * Stop the Gateway gracefully.
+   * 
+   * - Stop accepting new requests
+   * - Let in-flight operations complete (with timeout)
+   * - Close database connections
+   * 
+   * Note: In-flight txs will be reconciled on next startup.
+   */
+  async stop(): Promise<void> {
+    if (this.shutdownPromise) {
+      return this.shutdownPromise;
+    }
+
+    this.shutdownPromise = this.doStop();
+    return this.shutdownPromise;
+  }
+
+  private async doStop(): Promise<void> {
+    this.logger.info({}, 'Stopping Gateway...');
+
+    // Stop HTTP server
+    if (this.server) {
+      await new Promise<void>((resolve, reject) => {
+        this.server!.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      this.logger.info({}, 'HTTP server stopped');
+    }
+
+    // Close database pool
+    await this.pool.end();
+    this.logger.info({}, 'Database connections closed');
+
+    this.logger.info({}, 'Gateway stopped');
+  }
+
+  private setupShutdownHandlers(): void {
+    const shutdown = async (signal: string) => {
+      this.logger.info({ signal }, 'Received shutdown signal');
+      await this.stop();
+      process.exit(0);
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  }
+
+  private async createProvider(): Promise<any> {
+    // Dynamic import to avoid issues if ethers isn't loaded
+    const { ethers } = await import('ethers');
+    return new ethers.JsonRpcProvider(this.config.rpcUrl);
+  }
+}
+
+// =============================================================================
+// ENTRY POINT
+// =============================================================================
+
+export async function main(): Promise<void> {
+  const config = loadConfigFromEnv();
+  const gateway = new Gateway(config);
+  await gateway.start();
+}
+
+// Run if this is the main module
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}

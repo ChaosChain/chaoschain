@@ -1,0 +1,230 @@
+openapi: 3.0.3
+info:
+  title: ChaosChain Gateway API
+  description: |
+    Workflow orchestration API for ChaosChain protocol.
+    
+    The Gateway manages workflow execution for:
+    - Work submission to studios
+    - Evidence storage on Arweave
+    - Transaction submission and confirmation
+    
+    Workflows are state machines with reconciliation-based crash recovery.
+  version: 0.1.0
+  
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: integer
+                    format: int64
+
+  /workflows/work-submission:
+    post:
+      summary: Create a work submission workflow
+      operationId: createWorkSubmission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkSubmissionRequest'
+      responses:
+        '201':
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows/{id}:
+    get:
+      summary: Get workflow by ID
+      operationId: getWorkflow
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Workflow found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '404':
+          description: Workflow not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /workflows:
+    get:
+      summary: List workflows
+      operationId: listWorkflows
+      parameters:
+        - name: studio
+          in: query
+          description: Filter by studio address
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: Filter by state (use 'active' for RUNNING and STALLED)
+          schema:
+            type: string
+            enum: [CREATED, RUNNING, STALLED, COMPLETED, FAILED, active]
+        - name: type
+          in: query
+          description: Filter by workflow type (requires state parameter)
+          schema:
+            type: string
+            enum: [WorkSubmission]
+      responses:
+        '200':
+          description: Workflows list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowResponse'
+                  count:
+                    type: integer
+        '400':
+          description: Missing required query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateWorkSubmissionRequest:
+      type: object
+      required:
+        - studio_address
+        - epoch
+        - agent_address
+        - data_hash
+        - thread_root
+        - evidence_root
+        - evidence_content
+        - signer_address
+      properties:
+        studio_address:
+          type: string
+          description: Ethereum address of the studio
+          example: "0x1234567890123456789012345678901234567890"
+        epoch:
+          type: integer
+          minimum: 0
+          description: Epoch number
+          example: 1
+        agent_address:
+          type: string
+          description: Ethereum address of the agent
+          example: "0x1234567890123456789012345678901234567890"
+        data_hash:
+          type: string
+          description: Bytes32 hash of the work data
+          example: "0x1234567890123456789012345678901234567890123456789012345678901234"
+        thread_root:
+          type: string
+          description: Bytes32 DKG thread root
+          example: "0x1234567890123456789012345678901234567890123456789012345678901234"
+        evidence_root:
+          type: string
+          description: Bytes32 Merkle root of evidence
+          example: "0x1234567890123456789012345678901234567890123456789012345678901234"
+        evidence_content:
+          type: string
+          format: byte
+          description: Base64 encoded evidence content
+        signer_address:
+          type: string
+          description: Ethereum address of the transaction signer
+          example: "0x1234567890123456789012345678901234567890"
+
+    WorkflowResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [WorkSubmission]
+        state:
+          type: string
+          enum: [CREATED, RUNNING, STALLED, COMPLETED, FAILED]
+        step:
+          type: string
+          description: Current step in the workflow
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds
+        updated_at:
+          type: integer
+          format: int64
+          description: Unix timestamp in milliseconds
+        progress:
+          type: object
+          description: Step-specific progress data
+          properties:
+            arweave_tx_id:
+              type: string
+            arweave_confirmed:
+              type: boolean
+            onchain_tx_hash:
+              type: string
+            onchain_confirmed:
+              type: boolean
+            onchain_block:
+              type: integer
+        error:
+          type: object
+          properties:
+            step:
+              type: string
+            message:
+              type: string
+            code:
+              type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
