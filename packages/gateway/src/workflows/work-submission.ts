@@ -1,0 +1,546 @@
+/**
+ * WorkSubmission Workflow Implementation
+ * 
+ * Handles the full flow of submitting worker evidence:
+ * 1. UPLOAD_EVIDENCE - Upload evidence package to Arweave
+ * 2. AWAIT_ARWEAVE_CONFIRM - Poll for Arweave confirmation
+ * 3. SUBMIT_WORK_ONCHAIN - Submit transaction to StudioProxy
+ * 4. AWAIT_TX_CONFIRM - Wait for blockchain finality
+ * 
+ * See: GatewayWorkflowExecutionModel.md
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import {
+  WorkSubmissionRecord,
+  WorkSubmissionInput,
+  StepResult,
+  ClassifiedError,
+} from './types.js';
+import { StepExecutor, WorkflowDefinition } from './engine.js';
+import { TxQueue, TxRequest } from './tx-queue.js';
+import { WorkflowPersistence } from './persistence.js';
+
+// =============================================================================
+// ARWEAVE ADAPTER INTERFACE
+// =============================================================================
+
+export interface ArweaveUploader {
+  /**
+   * Upload content to Arweave.
+   * Returns transaction ID.
+   */
+  upload(content: Buffer, tags?: Record<string, string>): Promise<string>;
+
+  /**
+   * Check if transaction is confirmed.
+   */
+  isConfirmed(txId: string): Promise<boolean>;
+}
+
+// =============================================================================
+// CONTRACT ENCODER INTERFACE
+// =============================================================================
+
+export interface ContractEncoder {
+  /**
+   * Encode submitWork call data.
+   */
+  encodeSubmitWork(
+    dataHash: string,
+    threadRoot: string,
+    evidenceRoot: string,
+    evidenceUri: string
+  ): string;
+
+  /**
+   * Encode submitWorkMultiAgent call data.
+   */
+  encodeSubmitWorkMultiAgent(
+    dataHash: string,
+    threadRoot: string,
+    evidenceRoot: string,
+    workers: string[],
+    weights: number[],
+    evidenceUri: string
+  ): string;
+}
+
+// =============================================================================
+// STEP EXECUTORS
+// =============================================================================
+
+/**
+ * Step 1: Upload evidence to Arweave
+ */
+export class UploadEvidenceStep implements StepExecutor<WorkSubmissionRecord> {
+  private arweave: ArweaveUploader;
+  private persistence: WorkflowPersistence;
+
+  constructor(arweave: ArweaveUploader, persistence: WorkflowPersistence) {
+    this.arweave = arweave;
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    // Arweave upload is permanent but can be retried with same content
+    return false;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if we already have an arweave tx, skip
+    if (progress.arweave_tx_id) {
+      return { type: 'SUCCESS', nextStep: 'AWAIT_ARWEAVE_CONFIRM' };
+    }
+
+    try {
+      const txId = await this.arweave.upload(input.evidence_content, {
+        'Content-Type': 'application/octet-stream',
+        'ChaosChain-Studio': input.studio_address,
+        'ChaosChain-Epoch': String(input.epoch),
+        'ChaosChain-DataHash': input.data_hash,
+        'ChaosChain-Agent': input.agent_address,
+      });
+
+      // Persist progress (append-only)
+      await this.persistence.appendProgress(workflow.id, { arweave_tx_id: txId });
+
+      return { type: 'SUCCESS', nextStep: 'AWAIT_ARWEAVE_CONFIRM' };
+    } catch (error) {
+      const classified = this.classifyError(error);
+
+      if (classified.category === 'PERMANENT') {
+        return { type: 'FAILED', error: classified };
+      }
+
+      return { type: 'RETRY', error: classified };
+    }
+  }
+
+  private classifyError(error: unknown): ClassifiedError {
+    const message = error instanceof Error ? error.message : String(error);
+    
+    // Classify based on error patterns
+    if (message.includes('insufficient funds')) {
+      return {
+        category: 'RECOVERABLE',
+        message: 'Insufficient Arweave funds',
+        code: 'ARWEAVE_INSUFFICIENT_FUNDS',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('invalid content') || message.includes('rejected')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Arweave rejected content',
+        code: 'ARWEAVE_REJECTED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Network errors are transient
+    if (message.includes('network') || message.includes('timeout') || message.includes('ECONNREFUSED')) {
+      return {
+        category: 'TRANSIENT',
+        message: 'Network error during Arweave upload',
+        code: 'NETWORK_ERROR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    return {
+      category: 'UNKNOWN',
+      message,
+      code: 'UNKNOWN_ERROR',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+}
+
+/**
+ * Step 2: Wait for Arweave confirmation
+ */
+export class AwaitArweaveConfirmStep implements StepExecutor<WorkSubmissionRecord> {
+  private arweave: ArweaveUploader;
+  private persistence: WorkflowPersistence;
+  private maxWaitMs: number;
+
+  constructor(
+    arweave: ArweaveUploader,
+    persistence: WorkflowPersistence,
+    maxWaitMs: number = 600000 // 10 minutes
+  ) {
+    this.arweave = arweave;
+    this.persistence = persistence;
+    this.maxWaitMs = maxWaitMs;
+  }
+
+  isIrreversible(): boolean {
+    return false;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { progress, created_at } = workflow;
+
+    // Idempotency: if already confirmed, skip
+    if (progress.arweave_confirmed) {
+      return { type: 'SUCCESS', nextStep: 'SUBMIT_WORK_ONCHAIN' };
+    }
+
+    if (!progress.arweave_tx_id) {
+      // Should not happen if state machine is correct
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'No Arweave tx ID found',
+          code: 'MISSING_ARWEAVE_TX',
+        },
+      };
+    }
+
+    try {
+      const confirmed = await this.arweave.isConfirmed(progress.arweave_tx_id);
+
+      if (confirmed) {
+        await this.persistence.appendProgress(workflow.id, {
+          arweave_confirmed: true,
+          arweave_confirmed_at: Date.now(),
+        });
+        return { type: 'SUCCESS', nextStep: 'SUBMIT_WORK_ONCHAIN' };
+      }
+
+      // Check timeout
+      const elapsed = Date.now() - created_at;
+      if (elapsed > this.maxWaitMs) {
+        return {
+          type: 'STALLED',
+          reason: `Arweave confirmation timeout after ${Math.floor(elapsed / 1000)}s`,
+        };
+      }
+
+      // Not yet confirmed, retry
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: 'Arweave tx not yet confirmed',
+          code: 'ARWEAVE_PENDING',
+        },
+      };
+    } catch (error) {
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: error instanceof Error ? error.message : String(error),
+          code: 'ARWEAVE_CHECK_ERROR',
+          originalError: error instanceof Error ? error : undefined,
+        },
+      };
+    }
+  }
+}
+
+/**
+ * Step 3: Submit work on-chain
+ */
+export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+  private contractEncoder: ContractEncoder;
+
+  constructor(
+    txQueue: TxQueue,
+    persistence: WorkflowPersistence,
+    contractEncoder: ContractEncoder
+  ) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+    this.contractEncoder = contractEncoder;
+  }
+
+  isIrreversible(): boolean {
+    // On-chain submission is irreversible - MUST reconcile first
+    return true;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if we already have a tx hash, skip to confirmation
+    if (progress.onchain_tx_hash) {
+      return { type: 'SUCCESS', nextStep: 'AWAIT_TX_CONFIRM' };
+    }
+
+    if (!progress.arweave_tx_id || !progress.arweave_confirmed) {
+      // Should not happen if state machine is correct
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'Arweave upload not confirmed',
+          code: 'ARWEAVE_NOT_READY',
+        },
+      };
+    }
+
+    const evidenceUri = `ar://${progress.arweave_tx_id}`;
+
+    const txData = this.contractEncoder.encodeSubmitWork(
+      input.data_hash,
+      input.thread_root,
+      input.evidence_root,
+      evidenceUri
+    );
+
+    const txRequest: TxRequest = {
+      to: input.studio_address,
+      data: txData,
+    };
+
+    try {
+      // Use submitOnly to get tx hash immediately
+      // Lock is held until we explicitly release
+      const txHash = await this.txQueue.submitOnly(
+        workflow.id,
+        input.signer_address,
+        txRequest
+      );
+
+      // Persist tx hash (critical checkpoint)
+      await this.persistence.appendProgress(workflow.id, { onchain_tx_hash: txHash });
+
+      return { type: 'SUCCESS', nextStep: 'AWAIT_TX_CONFIRM' };
+    } catch (error) {
+      // Release lock is handled by txQueue on error
+      const classified = this.classifyTxError(error);
+
+      if (classified.category === 'PERMANENT') {
+        return { type: 'FAILED', error: classified };
+      }
+
+      return { type: 'RETRY', error: classified };
+    }
+  }
+
+  private classifyTxError(error: unknown): ClassifiedError {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Contract reverts are permanent
+    if (message.includes('already submitted') || message.includes('work exists')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Work already submitted',
+        code: 'ALREADY_SUBMITTED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('epoch closed') || message.includes('epoch not active')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Epoch is closed',
+        code: 'EPOCH_CLOSED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('not registered') || message.includes('unauthorized')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Agent not registered',
+        code: 'AGENT_NOT_REGISTERED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Nonce issues are recoverable
+    if (message.includes('nonce too low')) {
+      return {
+        category: 'RECOVERABLE',
+        message: 'Nonce too low (tx may have landed)',
+        code: 'NONCE_TOO_LOW',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Gas issues are transient (can retry with different gas)
+    if (message.includes('gas') || message.includes('out of gas')) {
+      return {
+        category: 'TRANSIENT',
+        message: 'Gas estimation failed',
+        code: 'GAS_ERROR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Network errors
+    if (message.includes('network') || message.includes('timeout')) {
+      return {
+        category: 'TRANSIENT',
+        message: 'Network error',
+        code: 'NETWORK_ERROR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    return {
+      category: 'UNKNOWN',
+      message,
+      code: 'UNKNOWN_TX_ERROR',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+}
+
+/**
+ * Step 4: Wait for transaction confirmation
+ */
+export class AwaitTxConfirmStep implements StepExecutor<WorkSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+
+  constructor(txQueue: TxQueue, persistence: WorkflowPersistence) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    // Waiting is not irreversible, but should reconcile anyway
+    return true;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if already confirmed, we're done
+    if (progress.onchain_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    if (!progress.onchain_tx_hash) {
+      // Should not happen if state machine is correct
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'No tx hash found',
+          code: 'MISSING_TX_HASH',
+        },
+      };
+    }
+
+    try {
+      const receipt = await this.txQueue.waitForTx(progress.onchain_tx_hash);
+
+      // Release the signer lock now that tx is confirmed
+      this.txQueue.releaseSignerLock(input.signer_address);
+
+      switch (receipt.status) {
+        case 'confirmed':
+          await this.persistence.appendProgress(workflow.id, {
+            onchain_confirmed: true,
+            onchain_block: receipt.blockNumber,
+            onchain_confirmed_at: Date.now(),
+          });
+          return { type: 'SUCCESS', nextStep: null };
+
+        case 'reverted':
+          return {
+            type: 'FAILED',
+            error: {
+              category: 'PERMANENT',
+              message: `Transaction reverted: ${receipt.revertReason}`,
+              code: 'TX_REVERTED',
+            },
+          };
+
+        case 'pending':
+          // Still pending, retry
+          return {
+            type: 'RETRY',
+            error: {
+              category: 'TRANSIENT',
+              message: 'Transaction still pending',
+              code: 'TX_PENDING',
+            },
+          };
+
+        case 'not_found':
+          // Tx dropped, need to resubmit
+          return {
+            type: 'STALLED',
+            reason: 'Transaction not found after timeout',
+          };
+      }
+    } catch (error) {
+      // Don't release lock on error - reconciliation will handle
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: error instanceof Error ? error.message : String(error),
+          code: 'TX_WAIT_ERROR',
+          originalError: error instanceof Error ? error : undefined,
+        },
+      };
+    }
+  }
+}
+
+// =============================================================================
+// WORKFLOW FACTORY
+// =============================================================================
+
+/**
+ * Create a WorkSubmission workflow record.
+ */
+export function createWorkSubmissionWorkflow(
+  input: WorkSubmissionInput
+): WorkSubmissionRecord {
+  return {
+    id: uuidv4(),
+    type: 'WorkSubmission',
+    created_at: Date.now(),
+    updated_at: Date.now(),
+    state: 'CREATED',
+    step: 'UPLOAD_EVIDENCE',
+    step_attempts: 0,
+    input,
+    progress: {},
+    signer: input.signer_address,
+  };
+}
+
+/**
+ * Create WorkSubmission workflow definition.
+ */
+export function createWorkSubmissionDefinition(
+  arweave: ArweaveUploader,
+  txQueue: TxQueue,
+  persistence: WorkflowPersistence,
+  contractEncoder: ContractEncoder
+): WorkflowDefinition<WorkSubmissionRecord> {
+  const steps = new Map<string, StepExecutor<WorkSubmissionRecord>>();
+
+  steps.set('UPLOAD_EVIDENCE', new UploadEvidenceStep(arweave, persistence));
+  steps.set('AWAIT_ARWEAVE_CONFIRM', new AwaitArweaveConfirmStep(arweave, persistence));
+  steps.set('SUBMIT_WORK_ONCHAIN', new SubmitWorkOnchainStep(txQueue, persistence, contractEncoder));
+  steps.set('AWAIT_TX_CONFIRM', new AwaitTxConfirmStep(txQueue, persistence));
+
+  return {
+    type: 'WorkSubmission',
+    initialStep: 'UPLOAD_EVIDENCE',
+    steps,
+    stepOrder: [
+      'UPLOAD_EVIDENCE',
+      'AWAIT_ARWEAVE_CONFIRM',
+      'SUBMIT_WORK_ONCHAIN',
+      'AWAIT_TX_CONFIRM',
+    ],
+  };
+}
