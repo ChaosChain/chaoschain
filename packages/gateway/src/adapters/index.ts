@@ -3,7 +3,7 @@
  * 
  * Adapter implementations for external services:
  * - Chain (ethers.js)
- * - Arweave (Irys)
+ * - Arweave (Turbo / Irys)
  */
 
 export {
@@ -14,6 +14,8 @@ export {
 } from './chain-adapter.js';
 
 export {
+  TurboClient,
+  TurboArweaveAdapter,
   IrysArweaveAdapter,
   MockArweaveAdapter,
 } from './arweave-adapter.js';

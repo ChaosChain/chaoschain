@@ -1,11 +1,15 @@
 /**
- * Arweave Adapter - Irys implementation
+ * Arweave Adapter - Production Turbo Implementation
  * 
- * Minimal implementation for WorkSubmission workflow only.
- * Uses Irys (formerly Bundlr) for fast uploads with guaranteed finality.
+ * Uses ArDrive Turbo for fast uploads with guaranteed finality.
  * 
- * Note: This is a stub that can be swapped for real Irys client.
- * For testing, use MockArweaveAdapter.
+ * BOUNDARY INVARIANTS:
+ * - Arweave is EVIDENCE STORAGE, not a control plane
+ * - All Arweave failures → STALLED (operational), never FAILED (correctness)
+ * - Gateway does NOT interpret stored content
+ * - Gateway does NOT trigger workflows based on Arweave state
+ * 
+ * @see https://github.com/ardriveapp/turbo-python-sdk
  */
 
 import {
@@ -13,24 +17,171 @@ import {
   ArweaveAdapter,
   ArweaveStatus,
 } from '../workflows/index.js';
+import {
+  evidenceOnly,
+  mapArweaveErrorToState,
+} from '../boundaries/index.js';
 
 // =============================================================================
-// ARWEAVE ADAPTER IMPLEMENTATION
+// TURBO ADAPTER (Production)
 // =============================================================================
 
 /**
- * Real Arweave/Irys adapter.
- * Requires Irys SDK to be installed.
+ * Turbo client interface.
+ * Matches the API from @ardrive/turbo-sdk.
+ */
+export interface TurboClient {
+  uploadFile(options: {
+    fileStreamFactory: () => Buffer;
+    fileSizeFactory: () => number;
+    dataItemOpts?: {
+      tags?: Array<{ name: string; value: string }>;
+    };
+  }): Promise<{ id: string }>;
+}
+
+/**
+ * Production Arweave adapter using Turbo.
  * 
- * Usage:
- * ```
- * const irys = new Irys({ url: 'https://node1.irys.xyz', ... });
- * const adapter = new IrysArweaveAdapter(irys);
- * ```
+ * Turbo provides:
+ * - Fast uploads (no proof of work)
+ * - Guaranteed Arweave finality
+ * - Pay-as-you-go pricing
+ * 
+ * FAILURE SEMANTICS:
+ * All Turbo errors result in STALLED state (operational failure).
+ * The evidence might have been uploaded; reconciliation will determine truth.
+ */
+export class TurboArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
+  private turbo: TurboClient;
+  private gatewayUrl: string;
+
+  constructor(turboClient: TurboClient, gatewayUrl: string = 'https://arweave.net') {
+    this.turbo = turboClient;
+    this.gatewayUrl = gatewayUrl;
+  }
+
+  /**
+   * Upload evidence to Arweave via Turbo.
+   * 
+   * Returns TX ID on success.
+   * Throws on failure → caller should map to STALLED.
+   */
+  async upload(
+    content: Buffer,
+    tags?: Record<string, string>
+  ): Promise<string> {
+    evidenceOnly('Uploading evidence bundle to Arweave');
+
+    const turboTags = tags
+      ? Object.entries(tags).map(([name, value]) => ({ name, value }))
+      : [];
+
+    // Add ChaosChain identification tag
+    turboTags.push({ name: 'App-Name', value: 'ChaosChain' });
+    turboTags.push({ name: 'App-Version', value: '0.1.0' });
+
+    try {
+      const result = await this.turbo.uploadFile({
+        fileStreamFactory: () => content,
+        fileSizeFactory: () => content.length,
+        dataItemOpts: {
+          tags: turboTags,
+        },
+      });
+
+      return result.id;
+    } catch (error) {
+      // Map to STALLED semantic
+      const state = mapArweaveErrorToState(error as Error);
+      if (state !== 'STALLED') {
+        throw new Error('Invariant violation: Arweave errors must map to STALLED');
+      }
+      throw error; // Re-throw; caller will handle as STALLED
+    }
+  }
+
+  /**
+   * Check if TX is confirmed on Arweave.
+   * 
+   * Gateway fetches the HEAD to verify existence.
+   * Does NOT interpret content.
+   */
+  async isConfirmed(txId: string): Promise<boolean> {
+    evidenceOnly('Checking Arweave TX confirmation status');
+
+    try {
+      const response = await fetch(`${this.gatewayUrl}/${txId}`, {
+        method: 'HEAD',
+      });
+      return response.ok;
+    } catch {
+      // Network error — assume not confirmed (will retry)
+      return false;
+    }
+  }
+
+  /**
+   * Get detailed status of a TX.
+   */
+  async getStatus(txId: string): Promise<ArweaveStatus> {
+    evidenceOnly('Getting Arweave TX status');
+
+    try {
+      const response = await fetch(`${this.gatewayUrl}/${txId}`, {
+        method: 'HEAD',
+      });
+      
+      if (response.ok) {
+        return 'confirmed';
+      }
+      
+      if (response.status === 404) {
+        return 'not_found';
+      }
+      
+      // Other status codes - assume pending
+      return 'pending';
+    } catch {
+      // Network error - assume pending
+      return 'pending';
+    }
+  }
+
+  /**
+   * Retrieve evidence from Arweave.
+   * 
+   * Returns raw bytes — Gateway does NOT interpret content.
+   */
+  async retrieve(txId: string): Promise<Uint8Array | null> {
+    evidenceOnly('Retrieving evidence from Arweave');
+
+    try {
+      const response = await fetch(`${this.gatewayUrl}/${txId}`);
+      
+      if (!response.ok) {
+        return null;
+      }
+      
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    } catch {
+      return null;
+    }
+  }
+}
+
+// =============================================================================
+// IRYS ADAPTER (Legacy - kept for compatibility)
+// =============================================================================
+
+/**
+ * Legacy Irys adapter.
+ * @deprecated Use TurboArweaveAdapter instead.
  */
 export class IrysArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private irys: any; // Irys type from @irys/sdk
+  private irys: any;
   private gatewayUrl: string;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,6 +194,8 @@ export class IrysArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
     content: Buffer,
     tags?: Record<string, string>
   ): Promise<string> {
+    evidenceOnly('Uploading evidence via legacy Irys');
+
     const irysTags = tags
       ? Object.entries(tags).map(([name, value]) => ({ name, value }))
       : [];
@@ -52,8 +205,6 @@ export class IrysArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
   }
 
   async isConfirmed(txId: string): Promise<boolean> {
-    // Irys provides instant finality, so if upload succeeded, it's confirmed
-    // For extra safety, we can check gateway
     try {
       const response = await fetch(`${this.gatewayUrl}/${txId}`, {
         method: 'HEAD',
@@ -78,10 +229,8 @@ export class IrysArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
         return 'not_found';
       }
       
-      // Other status codes - assume pending
       return 'pending';
     } catch {
-      // Network error - assume pending
       return 'pending';
     }
   }
