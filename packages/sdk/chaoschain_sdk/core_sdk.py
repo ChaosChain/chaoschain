@@ -113,7 +113,8 @@ class ChaosChainAgentSDK:
         storage_jwt: str = None,
         storage_gateway: str = None,
         storage_provider: Optional[Any] = None,  # Pluggable storage provider
-        compute_provider: Optional[Any] = None   # Pluggable compute provider
+        compute_provider: Optional[Any] = None,   # Pluggable compute provider
+        gateway_url: Optional[str] = None,  # ChaosChain Gateway URL for workflow execution
     ):
         """
         Initialize the ChaosChain Agent SDK.
@@ -132,6 +133,10 @@ class ChaosChainAgentSDK:
             storage_gateway: Custom IPFS gateway URL
             storage_provider: Optional custom storage provider (0G, Pinata, local IPFS, etc.)
             compute_provider: Optional custom compute provider (0G Compute, local, etc.)
+            gateway_url: URL of ChaosChain Gateway for workflow execution (recommended)
+                When provided, submit_work/submit_score/close_epoch will use Gateway.
+                Gateway handles transaction signing, evidence storage, and confirmations.
+                Example: "http://localhost:3000" or "https://gateway.chaoscha.in"
         """
         # Convert string parameters to enums if needed
         if isinstance(agent_role, str):
@@ -154,6 +159,12 @@ class ChaosChainAgentSDK:
         # Store optional provider references for pluggable architecture
         self._custom_storage_provider = storage_provider
         self._custom_compute_provider = compute_provider
+        self._gateway_url = gateway_url
+        
+        # Initialize Gateway client if URL provided
+        self._gateway_client = None
+        if gateway_url:
+            self._initialize_gateway_client(gateway_url)
         
         # Initialize core components
         self._initialize_wallet_manager(wallet_file)
@@ -357,6 +368,57 @@ class ChaosChainAgentSDK:
             rprint(f"[yellow]⚠️  XMTP not available: {e}[/yellow]")
             rprint(f"[yellow]   Install with: pip install xmtp[/yellow]")
             self.xmtp_manager = None
+    
+    def _initialize_gateway_client(self, gateway_url: str):
+        """
+        Initialize Gateway client for workflow execution.
+        
+        When Gateway is configured:
+        - SDK does NOT submit transactions directly
+        - SDK only prepares inputs and polls for results
+        - All execution happens in Gateway
+        
+        Gateway handles:
+        - Evidence storage (Arweave)
+        - Transaction signing and submission
+        - Confirmation waiting
+        - Crash recovery and reconciliation
+        """
+        try:
+            from .gateway_client import GatewayClient
+            self._gateway_client = GatewayClient(gateway_url)
+            
+            # Verify Gateway is reachable
+            if self._gateway_client.is_healthy():
+                rprint(f"[green]🌐 Gateway connected: {gateway_url}[/green]")
+            else:
+                rprint(f"[yellow]⚠️  Gateway not responding: {gateway_url}[/yellow]")
+        except Exception as e:
+            rprint(f"[yellow]⚠️  Gateway client initialization failed: {e}[/yellow]")
+            self._gateway_client = None
+    
+    @property
+    def gateway(self):
+        """
+        Get the Gateway client for direct access.
+        
+        Returns:
+            GatewayClient if configured, None otherwise
+            
+        Example:
+            ```python
+            if sdk.gateway:
+                # Submit work via Gateway
+                workflow = sdk.gateway.submit_work(...)
+                result = sdk.gateway.wait_for_completion(workflow.id)
+            ```
+        """
+        return self._gateway_client
+    
+    @property
+    def has_gateway(self) -> bool:
+        """Check if Gateway is configured and available."""
+        return self._gateway_client is not None
     
     def _initialize_chaos_agent(self):
         """Initialize core ChaosChain agent."""
@@ -2682,6 +2744,287 @@ class ChaosChainAgentSDK:
         except Exception as e:
             raise ContractError(f"Failed to withdraw rewards: {str(e)}")
     
+    # =========================================================================
+    # Gateway-Enabled Methods (Recommended for Production)
+    # =========================================================================
+    
+    def submit_work_via_gateway(
+        self,
+        studio_address: str,
+        epoch: int,
+        data_hash: bytes,
+        thread_root: bytes,
+        evidence_root: bytes,
+        evidence_content: bytes,
+        wait_for_completion: bool = True,
+        on_progress: Optional[callable] = None
+    ):
+        """
+        Submit work via Gateway (RECOMMENDED for production).
+        
+        This method uses the Gateway for workflow execution:
+        - SDK only prepares inputs and polls for results
+        - Gateway handles evidence storage (Arweave)
+        - Gateway handles transaction signing and submission
+        - Gateway handles crash recovery and reconciliation
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            epoch: Epoch number
+            data_hash: EIP-712 DataHash of the work (bytes32)
+            thread_root: VLC/Merkle root of XMTP thread (bytes32)
+            evidence_root: Merkle root of evidence (bytes32)
+            evidence_content: Raw evidence bytes (uploaded to Arweave by Gateway)
+            wait_for_completion: If True, block until workflow completes
+            on_progress: Optional callback for progress updates
+            
+        Returns:
+            WorkflowStatus if wait_for_completion=True
+            WorkflowStatus (CREATED state) if wait_for_completion=False
+            
+        Raises:
+            RuntimeError: If Gateway not configured
+            GatewayError: If Gateway request fails
+            WorkflowFailedError: If workflow fails
+            
+        Example:
+            ```python
+            sdk = ChaosChainAgentSDK(
+                agent_name="MyAgent",
+                agent_domain="myagent.example.com",
+                gateway_url="http://localhost:3000"
+            )
+            
+            result = sdk.submit_work_via_gateway(
+                studio_address="0x...",
+                epoch=1,
+                data_hash=data_hash,
+                thread_root=thread_root,
+                evidence_root=evidence_root,
+                evidence_content=evidence_bytes
+            )
+            print(f"Work submitted: {result.progress.onchain_tx_hash}")
+            ```
+        """
+        if not self._gateway_client:
+            raise RuntimeError(
+                "Gateway not configured. Initialize SDK with gateway_url parameter. "
+                "Example: ChaosChainAgentSDK(..., gateway_url='http://localhost:3000')"
+            )
+        
+        from rich import print as rprint
+        
+        # Prepare data - SDK does NOT execute, only prepares
+        studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+        agent_address = self.wallet_address
+        signer_address = self.wallet_address  # Signer must be registered in Gateway
+        
+        # Convert bytes to hex strings
+        data_hash_hex = data_hash.hex() if isinstance(data_hash, bytes) else data_hash
+        thread_root_hex = thread_root.hex() if isinstance(thread_root, bytes) else thread_root
+        evidence_root_hex = evidence_root.hex() if isinstance(evidence_root, bytes) else evidence_root
+        
+        # Ensure hex prefix
+        if not data_hash_hex.startswith('0x'):
+            data_hash_hex = '0x' + data_hash_hex
+        if not thread_root_hex.startswith('0x'):
+            thread_root_hex = '0x' + thread_root_hex
+        if not evidence_root_hex.startswith('0x'):
+            evidence_root_hex = '0x' + evidence_root_hex
+        
+        rprint(f"[cyan]→[/cyan] Submitting work via Gateway")
+        rprint(f"[dim]   Studio: {studio_address}[/dim]")
+        rprint(f"[dim]   Epoch: {epoch}[/dim]")
+        rprint(f"[dim]   DataHash: {data_hash_hex}[/dim]")
+        
+        if wait_for_completion:
+            result = self._gateway_client.submit_work_and_wait(
+                studio_address=studio_address,
+                epoch=epoch,
+                agent_address=agent_address,
+                data_hash=data_hash_hex,
+                thread_root=thread_root_hex,
+                evidence_root=evidence_root_hex,
+                evidence_content=evidence_content,
+                signer_address=signer_address,
+                on_progress=on_progress
+            )
+            rprint(f"[green]✓[/green] Work submitted via Gateway")
+            rprint(f"[dim]   Tx: {result.progress.onchain_tx_hash}[/dim]")
+            return result
+        else:
+            result = self._gateway_client.submit_work(
+                studio_address=studio_address,
+                epoch=epoch,
+                agent_address=agent_address,
+                data_hash=data_hash_hex,
+                thread_root=thread_root_hex,
+                evidence_root=evidence_root_hex,
+                evidence_content=evidence_content,
+                signer_address=signer_address
+            )
+            rprint(f"[cyan]→[/cyan] Workflow created: {result.id}")
+            return result
+    
+    def submit_score_via_gateway(
+        self,
+        studio_address: str,
+        epoch: int,
+        data_hash: bytes,
+        scores: List[int],
+        salt: Optional[bytes] = None,
+        wait_for_completion: bool = True,
+        on_progress: Optional[callable] = None
+    ):
+        """
+        Submit score via Gateway (commit-reveal pattern).
+        
+        Gateway handles:
+        - Commit phase (hash of score + salt)
+        - Reveal phase (score + salt)
+        - Transaction confirmations
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            epoch: Epoch number
+            data_hash: Bytes32 hash of the work being scored
+            scores: Array of dimension scores (0-10000 basis points)
+            salt: Bytes32 random salt for commit-reveal (auto-generated if None)
+            wait_for_completion: If True, block until workflow completes
+            on_progress: Optional callback for progress updates
+            
+        Returns:
+            WorkflowStatus
+            
+        Example:
+            ```python
+            result = sdk.submit_score_via_gateway(
+                studio_address="0x...",
+                epoch=1,
+                data_hash=data_hash,
+                scores=[8000, 7500, 9000, 6500, 8500]  # 5 dimensions
+            )
+            ```
+        """
+        if not self._gateway_client:
+            raise RuntimeError(
+                "Gateway not configured. Initialize SDK with gateway_url parameter."
+            )
+        
+        import os
+        from rich import print as rprint
+        
+        # Prepare data
+        studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+        validator_address = self.wallet_address
+        signer_address = self.wallet_address
+        
+        # Convert bytes to hex
+        data_hash_hex = data_hash.hex() if isinstance(data_hash, bytes) else data_hash
+        if not data_hash_hex.startswith('0x'):
+            data_hash_hex = '0x' + data_hash_hex
+        
+        # Generate salt if not provided
+        if salt is None:
+            salt = os.urandom(32)
+        salt_hex = salt.hex() if isinstance(salt, bytes) else salt
+        if not salt_hex.startswith('0x'):
+            salt_hex = '0x' + salt_hex
+        
+        rprint(f"[cyan]→[/cyan] Submitting score via Gateway (commit-reveal)")
+        rprint(f"[dim]   Studio: {studio_address}[/dim]")
+        rprint(f"[dim]   Epoch: {epoch}[/dim]")
+        rprint(f"[dim]   Scores: {scores}[/dim]")
+        
+        if wait_for_completion:
+            result = self._gateway_client.submit_score_and_wait(
+                studio_address=studio_address,
+                epoch=epoch,
+                validator_address=validator_address,
+                data_hash=data_hash_hex,
+                scores=scores,
+                salt=salt_hex,
+                signer_address=signer_address,
+                on_progress=on_progress
+            )
+            rprint(f"[green]✓[/green] Score submitted via Gateway")
+            return result
+        else:
+            result = self._gateway_client.submit_score(
+                studio_address=studio_address,
+                epoch=epoch,
+                validator_address=validator_address,
+                data_hash=data_hash_hex,
+                scores=scores,
+                salt=salt_hex,
+                signer_address=signer_address
+            )
+            rprint(f"[cyan]→[/cyan] Workflow created: {result.id}")
+            return result
+    
+    def close_epoch_via_gateway(
+        self,
+        studio_address: str,
+        epoch: int,
+        wait_for_completion: bool = True,
+        on_progress: Optional[callable] = None
+    ):
+        """
+        Close epoch via Gateway.
+        
+        This is economically final — cannot be undone.
+        
+        Gateway checks preconditions (structural only):
+        - Epoch exists
+        - Epoch is not already closed
+        - Close window is open
+        
+        Args:
+            studio_address: Address of the Studio proxy
+            epoch: Epoch number to close
+            wait_for_completion: If True, block until workflow completes
+            on_progress: Optional callback for progress updates
+            
+        Returns:
+            WorkflowStatus
+        """
+        if not self._gateway_client:
+            raise RuntimeError(
+                "Gateway not configured. Initialize SDK with gateway_url parameter."
+            )
+        
+        from rich import print as rprint
+        
+        studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
+        signer_address = self.wallet_address
+        
+        rprint(f"[cyan]→[/cyan] Closing epoch via Gateway")
+        rprint(f"[dim]   Studio: {studio_address}[/dim]")
+        rprint(f"[dim]   Epoch: {epoch}[/dim]")
+        rprint(f"[yellow]⚠️  This is economically final![/yellow]")
+        
+        if wait_for_completion:
+            result = self._gateway_client.close_epoch_and_wait(
+                studio_address=studio_address,
+                epoch=epoch,
+                signer_address=signer_address,
+                on_progress=on_progress
+            )
+            rprint(f"[green]✓[/green] Epoch closed via Gateway")
+            return result
+        else:
+            result = self._gateway_client.close_epoch(
+                studio_address=studio_address,
+                epoch=epoch,
+                signer_address=signer_address
+            )
+            rprint(f"[cyan]→[/cyan] Workflow created: {result.id}")
+            return result
+    
+    # =========================================================================
+    # Properties
+    # =========================================================================
+    
     @property
     def wallet_address(self) -> str:
         """Get the agent's wallet address."""
@@ -2699,5 +3042,7 @@ class ChaosChainAgentSDK:
             "network": self.network.value,
             "chain_id": self.wallet_manager.chain_id,
             "connected": self.wallet_manager.is_connected,
-            "wallet_address": self.wallet_address
+            "wallet_address": self.wallet_address,
+            "gateway_url": self._gateway_url,
+            "gateway_connected": self._gateway_client.is_healthy() if self._gateway_client else False
         }

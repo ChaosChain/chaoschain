@@ -64,6 +64,18 @@ from .core_sdk import ChaosChainAgentSDK
 from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
 from .x402_payment_manager import X402PaymentManager
+from .gateway_client import (
+    GatewayClient,
+    WorkflowType,
+    WorkflowState,
+    WorkflowStatus,
+    WorkflowProgress,
+    WorkflowError,
+    GatewayError,
+    GatewayConnectionError,
+    GatewayTimeoutError,
+    WorkflowFailedError,
+)
 
 # Mandates (optional - requires mandates-core package)
 try:
@@ -228,6 +240,18 @@ __all__ = [
     "ChaosAgent",
     "WalletManager",
     "X402PaymentManager",
+    
+    # Gateway Client
+    "GatewayClient",
+    "WorkflowType",
+    "WorkflowState",
+    "WorkflowStatus",
+    "WorkflowProgress",
+    "WorkflowError",
+    "GatewayError",
+    "GatewayConnectionError",
+    "GatewayTimeoutError",
+    "WorkflowFailedError",
     
     # Types
     "NetworkConfig",
