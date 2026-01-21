@@ -48,6 +48,15 @@ export type ScoreSubmissionStep =
   | 'AWAIT_REVEAL_CONFIRM';
 
 // =============================================================================
+// CLOSE EPOCH WORKFLOW STEPS
+// =============================================================================
+
+export type CloseEpochStep =
+  | 'CHECK_PRECONDITIONS'
+  | 'SUBMIT_CLOSE_EPOCH'
+  | 'AWAIT_TX_CONFIRM';
+
+// =============================================================================
 // WORKFLOW INPUT (Immutable after creation)
 // =============================================================================
 
@@ -151,6 +160,34 @@ export interface ScoreSubmissionProgress {
 }
 
 export type ScoreSubmissionRecord = WorkflowRecord<ScoreSubmissionInput, ScoreSubmissionProgress>;
+
+// =============================================================================
+// CLOSE EPOCH INPUT (Immutable after creation)
+// =============================================================================
+
+export interface CloseEpochInput {
+  studio_address: string;
+  epoch: number;
+  signer_address: string;     // Which key signs on-chain txs
+}
+
+// =============================================================================
+// CLOSE EPOCH PROGRESS (Mutable, append-only)
+// =============================================================================
+
+export interface CloseEpochProgress {
+  // Precondition checks
+  preconditions_checked?: boolean;
+  preconditions_checked_at?: number;
+  
+  // Close epoch tx
+  close_tx_hash?: string;
+  close_confirmed?: boolean;
+  close_block?: number;
+  close_confirmed_at?: number;
+}
+
+export type CloseEpochRecord = WorkflowRecord<CloseEpochInput, CloseEpochProgress>;
 
 // =============================================================================
 // FAILURE CATEGORIES

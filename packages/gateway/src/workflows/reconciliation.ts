@@ -16,10 +16,12 @@ import {
   WorkflowRecord,
   WorkSubmissionRecord,
   ScoreSubmissionRecord,
+  CloseEpochRecord,
   ArweaveStatus,
 } from './types.js';
 import { TxQueue } from './tx-queue.js';
 import { ScoreChainStateAdapter } from './score-submission.js';
+import { EpochChainStateAdapter } from './close-epoch.js';
 
 // =============================================================================
 // CHAIN STATE ADAPTER INTERFACE
@@ -82,24 +84,27 @@ export class WorkflowReconciler {
   private arweave: ArweaveAdapter;
   private txQueue: TxQueue;
   private scoreChainState?: ScoreChainStateAdapter;
+  private epochChainState?: EpochChainStateAdapter;
 
   constructor(
     chainState: ChainStateAdapter,
     arweave: ArweaveAdapter,
     txQueue: TxQueue,
-    scoreChainState?: ScoreChainStateAdapter
+    scoreChainState?: ScoreChainStateAdapter,
+    epochChainState?: EpochChainStateAdapter
   ) {
     this.chainState = chainState;
     this.arweave = arweave;
     this.txQueue = txQueue;
     this.scoreChainState = scoreChainState;
+    this.epochChainState = epochChainState;
   }
 
   /**
    * Reconcile a workflow (routes based on type).
    * 
    * Determines true state by querying on-chain state.
-   * Works for both WorkSubmission and ScoreSubmission workflows.
+   * Works for WorkSubmission, ScoreSubmission, and CloseEpoch workflows.
    */
   async reconcileWorkSubmission(
     workflow: WorkflowRecord
@@ -107,6 +112,10 @@ export class WorkflowReconciler {
     // Route to type-specific reconciliation
     if (workflow.type === 'ScoreSubmission') {
       return this.reconcileScoreSubmissionInternal(workflow as ScoreSubmissionRecord);
+    }
+
+    if (workflow.type === 'CloseEpoch') {
+      return this.reconcileCloseEpochInternal(workflow as CloseEpochRecord);
     }
 
     // Default: WorkSubmission
@@ -342,6 +351,74 @@ export class WorkflowReconciler {
 
     // ==========================================================================
     // RULE 5: No reconciliation needed
+    // ==========================================================================
+    return { action: 'NO_CHANGE' };
+  }
+
+  /**
+   * Internal: Reconcile CloseEpoch workflow.
+   */
+  private async reconcileCloseEpochInternal(
+    workflow: CloseEpochRecord
+  ): Promise<ReconciliationResult> {
+    const { input, progress } = workflow;
+
+    if (!this.epochChainState) {
+      // No epoch chain state adapter, skip reconciliation
+      return { action: 'NO_CHANGE' };
+    }
+
+    // ==========================================================================
+    // RULE 1: Check if epoch is already closed (highest priority - workflow done)
+    // ==========================================================================
+    const isClosed = await this.epochChainState.isEpochClosed(
+      input.studio_address,
+      input.epoch
+    );
+
+    if (isClosed) {
+      return { action: 'COMPLETE' };
+    }
+
+    // ==========================================================================
+    // RULE 2: Check close tx status (if we have a tx hash)
+    // ==========================================================================
+    if (progress.close_tx_hash) {
+      const receipt = await this.txQueue.checkTxStatus(progress.close_tx_hash);
+
+      if (receipt === null) {
+        return { action: 'NO_CHANGE' };
+      }
+
+      switch (receipt.status) {
+        case 'confirmed':
+          const closedDoubleCheck = await this.epochChainState.isEpochClosed(
+            input.studio_address,
+            input.epoch
+          );
+          if (closedDoubleCheck) {
+            return { action: 'COMPLETE' };
+          }
+          // Tx confirmed but epoch not closed - should not happen
+          return { action: 'FAIL', reason: 'close_tx_confirmed_but_epoch_not_closed' };
+
+        case 'reverted':
+          return { action: 'FAIL', reason: `close_tx_reverted: ${receipt.revertReason}` };
+
+        case 'pending':
+          return { action: 'NO_CHANGE' };
+
+        case 'not_found':
+          // Clear tx hash and allow retry
+          return { 
+            action: 'UPDATE_PROGRESS', 
+            updates: { close_tx_hash: undefined } 
+          };
+      }
+    }
+
+    // ==========================================================================
+    // RULE 3: No reconciliation needed
     // ==========================================================================
     return { action: 'NO_CHANGE' };
   }

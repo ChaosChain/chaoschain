@@ -88,6 +88,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /workflows/close-epoch:
+    post:
+      summary: Create a close epoch workflow
+      description: |
+        Creates a workflow to close an epoch, triggering consensus and reward distribution.
+        
+        This is economically final - closeEpoch cannot be undone.
+        
+        Preconditions checked (structural only):
+        - Epoch exists
+        - Epoch is not already closed
+        - Close window is open
+        
+        NOT checked (contract handles via revert):
+        - Work submissions exist
+        - Score submissions exist
+        - Consensus achievable
+      operationId: createCloseEpoch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCloseEpochRequest'
+      responses:
+        '201':
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /workflows/{id}:
     get:
       summary: Get workflow by ID
@@ -158,6 +196,27 @@ paths:
 
 components:
   schemas:
+    CreateCloseEpochRequest:
+      type: object
+      required:
+        - studio_address
+        - epoch
+        - signer_address
+      properties:
+        studio_address:
+          type: string
+          description: Ethereum address of the studio
+          example: "0x1234567890123456789012345678901234567890"
+        epoch:
+          type: integer
+          minimum: 0
+          description: Epoch number to close
+          example: 1
+        signer_address:
+          type: string
+          description: Ethereum address of the transaction signer
+          example: "0x1234567890123456789012345678901234567890"
+
     CreateScoreSubmissionRequest:
       type: object
       required:
@@ -257,7 +316,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [WorkSubmission, ScoreSubmission]
+          enum: [WorkSubmission, ScoreSubmission, CloseEpoch]
         state:
           type: string
           enum: [CREATED, RUNNING, STALLED, COMPLETED, FAILED]

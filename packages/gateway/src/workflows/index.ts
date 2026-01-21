@@ -33,6 +33,11 @@ export {
   ScoreSubmissionInput,
   ScoreSubmissionProgress,
   ScoreSubmissionRecord,
+  // CloseEpoch types
+  CloseEpochStep,
+  CloseEpochInput,
+  CloseEpochProgress,
+  CloseEpochRecord,
   // Common types
   FailureCategory,
   ClassifiedError,
@@ -99,3 +104,15 @@ export {
   createScoreSubmissionDefinition,
   DefaultScoreContractEncoder,
 } from './score-submission.js';
+
+// CloseEpoch Workflow
+export {
+  EpochChainStateAdapter,
+  EpochContractEncoder,
+  CheckPreconditionsStep,
+  SubmitCloseEpochStep,
+  AwaitCloseEpochConfirmStep,
+  createCloseEpochWorkflow,
+  createCloseEpochDefinition,
+  DefaultEpochContractEncoder,
+} from './close-epoch.js';

@@ -10,7 +10,8 @@ import { WorkflowEngine } from '../workflows/engine.js';
 import { WorkflowPersistence } from '../workflows/persistence.js';
 import { createWorkSubmissionWorkflow } from '../workflows/work-submission.js';
 import { createScoreSubmissionWorkflow } from '../workflows/score-submission.js';
-import { WorkSubmissionInput, ScoreSubmissionInput, WorkflowRecord } from '../workflows/index.js';
+import { createCloseEpochWorkflow } from '../workflows/close-epoch.js';
+import { WorkSubmissionInput, ScoreSubmissionInput, CloseEpochInput, WorkflowRecord } from '../workflows/index.js';
 import { Logger } from '../utils/logger.js';
 
 // =============================================================================
@@ -35,6 +36,12 @@ interface CreateScoreSubmissionRequest {
   data_hash: string;
   scores: number[];  // Array of scores (0-10000 basis points)
   salt: string;      // bytes32 hex
+  signer_address: string;
+}
+
+interface CreateCloseEpochRequest {
+  studio_address: string;
+  epoch: number;
   signer_address: string;
 }
 
@@ -201,6 +208,44 @@ export function createRoutes(
         const workflow = createScoreSubmissionWorkflow(input);
 
         logger.info({ workflowId: workflow.id, type: workflow.type }, 'Creating workflow');
+
+        // Persist and start
+        await engine.createWorkflow(workflow);
+        
+        // Start workflow (non-blocking - engine runs it)
+        engine.startWorkflow(workflow.id).catch((err) => {
+          logger.error({ workflowId: workflow.id, error: err }, 'Workflow execution failed');
+        });
+
+        // Return created workflow
+        res.status(201).json(toWorkflowResponse(workflow));
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  // ===========================================================================
+  // POST /workflows/close-epoch
+  // Create a new CloseEpoch workflow
+  // ===========================================================================
+  router.post(
+    '/workflows/close-epoch',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const body = req.body as CreateCloseEpochRequest;
+
+        // Validate input
+        const input: CloseEpochInput = {
+          studio_address: validateAddress(body.studio_address, 'studio_address'),
+          epoch: validatePositiveInteger(body.epoch, 'epoch'),
+          signer_address: validateAddress(body.signer_address, 'signer_address'),
+        };
+
+        // Create workflow record
+        const workflow = createCloseEpochWorkflow(input);
+
+        logger.info({ workflowId: workflow.id, type: workflow.type, epoch: input.epoch }, 'Creating workflow');
 
         // Persist and start
         await engine.createWorkflow(workflow);
