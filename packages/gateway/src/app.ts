@@ -15,9 +15,11 @@ import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowReconciler } from './workflows/reconciliation.js';
 import { TxQueue } from './workflows/tx-queue.js';
 import { createWorkSubmissionDefinition } from './workflows/work-submission.js';
+import { createScoreSubmissionDefinition, DefaultScoreContractEncoder } from './workflows/score-submission.js';
+import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
 import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder } from './adapters/chain-adapter.js';
-import { MockArweaveAdapter } from './adapters/arweave-adapter.js';
+import { TurboArweaveAdapter } from './adapters/arweave-adapter.js';
 import { createRoutes, errorHandler } from './http/index.js';
 import { createLogger, Logger } from './utils/index.js';
 
@@ -38,6 +40,13 @@ export interface GatewayConfig {
   chainId: number;
   confirmationBlocks: number;
 
+  // Contracts (read-only, for validation/reconciliation)
+  chaosCoreAddress: string;
+  rewardsDistributorAddress: string;
+
+  // Arweave (Turbo)
+  turboGatewayUrl: string;
+
   // Logging
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
@@ -50,6 +59,11 @@ export function loadConfigFromEnv(): GatewayConfig {
     rpcUrl: process.env.RPC_URL ?? 'http://localhost:8545',
     chainId: parseInt(process.env.CHAIN_ID ?? '11155111', 10), // Sepolia
     confirmationBlocks: parseInt(process.env.CONFIRMATION_BLOCKS ?? '2', 10),
+    // ChaosChain contract addresses (Sepolia)
+    chaosCoreAddress: process.env.CHAOS_CORE_ADDRESS ?? '0xF6a57f04a08e3b5cC3c12D71c66189a0c0A73378',
+    rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19',
+    // Arweave Turbo gateway
+    turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
   };
 }
@@ -100,9 +114,9 @@ export class Gateway {
     // Initialize tx queue
     const txQueue = new TxQueue(chainAdapter);
 
-    // Initialize arweave adapter (mock for now)
-    const arweaveAdapter = new MockArweaveAdapter();
-    this.logger.info({}, 'Arweave adapter initialized (mock)');
+    // Initialize arweave adapter (Turbo production)
+    const arweaveAdapter = new TurboArweaveAdapter(this.config.turboGatewayUrl);
+    this.logger.info({ gateway: this.config.turboGatewayUrl }, 'Arweave adapter initialized (Turbo)');
 
     // Initialize reconciler
     const reconciler = new WorkflowReconciler(chainAdapter, arweaveAdapter, txQueue);
@@ -110,16 +124,40 @@ export class Gateway {
     // Initialize engine
     this.engine = new WorkflowEngine(persistence, reconciler);
 
-    // Register workflow definitions
-    const contractEncoder = new StudioProxyEncoder();
+    // Register all workflow definitions
+    const studioEncoder = new StudioProxyEncoder();
+    const scoreEncoder = new DefaultScoreContractEncoder();
+    const epochEncoder = new DefaultEpochContractEncoder();
+
+    // 1. WorkSubmission workflow
     const workSubmissionDef = createWorkSubmissionDefinition(
       arweaveAdapter,
       txQueue,
       persistence,
-      contractEncoder
+      studioEncoder
     );
     this.engine.registerWorkflow(workSubmissionDef);
     this.logger.info({}, 'WorkSubmission workflow registered');
+
+    // 2. ScoreSubmission workflow
+    const scoreSubmissionDef = createScoreSubmissionDefinition(
+      txQueue,
+      persistence,
+      scoreEncoder,
+      chainAdapter as any // ChainStateAdapter for score queries
+    );
+    this.engine.registerWorkflow(scoreSubmissionDef);
+    this.logger.info({}, 'ScoreSubmission workflow registered');
+
+    // 3. CloseEpoch workflow
+    const closeEpochDef = createCloseEpochDefinition(
+      txQueue,
+      persistence,
+      epochEncoder,
+      chainAdapter as any // EpochChainStateAdapter
+    );
+    this.engine.registerWorkflow(closeEpochDef);
+    this.logger.info({}, 'CloseEpoch workflow registered');
 
     // Subscribe to engine events for logging
     this.engine.onEvent((event) => {

@@ -1,49 +1,49 @@
 """
 XMTP Client for ChaosChain Agent Communication
 
-Provides agent-to-agent communication with causal DAG construction
-as specified in Protocol Spec v0.1 (§1 - Formal DKG & Causal Audit Model).
+⚠️ DEPRECATED: This module is deprecated and will be removed in v0.4.0.
 
-MVP Mode (Default):
-- Uses LOCAL message storage (no XMTP network dependency)
-- DKG nodes built from local interaction logs
-- Thread root computed locally (Merkle root)
-- VLC computed locally (Verifiable Logical Clock)
-- Full causal analysis support
+XMTP integration has moved to the Gateway service. The Gateway:
+1. Connects to real XMTP network for agent communication
+2. Stores conversation IDs and fetches message history
+3. Archives messages to Arweave as evidence
 
-Future Mode (XMTP Bridge):
-- When XMTP bridge infrastructure is deployed, agents can use real XMTP
-- Messages will be E2E encrypted via XMTP network
-- See packages/xmtp-bridge/ for bridge implementation
-
-Key Features (work in both modes):
-- DKG node construction (§1.1)
-- Thread root calculation (Merkle root over topologically sorted messages) (§1.2)
-- Verifiable Logical Clock (VLC) computation (§1.3)
-- Causality verification (parents exist, timestamps monotonic) (§1.5)
-
-Usage:
+SDK should NOT handle XMTP directly. Instead:
     ```python
     from chaoschain_sdk import ChaosChainAgentSDK
     
-    sdk = ChaosChainAgentSDK(...)
+    sdk = ChaosChainAgentSDK(gateway_url="https://api.chaoscha.in")
     
-    # Send message (creates DKG node locally)
-    message_id, dkg_node = sdk.xmtp.send_message(
-        to_agent="0x...",
-        content={"task": "analyze market data"},
-        parent_ids=[previous_message_id]  # Creates causal link
+    # Submit work via Gateway (XMTP evidence collected server-side)
+    workflow = await sdk.submit_work_via_gateway(
+        studio_address=studio,
+        evidence_content=evidence_bytes,
     )
-    
-    # Get thread for causal audit
-    thread = sdk.xmtp.get_thread()
-    
-    # Compute thread root for DataHash
-    thread_root = sdk.xmtp.compute_thread_root(thread["nodes"])
     ```
+
+This module is kept for backward compatibility only.
+DO NOT use it for new implementations.
+
+---
+
+Original docstring (deprecated):
+
+Provides agent-to-agent communication with causal DAG construction
+as specified in Protocol Spec v0.1 (§1 - Formal DKG & Causal Audit Model).
 
 @author ChaosChain
 """
+
+import warnings
+
+def _xmtp_deprecation_warning():
+    warnings.warn(
+        "chaoschain_sdk.xmtp_client is deprecated and will be removed in v0.5.0. "
+        "XMTP integration has moved to the Gateway service. "
+        "Use sdk.submit_work_via_gateway() instead.",
+        DeprecationWarning,
+        stacklevel=3
+    )
 
 from typing import List, Optional, Dict, Any, Tuple, Callable
 from dataclasses import dataclass, field
@@ -198,6 +198,9 @@ class XMTPManager:
     """
     XMTP-compatible message manager for agent communication.
     
+    ⚠️ DEPRECATED: This class is deprecated. XMTP integration has moved to Gateway.
+    Use sdk.submit_work_via_gateway() instead.
+    
     MVP Mode (Default):
     - Stores messages locally (in-memory + optional file persistence)
     - Builds DKG nodes with proper causal links
@@ -220,6 +223,7 @@ class XMTPManager:
         agent_id: Optional[int] = None,
         persistence_file: Optional[str] = None
     ):
+        _xmtp_deprecation_warning()
         """
         Initialize XMTP Manager.
         

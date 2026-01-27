@@ -87,10 +87,11 @@ except ImportError:
     MandateManager = None
     Mandate = None
 
-# XMTP & Causal Audit (optional - requires xmtp package)
+# XMTP & DKG (DEPRECATED - these have moved to Gateway)
+# These are kept for backward compatibility only
 try:
-    from .xmtp_client import XMTPManager, XMTPMessage
-    from .dkg import DKG, DKGNode
+    from .xmtp_client import XMTPManager, XMTPMessage  # DEPRECATED
+    from .dkg import DKG, DKGNode  # DEPRECATED
     from .verifier_agent import VerifierAgent, AuditResult
     from .studio_manager import StudioManager, Task, WorkerBid
     _has_xmtp = True

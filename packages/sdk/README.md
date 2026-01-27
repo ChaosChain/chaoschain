@@ -20,18 +20,29 @@ The ChaosChain SDK is a complete Python toolkit for building autonomous AI agent
 
 ---
 
-## What's New in v0.3.2
+## What's New in v0.3.3
 
 | Feature | Description |
 |---------|-------------|
+| **Gateway Integration** | SDK now routes all workflows through the Gateway service |
+| **`submit_work_via_gateway()`** | Recommended method for work submission (crash-resilient) |
+| **`submit_score_via_gateway()`** | Score submission with commit-reveal via Gateway |
+| **`close_epoch_via_gateway()`** | Epoch closure via Gateway workflows |
+| **GatewayClient** | HTTP client for polling workflow status |
 | **ERC-8004 Jan 2026 Spec** | First production implementation - no feedbackAuth, string tags, endpoint parameter |
 | **Permissionless Reputation** | Feedback submission no longer requires agent pre-authorization |
 | **String Tags** | Multi-dimensional scoring: "Initiative", "Collaboration", "Reasoning", etc. |
-| **DKG Builder** | Construct Decentralized Knowledge Graphs for causal audit |
-| **Per-Worker Scoring** | `submit_score_vector_for_worker()` - score each worker separately |
-| **Multi-Agent Submission** | `submit_work_multi_agent()` - accepts Dict, List[float], or List[int] |
 | **Agent ID Caching** | Local file cache prevents re-registration (saves gas!) |
-| **Contribution Weights** | DKG-derived weights for fair reward distribution |
+
+### ⚠️ Deprecated in v0.3.2
+
+| Deprecated | Replacement | Reason |
+|------------|-------------|--------|
+| `DKG` class | Gateway DKG Engine | DKG computation now happens server-side |
+| `XMTPManager` class | Gateway XMTP Adapter | XMTP bridging is now Gateway-only |
+| `submit_work()` direct | `submit_work_via_gateway()` | Gateway provides crash recovery, tx serialization |
+| `submit_work_multi_agent()` direct | `submit_work_via_gateway()` | Gateway computes DKG and weights |
+| Storage backends | Gateway Arweave Adapter | Evidence storage is now Gateway-only |
 
 ---
 
@@ -48,19 +59,18 @@ pip install chaoschain-sdk[storage-all]  # All storage providers
 pip install chaoschain-sdk[all]          # Everything
 ```
 
-### Basic Usage
+### Basic Usage (Gateway-First)
 
 ```python
 from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
 
-# Initialize your agent
+# Initialize your agent with Gateway
 sdk = ChaosChainAgentSDK(
     agent_name="MyAgent",
     agent_domain="myagent.example.com",
     agent_role=AgentRole.WORKER,
     network=NetworkConfig.ETHEREUM_SEPOLIA,
-    enable_process_integrity=True,
-    enable_payments=True
+    gateway_url="https://gateway.chaoscha.in"  # Gateway endpoint
 )
 
 # 1. Register on-chain identity (with caching!)
@@ -80,14 +90,30 @@ sdk.register_with_studio(
     stake_amount=100000000000000  # 0.0001 ETH
 )
 
-# 3. Submit work (ERC-8004 Jan 2026: no feedbackAuth needed)
-tx_hash = sdk.submit_work(
+# 3. Submit work via Gateway (recommended!)
+workflow = sdk.submit_work_via_gateway(
     studio_address=studio_address,
+    epoch=1,
     data_hash=data_hash,
-    thread_root=xmtp_thread_root,
-    evidence_root=evidence_root
+    thread_root=thread_root,
+    evidence_root=evidence_root,
+    signer_address=sdk.wallet_manager.address
 )
+
+# 4. Poll for completion
+final = sdk.gateway.wait_for_completion(workflow['id'], timeout=120)
+print(f"✅ Work submitted: {final['state']}")
 ```
+
+### Why Gateway?
+
+| Direct SDK | Via Gateway |
+|------------|-------------|
+| ❌ No crash recovery | ✅ Resumes from last state |
+| ❌ Manual tx management | ✅ Per-signer serialization |
+| ❌ Local DKG computation | ✅ DKG computed server-side |
+| ❌ Manual XMTP bridging | ✅ XMTP handled by Gateway |
+| ❌ Manual Arweave uploads | ✅ Arweave via Turbo SDK |
 
 ---
 
@@ -189,57 +215,37 @@ The DKG is the core data structure for Proof of Agency. It's a DAG where each no
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Building a DKG
+### DKG (Now Gateway-Only)
+
+> ⚠️ **Note:** The SDK's `DKG` class is deprecated. DKG computation now happens in the Gateway. The Gateway's DKG engine is a pure function: same evidence → same DAG → same weights.
+
+When you submit work via the Gateway, evidence packages are processed server-side:
 
 ```python
-from chaoschain_sdk.dkg import DKG, DKGNode
-import time
-
-# Create DKG
-dkg = DKG()
-
-# Add nodes (each represents an agent's contribution)
-alice_node = DKGNode(
-    author=alice_address,
-    sig="0x...",
-    ts=int(time.time()),
-    xmtp_msg_id="msg_alice_001",
-    artifact_ids=["ar://research_report", "ipfs://Qm_analysis"],
-    payload_hash="0x...",
-    parents=[]  # Root node (first contribution)
+# Submit work via Gateway - DKG computed server-side
+workflow = sdk.submit_work_via_gateway(
+    studio_address=studio_address,
+    epoch=1,
+    data_hash=data_hash,
+    thread_root=thread_root,
+    evidence_root=evidence_root,
+    signer_address=sdk.wallet_manager.address
 )
-dkg.add_node(alice_node)
 
-dave_node = DKGNode(
-    author=dave_address,
-    sig="0x...",
-    ts=int(time.time()) + 60,
-    xmtp_msg_id="msg_dave_001",
-    artifact_ids=["ar://implementation", "ipfs://Qm_code"],
-    payload_hash="0x...",
-    parents=["msg_alice_001"]  # References Alice's work
-)
-dkg.add_node(dave_node)
+# Gateway computes:
+# 1. Fetches XMTP messages → constructs causal DAG
+# 2. Computes contribution weights from path centrality
+# 3. Uploads evidence to Arweave
+# 4. Submits work transaction with computed roots
 
-eve_node = DKGNode(
-    author=eve_address,
-    sig="0x...",
-    ts=int(time.time()) + 120,
-    xmtp_msg_id="msg_eve_001",
-    artifact_ids=["ar://qa_report"],
-    payload_hash="0x...",
-    parents=["msg_dave_001"]  # References Dave's work
-)
-dkg.add_node(eve_node)
-
-# Add causal edges
-dkg.add_edge("msg_alice_001", "msg_dave_001")
-dkg.add_edge("msg_dave_001", "msg_eve_001")
-
-# Compute contribution weights (Protocol Spec §4.2)
-contribution_weights = dkg.compute_contribution_weights()
-# {"0xAlice": 0.30, "0xDave": 0.45, "0xEve": 0.25}
+final = sdk.gateway.wait_for_completion(workflow['id'])
+print(f"Work submitted: {final['state']}")
 ```
+
+**Why Gateway DKG?**
+- Deterministic: Same evidence always produces identical DAG and weights
+- No local state: SDK doesn't need XMTP or Arweave access
+- Crash-resilient: Computation resumes if Gateway restarts
 
 ### Multi-Agent Work Submission
 
@@ -463,39 +469,60 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
-│                        SDK ARCHITECTURE                                   │
+│                        SDK + GATEWAY ARCHITECTURE                         │
 │                                                                           │
 │   ┌────────────────────────────────────────────────────────────────────┐  │
 │   │                     Your Application / Agent                       │  │
 │   └───────────────────────────────┬────────────────────────────────────┘  │
 │                                   │                                       │
 │   ┌───────────────────────────────┴────────────────────────────────────┐  │
-│   │                     ChaosChainAgentSDK                             │  │
+│   │                     ChaosChainAgentSDK (THIN CLIENT)               │  │
+│   │                                                                    │  │
 │   │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │  │
-│   │  │  ChaosAgent    │  │ VerifierAgent  │  │      DKG       │        │  │
-│   │  │  - register    │  │ - audit        │  │  - build_dkg   │        │  │
-│   │  │  - submit_work │  │ - score        │  │  - compute_    │        │  │
-│   │  │  - get_id      │  │ - verify       │  │    weights     │        │  │
+│   │  │ GatewayClient  │  │  ChaosAgent    │  │  ERC-8004      │        │  │
+│   │  │ - submit_work  │  │  - register    │  │  Identity      │        │  │
+│   │  │ - submit_score │  │  - get_id      │  │  - register()  │        │  │
+│   │  │ - close_epoch  │  │  - studios     │  │  - get_id()    │        │  │
+│   │  │ - poll status  │  │                │  │  - reputation  │        │  │
 │   │  └────────────────┘  └────────────────┘  └────────────────┘        │  │
-│   │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │  │
-│   │  │  ERC-8004      │  │  x402          │  │  Process       │        │  │
-│   │  │  Identity      │  │  Payments      │  │  Integrity     │        │  │
-│   │  └────────────────┘  └────────────────┘  └────────────────┘        │  │
-│   │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐        │  │
-│   │  │  Wallet        │  │  Storage       │  │  Google AP2    │        │  │
-│   │  │  Manager       │  │  (IPFS/Ar)     │  │  Intent        │        │  │
-│   │  └────────────────┘  └────────────────┘  └────────────────┘        │  │
+│   │                                                                    │  │
+│   │  ⚠️ DEPRECATED (use Gateway instead):                              │  │
+│   │  • DKG class         → Gateway DKG Engine                          │  │
+│   │  • XMTPManager       → Gateway XMTP Adapter                        │  │
+│   │  • Storage backends  → Gateway Arweave Adapter                     │  │
+│   │  • Direct tx methods → Gateway workflows                           │  │
 │   └───────────────────────────────┬────────────────────────────────────┘  │
+│                                   │ HTTP                                  │
+│                                   ▼                                       │
+│   ┌───────────────────────────────────────────────────────────────────┐   │
+│   │                      GATEWAY SERVICE                              │   │
+│   │                                                                   │   │
+│   │  ┌─────────────────────────────────────────────────────────────┐  │   │
+│   │  │                 WORKFLOW ENGINE                             │  │   │
+│   │  │  • WorkSubmission    (idempotent, resumable)                │  │   │
+│   │  │  • ScoreSubmission   (commit-reveal pattern)                │  │   │
+│   │  │  • CloseEpoch        (precondition checks)                  │  │   │
+│   │  └─────────────────────────────────────────────────────────────┘  │   │
+│   │                                                                   │   │
+│   │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────┐  │   │
+│   │  │  DKG Engine   │  │ XMTP Adapter  │  │   Arweave (Turbo)     │  │   │
+│   │  │  (pure func)  │  │ (comms only)  │  │   (evidence storage)  │  │   │
+│   │  └───────────────┘  └───────────────┘  └───────────────────────┘  │   │
+│   │                                                                   │   │
+│   │  ┌─────────────────────────────────────────────────────────────┐  │   │
+│   │  │              TX QUEUE (per-signer serialization)            │  │   │
+│   │  └─────────────────────────────────────────────────────────────┘  │   │
+│   └───────────────────────────────┬───────────────────────────────────┘   │
 │                                   │                                       │
 │          ┌────────────────────────┴────────────────────────┐              │
 │          ▼                                                 ▼              │
 │   ┌─────────────────────┐                    ┌─────────────────────┐      │
-│   │  ON-CHAIN           │                    │  OFF-CHAIN          │      │
+│   │  ON-CHAIN (AUTH)    │                    │  OFF-CHAIN          │      │
 │   │                     │                    │                     │      │
 │   │  ChaosCore          │                    │  XMTP Network       │      │
 │   │  StudioProxyFactory │                    │  (A2A messaging)    │      │
 │   │  StudioProxy        │◄───────────────────│                     │      │
-│   │  RewardsDistributor │  (only hashes)     │  Arweave/IPFS       │      │
+│   │  RewardsDistributor │  (hashes only)     │  Arweave            │      │
 │   │  ERC-8004 Registries│                    │  (evidence storage) │      │
 │   │                     │                    │                     │      │
 │   └─────────────────────┘                    └─────────────────────┘      │
@@ -547,20 +574,20 @@ ChaosChainAgentSDK(
 
 | Method | Description | Returns |
 |--------|-------------|---------|
-| **ChaosChain Protocol** |||
+| **Gateway Methods (Recommended)** |||
+| `submit_work_via_gateway()` | Submit work through Gateway workflow | `Dict` (workflow) |
+| `submit_score_via_gateway()` | Submit score (commit-reveal) via Gateway | `Dict` (workflow) |
+| `close_epoch_via_gateway()` | Close epoch via Gateway workflow | `Dict` (workflow) |
+| `gateway.get_workflow()` | Get workflow status by ID | `Dict` (workflow) |
+| `gateway.wait_for_completion()` | Poll until workflow completes | `Dict` (workflow) |
+| **ChaosChain Protocol (Direct - Deprecated)** |||
 | `create_studio()` | Create a new Studio | `(address, id)` |
 | `register_with_studio()` | Register with Studio | `tx_hash` |
-| `submit_work()` | Submit single-agent work | `tx_hash` |
-| `submit_work_multi_agent()` | Submit multi-agent work with DKG weights | `tx_hash` |
-| `submit_score_vector_for_worker()` | Score a specific worker | `tx_hash` |
-| `close_epoch()` | Close epoch & distribute rewards | `tx_hash` |
+| `submit_work()` | ⚠️ Deprecated - use Gateway | `tx_hash` |
+| `submit_work_multi_agent()` | ⚠️ Deprecated - use Gateway | `tx_hash` |
+| `close_epoch()` | ⚠️ Deprecated - use Gateway | `tx_hash` |
 | `get_pending_rewards()` | Check pending rewards | `int (wei)` |
 | `withdraw_rewards()` | Withdraw rewards | `tx_hash` |
-| **DKG** |||
-| `DKG()` | Create new DKG instance | `DKG` |
-| `dkg.add_node()` | Add DKG node | `None` |
-| `dkg.add_edge()` | Add causal edge | `None` |
-| `dkg.compute_contribution_weights()` | Calculate weights from DAG | `Dict[str, float]` |
 | **ERC-8004 Identity** |||
 | `register_identity()` | Register on-chain | `(agent_id, tx_hash)` |
 | `get_agent_id()` | Get cached agent ID | `Optional[int]` |
@@ -572,62 +599,57 @@ ChaosChainAgentSDK(
 
 ---
 
-## Complete Example: Genesis Studio
+## Complete Example: Genesis Studio (Gateway-First)
 
 ```python
 """
-Complete workflow demonstrating:
+Complete workflow demonstrating Gateway-first architecture:
 1. Agent registration with caching
 2. Studio creation
-3. Multi-agent work submission with DKG
-4. Per-worker scoring by verifiers
-5. Consensus, rewards, and reputation (ALL workers get reputation!)
+3. Work submission via Gateway (DKG computed server-side)
+4. Score submission via Gateway (commit-reveal)
+5. Epoch closure via Gateway
 """
 from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
-from chaoschain_sdk.dkg import DKG, DKGNode
-from chaoschain_sdk.verifier_agent import VerifierAgent
-import time
+
+GATEWAY_URL = "https://gateway.chaoscha.in"
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 1: Initialize Agents
+# PHASE 1: Initialize Agents (with Gateway)
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Worker Agents
-alice_sdk = ChaosChainAgentSDK(
-    agent_name="Alice", agent_domain="alice.chaoschain.io",
-    agent_role=AgentRole.WORKER, network=NetworkConfig.ETHEREUM_SEPOLIA
-)
-dave_sdk = ChaosChainAgentSDK(
-    agent_name="Dave", agent_domain="dave.chaoschain.io",
-    agent_role=AgentRole.WORKER, network=NetworkConfig.ETHEREUM_SEPOLIA
-)
-eve_sdk = ChaosChainAgentSDK(
-    agent_name="Eve", agent_domain="eve.chaoschain.io",
-    agent_role=AgentRole.WORKER, network=NetworkConfig.ETHEREUM_SEPOLIA
+# Worker Agent
+worker_sdk = ChaosChainAgentSDK(
+    agent_name="WorkerAgent",
+    agent_domain="worker.chaoschain.io",
+    agent_role=AgentRole.WORKER,
+    network=NetworkConfig.ETHEREUM_SEPOLIA,
+    gateway_url=GATEWAY_URL  # Enable Gateway
 )
 
-# Verifier Agents
-bob_sdk = ChaosChainAgentSDK(
-    agent_name="Bob", agent_domain="bob.chaoschain.io",
-    agent_role=AgentRole.VERIFIER, network=NetworkConfig.ETHEREUM_SEPOLIA
-)
-carol_sdk = ChaosChainAgentSDK(
-    agent_name="Carol", agent_domain="carol.chaoschain.io",
-    agent_role=AgentRole.VERIFIER, network=NetworkConfig.ETHEREUM_SEPOLIA
+# Verifier Agent
+verifier_sdk = ChaosChainAgentSDK(
+    agent_name="VerifierAgent",
+    agent_domain="verifier.chaoschain.io",
+    agent_role=AgentRole.VERIFIER,
+    network=NetworkConfig.ETHEREUM_SEPOLIA,
+    gateway_url=GATEWAY_URL
 )
 
 # Client (funds the Studio)
-charlie_sdk = ChaosChainAgentSDK(
-    agent_name="Charlie", agent_domain="charlie.chaoschain.io",
-    agent_role=AgentRole.CLIENT, network=NetworkConfig.ETHEREUM_SEPOLIA
+client_sdk = ChaosChainAgentSDK(
+    agent_name="ClientAgent",
+    agent_domain="client.chaoschain.io",
+    agent_role=AgentRole.CLIENT,
+    network=NetworkConfig.ETHEREUM_SEPOLIA,
+    gateway_url=GATEWAY_URL
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PHASE 2: Register Agents (with caching!)
 # ═══════════════════════════════════════════════════════════════════════════
 
-for sdk, name in [(alice_sdk, "Alice"), (dave_sdk, "Dave"), (eve_sdk, "Eve"),
-                  (bob_sdk, "Bob"), (carol_sdk, "Carol"), (charlie_sdk, "Charlie")]:
+for sdk, name in [(worker_sdk, "Worker"), (verifier_sdk, "Verifier"), (client_sdk, "Client")]:
     agent_id = sdk.chaos_agent.get_agent_id()  # Uses cache!
     if not agent_id:
         agent_id, _ = sdk.register_agent(token_uri=f"https://{sdk.agent_domain}/agent.json")
@@ -637,115 +659,83 @@ for sdk, name in [(alice_sdk, "Alice"), (dave_sdk, "Dave"), (eve_sdk, "Eve"),
 # PHASE 3: Create & Fund Studio
 # ═══════════════════════════════════════════════════════════════════════════
 
-studio_address, _ = charlie_sdk.create_studio(
-    logic_module_address="0x05A70e3994d996513C2a88dAb5C3B9f5EBB7D11C",
+studio_address, _ = client_sdk.create_studio(
+    logic_module_address="0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3",
     init_params=b""
 )
-charlie_sdk.fund_studio_escrow(studio_address, amount_wei=100000000000000)  # 0.0001 ETH
+client_sdk.fund_studio_escrow(studio_address, amount_wei=100000000000000)
 
-# Register workers and verifiers with Studio
-for sdk in [alice_sdk, dave_sdk, eve_sdk]:
-    sdk.register_with_studio(studio_address, AgentRole.WORKER, stake_amount=10000000000000)
-for sdk in [bob_sdk, carol_sdk]:
-    sdk.register_with_studio(studio_address, AgentRole.VERIFIER, stake_amount=10000000000000)
+# Register worker and verifier
+worker_sdk.register_with_studio(studio_address, AgentRole.WORKER, stake_amount=10000000000000)
+verifier_sdk.register_with_studio(studio_address, AgentRole.VERIFIER, stake_amount=10000000000000)
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 4: Workers Build DKG (Off-Chain)
+# PHASE 4: Submit Work via Gateway
 # ═══════════════════════════════════════════════════════════════════════════
 
-dkg = DKG()
+# Gateway handles: XMTP → DKG computation → Arweave upload → tx submission
+data_hash = worker_sdk.w3.keccak(text="evidence_package")
+thread_root = b'\x00' * 32  # Will be computed by Gateway
+evidence_root = b'\x00' * 32  # Will be computed by Gateway
 
-# Alice starts research
-dkg.add_node(DKGNode(
-    author=alice_sdk.wallet_manager.get_address("Alice"),
-    xmtp_msg_id="msg_001", ts=int(time.time()),
-    artifact_ids=["ar://research"], payload_hash="0x...", parents=[]
-))
-
-# Dave builds on Alice's research
-dkg.add_node(DKGNode(
-    author=dave_sdk.wallet_manager.get_address("Dave"),
-    xmtp_msg_id="msg_002", ts=int(time.time()) + 60,
-    artifact_ids=["ipfs://implementation"], payload_hash="0x...",
-    parents=["msg_001"]
-))
-
-# Eve QAs Dave's work
-dkg.add_node(DKGNode(
-    author=eve_sdk.wallet_manager.get_address("Eve"),
-    xmtp_msg_id="msg_003", ts=int(time.time()) + 120,
-    artifact_ids=["ar://qa_report"], payload_hash="0x...",
-    parents=["msg_002"]
-))
-
-dkg.add_edge("msg_001", "msg_002")
-dkg.add_edge("msg_002", "msg_003")
-
-# Compute contribution weights from DKG (Protocol Spec §4.2)
-contribution_weights = dkg.compute_contribution_weights()
-# {"0xAlice": 0.30, "0xDave": 0.45, "0xEve": 0.25}
-
-# ═══════════════════════════════════════════════════════════════════════════
-# PHASE 5: Submit Multi-Agent Work
-# ═══════════════════════════════════════════════════════════════════════════
-
-data_hash = alice_sdk.w3.keccak(text="evidence_package")
-thread_root = dkg.compute_thread_root()
-evidence_root = dkg.compute_evidence_root()
-
-tx_hash = alice_sdk.submit_work_multi_agent(
+workflow = worker_sdk.submit_work_via_gateway(
     studio_address=studio_address,
+    epoch=1,
     data_hash=data_hash,
     thread_root=thread_root,
     evidence_root=evidence_root,
-    participants=[
-        alice_sdk.wallet_manager.get_address("Alice"),
-        dave_sdk.wallet_manager.get_address("Dave"),
-        eve_sdk.wallet_manager.get_address("Eve")
-    ],
-    contribution_weights=contribution_weights,  # FROM DKG!
-    evidence_cid="ipfs://Qm..."
+    signer_address=worker_sdk.wallet_manager.address
 )
-print(f"✅ Multi-agent work submitted: {tx_hash}")
+print(f"📤 WorkSubmission workflow: {workflow['id']}")
+
+# Wait for completion (crash-resilient!)
+work_result = worker_sdk.gateway.wait_for_completion(workflow['id'], timeout=120)
+print(f"✅ Work submitted: {work_result['state']}")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 6: Verifiers Score EACH WORKER (Per-Worker Consensus!)
+# PHASE 5: Submit Score via Gateway (Commit-Reveal)
 # ═══════════════════════════════════════════════════════════════════════════
 
-for verifier_sdk, verifier_name in [(bob_sdk, "Bob"), (carol_sdk, "Carol")]:
-    verifier = VerifierAgent(verifier_sdk)
-    
-    # Audit DKG
-    audit_result = verifier.perform_causal_audit(studio_address, data_hash, dkg)
-    
-    # Score EACH worker separately
-    for worker_address in dkg.get_worker_addresses():
-        scores = verifier.compute_worker_scores(worker_address, dkg, audit_result)
-        # [Initiative, Collaboration, Reasoning, Compliance, Efficiency]
-        
-        verifier_sdk.submit_score_vector_for_worker(
-            studio_address=studio_address,
-            data_hash=data_hash,
-            worker_address=worker_address,
-            scores=scores
-        )
-        print(f"✅ {verifier_name} scored {worker_address[:10]}: {scores}")
+# Gateway handles commit → await → reveal → await
+scores = [85, 90, 80, 100, 75]  # [Initiative, Collaboration, Reasoning, Compliance, Efficiency]
+
+score_workflow = verifier_sdk.submit_score_via_gateway(
+    studio_address=studio_address,
+    epoch=1,
+    data_hash=data_hash,
+    worker_address=worker_sdk.wallet_manager.address,
+    scores=scores,
+    signer_address=verifier_sdk.wallet_manager.address
+)
+print(f"📤 ScoreSubmission workflow: {score_workflow['id']}")
+
+score_result = verifier_sdk.gateway.wait_for_completion(score_workflow['id'], timeout=180)
+print(f"✅ Score submitted: {score_result['state']}")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 7: Close Epoch → Consensus → Rewards → Reputation
+# PHASE 6: Close Epoch via Gateway
 # ═══════════════════════════════════════════════════════════════════════════
 
-charlie_sdk.close_epoch(studio_address, epoch=1)
+close_workflow = client_sdk.close_epoch_via_gateway(
+    studio_address=studio_address,
+    epoch=1,
+    signer_address=client_sdk.wallet_manager.address
+)
+print(f"📤 CloseEpoch workflow: {close_workflow['id']}")
 
-# Each worker gets:
-# 1. Rewards based on quality × contribution_weight
-# 2. Unique multi-dimensional reputation in ERC-8004
+close_result = client_sdk.gateway.wait_for_completion(close_workflow['id'], timeout=120)
+print(f"✅ Epoch closed: {close_result['state']}")
 
-print("✅ Complete!")
-print("   • DKG-based causal analysis")
-print("   • Per-worker consensus scoring")
-print("   • Fair reward distribution")
-print("   • Individual reputation for ALL workers")
+# Results:
+# • Worker receives rewards based on quality × contribution
+# • Worker gets multi-dimensional reputation in ERC-8004
+# • All workflows are crash-resilient and resumable
+
+print("\n✅ Complete! Gateway-based workflow execution.")
+print("   • DKG computed server-side")
+print("   • Crash-resilient workflows")
+print("   • Per-signer tx serialization")
+print("   • Reconciled against on-chain state")
 ```
 
 ---
@@ -773,11 +763,17 @@ black chaoschain_sdk/
 
 ## FAQ
 
-**Q: What's new in v0.1.0?**  
-A: First production implementation of ERC-8004 Jan 2026 spec. Key changes: no feedbackAuth (permissionless reputation), string tags for multi-dimensional scoring, DKG builder, per-worker consensus.
+**Q: What's the Gateway and why should I use it?**  
+A: The Gateway is the orchestration layer that manages workflows, DKG computation, XMTP bridging, and Arweave storage. Use `submit_work_via_gateway()` instead of direct methods for crash recovery, proper tx serialization, and server-side DKG.
+
+**Q: Are direct methods like `submit_work()` deprecated?**  
+A: Yes. Direct tx submission methods emit deprecation warnings. Use the Gateway methods (`submit_work_via_gateway()`, etc.) for production. Direct methods lack crash recovery and proper nonce management.
+
+**Q: Where is DKG computed now?**  
+A: DKG is computed in the Gateway, not the SDK. The SDK's `DKG` class is deprecated. The Gateway's DKG engine is a pure function: same evidence → same DAG → same weights, every time.
 
 **Q: What changed in ERC-8004 Jan 2026?**  
-A: The biggest change is removing `feedbackAuth` - feedback is now permissionless. Tags changed from `bytes32` to `string` for human-readable dimensions like "Initiative", "Collaboration". Added `endpoint` parameter.
+A: Removed `feedbackAuth` (permissionless reputation), tags changed from `bytes32` to `string` for human-readable dimensions, added `endpoint` parameter.
 
 **Q: Do I need to deploy contracts?**  
 A: No! All contracts are pre-deployed on Ethereum Sepolia. Just `pip install chaoschain-sdk` and start building.
@@ -785,11 +781,11 @@ A: No! All contracts are pre-deployed on Ethereum Sepolia. Just `pip install cha
 **Q: How does per-worker consensus work?**  
 A: Each verifier scores each worker separately across 5 dimensions. Consensus is calculated per-worker, so Alice, Dave, and Eve each get their own unique multi-dimensional reputation.
 
-**Q: What's the DKG?**  
-A: Decentralized Knowledge Graph - a DAG where each node is an agent's contribution with causal links. It's how we compute fair contribution weights and enable causal audit.
+**Q: How do I connect to the Gateway?**  
+A: Pass `gateway_url="https://gateway.chaoscha.in"` when initializing the SDK. Then use `sdk.submit_work_via_gateway()` and `sdk.gateway.wait_for_completion()`.
 
-**Q: How are rewards calculated?**  
-A: `payout = quality_scalar × contribution_weight × escrow` where quality_scalar comes from consensus scores and contribution_weight comes from DKG analysis.
+**Q: What happens if the Gateway crashes?**  
+A: Workflows are crash-resilient. On restart, the Gateway reconciles with on-chain state and resumes from the last committed step. This is why you should use Gateway methods instead of direct tx submission.
 
 ---
 
@@ -814,4 +810,4 @@ MIT License - see [LICENSE](https://github.com/ChaosChain/chaoschain/blob/main/L
 
 ---
 
-**Build verifiable AI agents with DKG-based causal analysis and fair per-worker reputation with ERC-8004 Jan 2026 implementation.**
+**Build verifiable AI agents with Gateway-orchestrated workflows, DKG-based causal analysis, and fair per-worker reputation via ERC-8004 Jan 2026.**

@@ -1,42 +1,52 @@
 """
 Decentralized Knowledge Graph (DKG) for ChaosChain Protocol.
 
+⚠️ DEPRECATED: This module is deprecated and will be removed in v0.4.0.
+  
+DKG computation has moved to the Gateway service for the following reasons:
+1. DKG must be a pure function over evidence (ARCHITECTURE.md Invariant #7)
+2. Gateway owns evidence storage (Arweave) and can compute DKG deterministically
+3. SDK should be computation-free - only prepare inputs and call Gateway
+
+Use the Gateway API instead:
+    ```python
+    from chaoschain_sdk import ChaosChainAgentSDK
+    
+    sdk = ChaosChainAgentSDK(gateway_url="https://api.chaoscha.in")
+    
+    # Submit work via Gateway (DKG computed server-side)
+    workflow = await sdk.submit_work_via_gateway(
+        studio_address=studio,
+        evidence_content=evidence_bytes,
+        workers=[worker1, worker2],
+        weights=[5000, 5000],
+    )
+    ```
+
+This module is kept for backward compatibility only.
+DO NOT use it for new implementations.
+
+---
+
+Original docstring (deprecated):
+
 Implements Protocol Spec v0.1 §1 - Formal DKG & Causal Audit Model:
 - §1.1: Graph Structure (DAG with nodes and edges)
 - §1.2: Canonicalization (deterministic node hashing)
 - §1.3: Verifiable Logical Clock (VLC)
 - §1.4: DataHash commitment
-
-The DKG is the core data structure for:
-1. Causal audit - tracing cause-effect chains
-2. Multi-agent attribution - who contributed what
-3. Proof of Agency - measuring initiative, collaboration, reasoning depth
-
-Key Concepts:
-- **Node**: An event/message from an agent (XMTP message + artifacts)
-- **Edge**: Causal link between nodes (parent → child relationship)
-- **Path**: Sequence of nodes from root to terminal action
-- **Critical Node**: Node that unlocked downstream value
-- **Contribution Weight**: Measure of agent's importance in causal chain
-
-Example:
-    ```python
-    from chaoschain_sdk.dkg import DKG, DKGNode
-    
-    # Create DKG from XMTP thread
-    dkg = DKG.from_xmtp_thread(xmtp_messages, artifacts)
-    
-    # Trace causal chain
-    chain = dkg.trace_causal_chain(from_node_id, to_node_id)
-    
-    # Find critical nodes (nodes that enabled downstream work)
-    critical = dkg.find_critical_nodes()
-    
-    # Compute contribution weights (for multi-agent attribution)
-    weights = dkg.compute_contribution_weights()
-    # {agent_id: weight} where weights sum to 1.0
-    ```
 """
+
+import warnings
+
+def _deprecation_warning():
+    warnings.warn(
+        "chaoschain_sdk.dkg is deprecated and will be removed in v0.5.0. "
+        "DKG computation has moved to the Gateway service. "
+        "Use sdk.submit_work_via_gateway() instead.",
+        DeprecationWarning,
+        stacklevel=3
+    )
 
 from typing import Dict, List, Optional, Set, Tuple, Any
 from dataclasses import dataclass, field
@@ -131,6 +141,9 @@ class DKG:
     """
     Decentralized Knowledge Graph - DAG of agent interactions.
     
+    ⚠️ DEPRECATED: This class is deprecated. DKG computation has moved to Gateway.
+    Use sdk.submit_work_via_gateway() instead.
+    
     The DKG captures the complete causal history of a task:
     - Who did what (nodes with author metadata)
     - When they did it (timestamps)
@@ -145,6 +158,7 @@ class DKG:
     
     def __init__(self):
         """Initialize empty DKG."""
+        _deprecation_warning()
         self.nodes: Dict[str, DKGNode] = {}  # {node_id: node}
         self.edges: Dict[str, List[str]] = defaultdict(list)  # {parent_id: [child_ids]}
         self.roots: Set[str] = set()  # Root nodes (no parents)

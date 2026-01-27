@@ -28,6 +28,8 @@ import {
   ChainStateAdapter,
   ContractEncoder,
 } from '../workflows/index.js';
+import { ScoreChainStateAdapter } from '../workflows/score-submission.js';
+import { EpochChainStateAdapter } from '../workflows/close-epoch.js';
 
 // =============================================================================
 // STUDIO PROXY ABI (minimal, only what we need)
@@ -40,13 +42,23 @@ const STUDIO_PROXY_ABI = [
   'function submitWorkMultiAgent(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, address[] calldata workers, uint16[] calldata weights, string calldata evidenceUri) external',
   // View functions for checking existing submissions
   'function getWorkSubmission(bytes32 dataHash) external view returns (address submitter, bytes32 threadRoot, bytes32 evidenceRoot, string memory evidenceUri, uint64 timestamp)',
+  // Score submission (commit-reveal)
+  'function commitScore(bytes32 dataHash, bytes32 commitHash) external',
+  'function revealScore(bytes32 dataHash, uint16[] calldata scores, bytes32 salt) external',
+  'function getScoreCommit(bytes32 dataHash, address validator) external view returns (bytes32 commitHash, uint64 timestamp)',
+  'function getScoreReveal(bytes32 dataHash, address validator) external view returns (uint16[] memory scores, uint64 timestamp)',
+  // Epoch management
+  'function currentEpoch() external view returns (uint256)',
+  'function isEpochClosed(uint256 epoch) external view returns (bool)',
+  'function getEpochEndTime(uint256 epoch) external view returns (uint64)',
+  'function closeEpoch(uint256 epoch) external',
 ];
 
 // =============================================================================
 // ETHERS CHAIN ADAPTER
 // =============================================================================
 
-export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter {
+export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, ScoreChainStateAdapter, EpochChainStateAdapter {
   private provider: ethers.Provider;
   private signers: Map<string, ethers.Signer> = new Map();
   private confirmationBlocks: number;
@@ -207,6 +219,127 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter {
       };
     } catch {
       return null;
+    }
+  }
+
+  // ===========================================================================
+  // ScoreChainStateAdapter Implementation
+  // ===========================================================================
+
+  async commitExists(
+    studioAddress: string,
+    dataHash: string,
+    validator: string
+  ): Promise<boolean> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      const commit = await contract.getScoreCommit(dataHash, validator);
+      // If commitHash is zero, no commit exists
+      return commit.commitHash !== ethers.ZeroHash;
+    } catch {
+      return false;
+    }
+  }
+
+  async revealExists(
+    studioAddress: string,
+    dataHash: string,
+    validator: string
+  ): Promise<boolean> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      const reveal = await contract.getScoreReveal(dataHash, validator);
+      // If scores array is empty, no reveal exists
+      return reveal.scores && reveal.scores.length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  async getCommit(
+    studioAddress: string,
+    dataHash: string,
+    validator: string
+  ): Promise<{ commitHash: string; timestamp: number } | null> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      const commit = await contract.getScoreCommit(dataHash, validator);
+      if (commit.commitHash === ethers.ZeroHash) {
+        return null;
+      }
+      return {
+        commitHash: commit.commitHash,
+        timestamp: Number(commit.timestamp),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // ===========================================================================
+  // EpochChainStateAdapter Implementation
+  // ===========================================================================
+
+  async epochExists(studioAddress: string, epoch: number): Promise<boolean> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      const currentEpoch = await contract.currentEpoch();
+      // Epoch exists if it's <= current epoch
+      return epoch <= Number(currentEpoch);
+    } catch {
+      return false;
+    }
+  }
+
+  async isEpochClosed(studioAddress: string, epoch: number): Promise<boolean> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      return await contract.isEpochClosed(epoch);
+    } catch {
+      return false;
+    }
+  }
+
+  async isCloseWindowOpen(studioAddress: string, epoch: number): Promise<boolean> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      const endTime = await contract.getEpochEndTime(epoch);
+      const currentTime = Math.floor(Date.now() / 1000);
+      // Window is open if current time >= epoch end time
+      return currentTime >= Number(endTime);
+    } catch {
+      // If contract doesn't enforce timing, assume window is open
+      return true;
     }
   }
 

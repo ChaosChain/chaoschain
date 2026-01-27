@@ -1756,6 +1756,14 @@ class ChaosChainAgentSDK:
         """
         Submit work to a Studio (§1.4 protocol spec).
         
+        ⚠️ DEPRECATED: Use submit_work_via_gateway() instead.
+        
+        Direct transaction submission is deprecated. The Gateway service provides:
+        - Proper workflow management with crash recovery
+        - Arweave evidence storage
+        - DKG computation
+        - Transaction serialization
+        
         Args:
             studio_address: Address of the Studio proxy
             data_hash: EIP-712 DataHash of the work (bytes32)
@@ -1768,6 +1776,13 @@ class ChaosChainAgentSDK:
         Raises:
             ContractError: If submission fails
         """
+        import warnings
+        warnings.warn(
+            "submit_work() is deprecated. Use submit_work_via_gateway() instead for proper "
+            "workflow management, evidence storage, and crash recovery.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         try:
             from rich import print as rprint
             
@@ -1870,6 +1885,14 @@ class ChaosChainAgentSDK:
         """
         Submit work with multi-agent attribution (Protocol Spec §4.2).
         
+        ⚠️ DEPRECATED: Use submit_work_via_gateway() instead.
+        
+        Direct transaction submission is deprecated. The Gateway service provides:
+        - Proper workflow management with crash recovery
+        - Arweave evidence storage
+        - DKG computation (weights computed server-side)
+        - Transaction serialization
+        
         This method enables multiple agents to collaborate on a task and receive
         rewards based on their contribution weights computed FROM DKG causal analysis.
         
@@ -1893,25 +1916,24 @@ class ChaosChainAgentSDK:
             Transaction hash
             
         Example:
-            # After DKG causal analysis
-            dkg = DKG.from_xmtp_messages_and_artifacts(messages, artifacts)
-            contribution_weights = dkg.compute_contribution_weights()  # FROM DKG!
-            
-            # Submit work
-            tx = sdk.submit_work_multi_agent(
+            # DEPRECATED: Use Gateway instead
+            workflow = await sdk.submit_work_via_gateway(
                 studio_address="0x...",
-                data_hash=data_hash,
-                thread_root=thread_root,
-                evidence_root=evidence_root,
-                participants=["0xAlice", "0xBob", "0xCarol"],
-                contribution_weights=contribution_weights,  # FROM DKG!
-                evidence_cid="Qm..."
+                evidence_content=evidence_bytes,  # DKG computed by Gateway
+                workers=["0xAlice", "0xBob", "0xCarol"],
             )
         
         Raises:
             ValueError: If contribution weights don't sum to 1.0
             ContractError: If submission fails
         """
+        import warnings
+        warnings.warn(
+            "submit_work_multi_agent() is deprecated. Use submit_work_via_gateway() instead. "
+            "The Gateway computes DKG and contribution weights server-side.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         try:
             from rich import print as rprint
             

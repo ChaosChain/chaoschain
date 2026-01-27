@@ -1,9 +1,40 @@
 """
 Pluggable storage backends for the ChaosChain SDK.
 
-This module provides a unified interface for different decentralized storage providers,
-allowing developers to choose the best storage solution for their use case.
+⚠️ DEPRECATED: This module is deprecated and will be removed in v0.4.0.
+
+Evidence storage has moved to the Gateway service. The Gateway:
+1. Uses Arweave (via Turbo) for permanent evidence storage
+2. Handles all upload/retrieval operations
+3. Computes DKG from stored evidence
+
+SDK should NOT handle storage directly. Instead:
+    ```python
+    from chaoschain_sdk import ChaosChainAgentSDK
+    
+    sdk = ChaosChainAgentSDK(gateway_url="https://api.chaoscha.in")
+    
+    # Submit work via Gateway (storage handled server-side)
+    workflow = await sdk.submit_work_via_gateway(
+        studio_address=studio,
+        evidence_content=evidence_bytes,  # Gateway uploads to Arweave
+    )
+    ```
+
+This module is kept for backward compatibility and local testing only.
+DO NOT use it for production implementations.
 """
+
+import warnings
+
+def _storage_deprecation_warning():
+    warnings.warn(
+        "chaoschain_sdk.storage_backends is deprecated and will be removed in v0.5.0. "
+        "Evidence storage has moved to the Gateway service. "
+        "Use sdk.submit_work_via_gateway() instead.",
+        DeprecationWarning,
+        stacklevel=3
+    )
 
 import os
 import json
@@ -599,11 +630,15 @@ class StorageManager:
     """
     Unified storage manager with pluggable backends.
     
+    ⚠️ DEPRECATED: This class is deprecated. Storage has moved to Gateway.
+    Use sdk.submit_work_via_gateway() instead.
+    
     Automatically selects the best available storage backend based on configuration.
     Supports fallback chains for reliability.
     """
     
     def __init__(self, primary_provider: StorageProvider = StorageProvider.ZEROG):
+        _storage_deprecation_warning()
         self.primary_provider = primary_provider
         self.backends: Dict[StorageProvider, StorageBackend] = {}
         self._init_backends()

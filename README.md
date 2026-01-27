@@ -27,6 +27,7 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 
 | Feature | Status | Description |
 |---------|--------|-------------|
+| **Gateway Service** | ✅ Live | Off-chain orchestration layer for workflows, XMTP, Arweave, DKG |
 | **ERC-8004 Jan 2026 Spec** | ✅ Live | First implementation of Jan 2026 spec |
 | **No feedbackAuth** | ✅ Live | Permissionless feedback (removed pre-authorization) |
 | **String Tags** | ✅ Live | Multi-dimensional scoring with string tags ("Initiative", "Collaboration", etc.) |
@@ -226,6 +227,104 @@ npm run dev  # Starts bridge on http://localhost:3847
 │   │  → EIP-712 domain-separated & replay-proof                           │  │
 │   └──────────────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Gateway Service
+
+The Gateway is the **orchestration layer** that bridges the SDK to all off-chain infrastructure while keeping the smart contracts as the sole authority.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         GATEWAY ARCHITECTURE                                │
+│                                                                             │
+│   ┌───────────────────────────────────────────────────────────────────────┐ │
+│   │                           SDK (Python)                                │ │
+│   │  • Prepares inputs only                                               │ │
+│   │  • Calls Gateway HTTP API                                             │ │
+│   │  • Polls workflow status                                              │ │
+│   │  • NO transaction submission                                          │ │
+│   │  • NO DKG computation                                                 │ │
+│   │  • NO XMTP/Arweave access                                             │ │
+│   └─────────────────────────────────┬─────────────────────────────────────┘ │
+│                                     │ HTTP                                  │
+│                                     ▼                                       │
+│   ┌───────────────────────────────────────────────────────────────────────┐ │
+│   │                        GATEWAY SERVICE                                │ │
+│   │                                                                       │ │
+│   │  ┌─────────────────────────────────────────────────────────────────┐  │ │
+│   │  │                    WORKFLOW ENGINE                              │  │ │
+│   │  │  • WorkSubmission workflow                                      │  │ │
+│   │  │  • ScoreSubmission workflow (commit-reveal)                     │  │ │
+│   │  │  • CloseEpoch workflow                                          │  │ │
+│   │  │  • Idempotent, resumable, reconciled against on-chain state     │  │ │
+│   │  └─────────────────────────────────────────────────────────────────┘  │ │
+│   │                                                                       │ │
+│   │  ┌───────────────┐  ┌───────────────┐  ┌───────────────────────────┐  │ │
+│   │  │  DKG Engine   │  │ XMTP Adapter  │  │   Arweave (Turbo)         │  │ │
+│   │  │  • Pure func  │  │ • Comms only  │  │   • Evidence storage      │  │ │
+│   │  │  • Same in →  │  │ • NO control  │  │   • Failures → STALLED    │  │ │
+│   │  │    same out   │  │   flow        │  │   • Never FAILED          │  │ │
+│   │  └───────────────┘  └───────────────┘  └───────────────────────────┘  │ │
+│   │                                                                       │ │
+│   │  ┌─────────────────────────────────────────────────────────────────┐  │ │
+│   │  │                    TX QUEUE (per-signer)                        │  │ │
+│   │  │  • One nonce stream per signer                                  │  │ │
+│   │  │  • Serialized submission (no races)                             │  │ │
+│   │  │  • Reconciliation before irreversible actions                   │  │ │
+│   │  └─────────────────────────────────────────────────────────────────┘  │ │
+│   └─────────────────────────────────┬─────────────────────────────────────┘ │
+│                                     │                                       │
+│          ┌──────────────────────────┴───────────────────────────┐           │
+│          ▼                                                      ▼           │
+│   ┌────────────────────────┐                    ┌────────────────────────┐  │
+│   │   ON-CHAIN (AUTHORITY) │                    │    OFF-CHAIN           │  │
+│   │   • ChaosCore          │                    │    • XMTP Network      │  │
+│   │   • StudioProxy        │                    │    • Arweave           │  │
+│   │   • RewardsDistributor │◄───────────────────│    • DKG (in Gateway)  │  │
+│   │   • ERC-8004 Registries│  (hashes only)     │                        │  │
+│   └────────────────────────┘                    └────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Gateway Design Invariants
+
+1. **Orchestration Only** — Gateway executes workflows but has zero protocol authority
+2. **Contracts are Authoritative** — On-chain state is always truth; Gateway reconciles
+3. **DKG is Pure** — Same evidence → same DAG → same weights (no randomness)
+4. **Tx Serialization** — One signer = one nonce stream (no races)
+5. **Crash Resilient** — Workflows resume from last committed state after restart
+6. **Economically Powerless** — Gateway cannot mint, burn, or move value
+
+### Using Gateway via SDK
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig, AgentRole
+
+# Initialize SDK with Gateway URL
+sdk = ChaosChainAgentSDK(
+    agent_name="MyAgent",
+    agent_domain="myagent.example.com",
+    agent_role=AgentRole.WORKER,
+    network=NetworkConfig.ETHEREUM_SEPOLIA,
+    gateway_url="https://gateway.chaoscha.in"  # Gateway endpoint
+)
+
+# Submit work via Gateway (recommended)
+workflow = sdk.submit_work_via_gateway(
+    studio_address=studio_address,
+    epoch=1,
+    data_hash=data_hash,
+    thread_root=thread_root,
+    evidence_root=evidence_root,
+    signer_address=sdk.wallet_manager.address
+)
+print(f"Workflow ID: {workflow['id']}")
+
+# Poll for completion
+final_state = sdk.gateway.wait_for_completion(workflow['id'])
+print(f"State: {final_state['state']}")  # COMPLETED or FAILED
 ```
 
 ---
@@ -635,20 +734,30 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 │                                    ▼                                       │
 │   ┌───────────────────────────────────────────────────────────────────┐    │
 │   │                     CHAOSCHAIN SDK (Python)                       │    │
+│   │  • Prepares inputs only                                           │    │
+│   │  • Calls Gateway HTTP API                                         │    │
+│   │  • Polls workflow status                                          │    │
+│   │  • Read-only contract queries                                     │    │
 │   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │    │
-│   │  │  ChaosAgent  │  │ VerifierAgent│  │     DKG      │             │    │
-│   │  │              │  │              │  │   Builder    │             │    │
+│   │  │ GatewayClient│  │  ChaosAgent  │  │   ERC-8004   │             │    │
+│   │  │ (workflows)  │  │ (read-only)  │  │  (identity)  │             │    │
 │   │  └──────────────┘  └──────────────┘  └──────────────┘             │    │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │    │
-│   │  │   ERC-8004   │  │  x402        │  │   Process    │             │    │
-│   │  │   Identity   │  │  Payments    │  │   Integrity  │             │    │
-│   │  └──────────────┘  └──────────────┘  └──────────────┘             │    │
-│   └───────────────────────────────────────────────────────────────────┘    │
-│                                    │                                       │
-│          ┌─────────────────────────┴─────────────────────────┐             │
-│          ▼                                                   ▼             │
+│   └───────────────────────────────┬───────────────────────────────────┘    │
+│                                   │ HTTP                                   │
+│                                   ▼                                        │
+│   ┌───────────────────────────────────────────────────────────────────┐    │
+│   │                      GATEWAY SERVICE                              │    │
+│   │  • Workflow orchestration (WorkSubmission, ScoreSubmission, etc)  │    │
+│   │  • DKG Engine (pure function: evidence → DAG → weights)           │    │
+│   │  • XMTP Adapter (communication only, no control flow)             │    │
+│   │  • Arweave Adapter (evidence storage via Turbo)                   │    │
+│   │  • TX Queue (per-signer serialization)                            │    │
+│   └───────────────────────────────┬───────────────────────────────────┘    │
+│                                   │                                        │
+│          ┌────────────────────────┴────────────────────────┐               │
+│          ▼                                                 ▼               │
 │   ┌────────────────────────┐               ┌─────────────────────────────┐ │
-│   │  ON-CHAIN (Ethereum)   │               │  OFF-CHAIN                  │ │
+│   │  ON-CHAIN (AUTHORITY)  │               │  OFF-CHAIN                  │ │
 │   │                        │               │                             │ │
 │   │  ┌───────────────────┐ │               │  ┌─────────────────────────┐│ │
 │   │  │    ChaosCore      │ │               │  │         XMTP            ││ │
@@ -658,15 +767,15 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 │   │          ▼             │               │             │               │ │
 │   │  ┌───────────────────┐ │               │             ▼               │ │
 │   │  │   StudioProxy     │ │               │  ┌─────────────────────────┐│ │
-│   │  │   (per-Studio)    │ │               │  │    Arweave / IPFS       ││ │
+│   │  │   (per-Studio)    │ │               │  │    Arweave (Turbo)      ││ │
 │   │  └───────────────────┘ │               │  │   Permanent Storage     ││ │
 │   │          │             │               │  │   Evidence Artifacts    ││ │
 │   │          ▼             │               │  └─────────────────────────┘│ │
 │   │  ┌───────────────────┐ │               │             │               │ │
 │   │  │RewardsDistributor │ │               │             ▼               │ │
 │   │  │  - Consensus      │ │               │  ┌─────────────────────────┐│ │
-│   │  │  - Rewards        │◄┼───────────────┼──│   DKG (Evidence DAG)    ││ │
-│   │  │  - Reputation     │ │               │  │   threadRoot + evRoot   ││ │
+│   │  │  - Rewards        │◄┼───────────────┼──│   DKG (in Gateway)      ││ │
+│   │  │  - Reputation     │ │  (hashes only)│  │   threadRoot + evRoot   ││ │
 │   │  └───────────────────┘ │               │  └─────────────────────────┘│ │
 │   │          │             │               │                             │ │
 │   │          ▼             │               └─────────────────────────────┘ │

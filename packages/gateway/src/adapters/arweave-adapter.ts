@@ -53,12 +53,25 @@ export interface TurboClient {
  * The evidence might have been uploaded; reconciliation will determine truth.
  */
 export class TurboArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
-  private turbo: TurboClient;
+  private turbo: TurboClient | null;
   private gatewayUrl: string;
 
-  constructor(turboClient: TurboClient, gatewayUrl: string = 'https://arweave.net') {
-    this.turbo = turboClient;
-    this.gatewayUrl = gatewayUrl;
+  /**
+   * Create a Turbo adapter.
+   * 
+   * @param turboClientOrGatewayUrl - TurboClient for uploads, or just gateway URL for read-only mode
+   * @param gatewayUrl - Arweave gateway URL (only when first arg is TurboClient)
+   */
+  constructor(turboClientOrGatewayUrl: TurboClient | string, gatewayUrl?: string) {
+    if (typeof turboClientOrGatewayUrl === 'string') {
+      // Read-only mode - no upload capability
+      this.turbo = null;
+      this.gatewayUrl = turboClientOrGatewayUrl;
+    } else {
+      // Full mode with uploads
+      this.turbo = turboClientOrGatewayUrl;
+      this.gatewayUrl = gatewayUrl ?? 'https://arweave.net';
+    }
   }
 
   /**
@@ -66,12 +79,18 @@ export class TurboArweaveAdapter implements ArweaveUploader, ArweaveAdapter {
    * 
    * Returns TX ID on success.
    * Throws on failure → caller should map to STALLED.
+   * 
+   * NOTE: Requires TurboClient to be configured. In read-only mode, this throws.
    */
   async upload(
     content: Buffer,
     tags?: Record<string, string>
   ): Promise<string> {
     evidenceOnly('Uploading evidence bundle to Arweave');
+
+    if (!this.turbo) {
+      throw new Error('TurboClient not configured - adapter is in read-only mode');
+    }
 
     const turboTags = tags
       ? Object.entries(tags).map(([name, value]) => ({ name, value }))
