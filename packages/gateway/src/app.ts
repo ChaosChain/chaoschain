@@ -8,6 +8,9 @@
  * - On shutdown: graceful cleanup (let in-flight txs reconcile on restart)
  */
 
+// Load environment variables from .env file
+import 'dotenv/config';
+
 import express, { Express } from 'express';
 import { Pool } from 'pg';
 
@@ -19,7 +22,7 @@ import { createScoreSubmissionDefinition, DefaultScoreContractEncoder } from './
 import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
 import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder } from './adapters/chain-adapter.js';
-import { TurboArweaveAdapter } from './adapters/arweave-adapter.js';
+import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
 import { createRoutes, errorHandler } from './http/index.js';
 import { createLogger, Logger } from './utils/index.js';
 
@@ -104,19 +107,43 @@ export class Gateway {
     const persistence = new PostgresWorkflowPersistence(this.pool);
     this.logger.info({}, 'Database connection established');
 
-    // Initialize chain adapter
+    // Initialize chain adapter with RewardsDistributor address for epoch management
     const chainAdapter = new EthersChainAdapter(
       await this.createProvider(),
-      this.config.confirmationBlocks
+      this.config.confirmationBlocks,
+      2000, // pollIntervalMs
+      this.config.rewardsDistributorAddress
     );
-    this.logger.info({ rpcUrl: this.config.rpcUrl }, 'Chain adapter initialized');
+    this.logger.info(
+      { rpcUrl: this.config.rpcUrl, rewardsDistributor: this.config.rewardsDistributorAddress },
+      'Chain adapter initialized'
+    );
+
+    // Register signer from environment
+    const signerPrivateKey = process.env.SIGNER_PRIVATE_KEY;
+    if (signerPrivateKey) {
+      const { ethers } = await import('ethers');
+      const wallet = new ethers.Wallet(signerPrivateKey, await this.createProvider());
+      const signerAddress = await wallet.getAddress();
+      chainAdapter.registerSigner(signerAddress.toLowerCase(), wallet);
+      this.logger.info({ address: signerAddress }, 'Signer registered from SIGNER_PRIVATE_KEY');
+    } else {
+      this.logger.warn({}, 'No SIGNER_PRIVATE_KEY configured - workflows requiring tx submission will fail');
+    }
 
     // Initialize tx queue
     const txQueue = new TxQueue(chainAdapter);
 
-    // Initialize arweave adapter (Turbo production)
-    const arweaveAdapter = new TurboArweaveAdapter(this.config.turboGatewayUrl);
-    this.logger.info({ gateway: this.config.turboGatewayUrl }, 'Arweave adapter initialized (Turbo)');
+    // Initialize arweave adapter
+    // For local testing, set USE_MOCK_ARWEAVE=true to use in-memory mock
+    const useMockArweave = process.env.USE_MOCK_ARWEAVE === 'true';
+    const arweaveAdapter = useMockArweave
+      ? new MockArweaveAdapter({ uploadDelay: 0, confirmationDelay: 100 })
+      : new TurboArweaveAdapter(this.config.turboGatewayUrl);
+    this.logger.info(
+      { gateway: this.config.turboGatewayUrl, mock: useMockArweave },
+      useMockArweave ? 'Arweave adapter initialized (MOCK)' : 'Arweave adapter initialized (Turbo)'
+    );
 
     // Initialize reconciler
     const reconciler = new WorkflowReconciler(chainAdapter, arweaveAdapter, txQueue);

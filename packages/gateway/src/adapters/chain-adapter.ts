@@ -36,22 +36,30 @@ import { EpochChainStateAdapter } from '../workflows/close-epoch.js';
 // =============================================================================
 
 const STUDIO_PROXY_ABI = [
-  // submitWork function
-  'function submitWork(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, string calldata evidenceUri) external',
-  // submitWorkMultiAgent function  
+  // submitWork function (feedbackAuth is empty bytes in Jan 2026 spec)
+  'function submitWork(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, bytes calldata feedbackAuth) external',
+  // submitWorkMultiAgent function (no feedbackAuth in Jan 2026 spec)
   'function submitWorkMultiAgent(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, address[] calldata workers, uint16[] calldata weights, string calldata evidenceUri) external',
   // View functions for checking existing submissions
-  'function getWorkSubmission(bytes32 dataHash) external view returns (address submitter, bytes32 threadRoot, bytes32 evidenceRoot, string memory evidenceUri, uint64 timestamp)',
+  'function getWorkSubmission(bytes32 dataHash) external view returns (address submitter, bytes32 threadRoot, bytes32 evidenceRoot, bytes memory feedbackAuth, uint64 timestamp)',
   // Score submission (commit-reveal)
   'function commitScore(bytes32 dataHash, bytes32 commitHash) external',
   'function revealScore(bytes32 dataHash, uint16[] calldata scores, bytes32 salt) external',
   'function getScoreCommit(bytes32 dataHash, address validator) external view returns (bytes32 commitHash, uint64 timestamp)',
   'function getScoreReveal(bytes32 dataHash, address validator) external view returns (uint16[] memory scores, uint64 timestamp)',
-  // Epoch management
-  'function currentEpoch() external view returns (uint256)',
-  'function isEpochClosed(uint256 epoch) external view returns (bool)',
-  'function getEpochEndTime(uint256 epoch) external view returns (uint64)',
-  'function closeEpoch(uint256 epoch) external',
+];
+
+// =============================================================================
+// REWARDS DISTRIBUTOR ABI (for epoch management)
+// =============================================================================
+
+const REWARDS_DISTRIBUTOR_ABI = [
+  // Epoch closure (called by owner)
+  'function closeEpoch(address studio, uint64 epoch) external',
+  // Work registration
+  'function registerWork(address studio, uint64 epoch, bytes32 dataHash) external',
+  // Query functions
+  'function getEpochWork(address studio, uint64 epoch) external view returns (bytes32[] memory)',
 ];
 
 // =============================================================================
@@ -63,15 +71,32 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
   private signers: Map<string, ethers.Signer> = new Map();
   private confirmationBlocks: number;
   private pollIntervalMs: number;
+  private rewardsDistributorAddress: string | null;
 
   constructor(
     provider: ethers.Provider,
     confirmationBlocks: number = 2,
-    pollIntervalMs: number = 2000
+    pollIntervalMs: number = 2000,
+    rewardsDistributorAddress?: string
   ) {
     this.provider = provider;
     this.confirmationBlocks = confirmationBlocks;
     this.pollIntervalMs = pollIntervalMs;
+    this.rewardsDistributorAddress = rewardsDistributorAddress ?? null;
+  }
+
+  /**
+   * Set the RewardsDistributor address for epoch management.
+   */
+  setRewardsDistributorAddress(address: string): void {
+    this.rewardsDistributorAddress = address;
+  }
+
+  /**
+   * Get the RewardsDistributor address.
+   */
+  getRewardsDistributorAddress(): string | null {
+    return this.rewardsDistributorAddress;
   }
 
   /**
@@ -296,51 +321,46 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
   // ===========================================================================
 
   async epochExists(studioAddress: string, epoch: number): Promise<boolean> {
-    const contract = new ethers.Contract(
-      studioAddress,
-      STUDIO_PROXY_ABI,
-      this.provider
-    );
+    // ChaosChain doesn't have explicit epoch tracking - epochs are implicit
+    // An epoch "exists" if there's work registered for it, or if epoch >= 0
+    // The RewardsDistributor tracks work per epoch via _epochWork mapping
+    
+    if (!this.rewardsDistributorAddress) {
+      // No RewardsDistributor configured - assume epoch exists (lenient)
+      return epoch >= 0;
+    }
 
     try {
-      const currentEpoch = await contract.currentEpoch();
-      // Epoch exists if it's <= current epoch
-      return epoch <= Number(currentEpoch);
+      const contract = new ethers.Contract(
+        this.rewardsDistributorAddress,
+        REWARDS_DISTRIBUTOR_ABI,
+        this.provider
+      );
+      
+      // Check if there's any work in this epoch
+      const workHashes = await contract.getEpochWork(studioAddress, epoch);
+      return workHashes.length > 0 || epoch >= 0; // Epoch exists if >= 0
     } catch {
-      return false;
+      // Fallback: assume epoch exists if >= 0
+      return epoch >= 0;
     }
   }
 
-  async isEpochClosed(studioAddress: string, epoch: number): Promise<boolean> {
-    const contract = new ethers.Contract(
-      studioAddress,
-      STUDIO_PROXY_ABI,
-      this.provider
-    );
-
-    try {
-      return await contract.isEpochClosed(epoch);
-    } catch {
-      return false;
-    }
+  async isEpochClosed(_studioAddress: string, _epoch: number): Promise<boolean> {
+    // ChaosChain doesn't have explicit isEpochClosed tracking
+    // We check if the epoch has been processed by looking for work
+    // An epoch is "open" if work hasn't been distributed yet
+    
+    // For now, assume epoch is NOT closed unless we have evidence
+    // The contract will revert if closeEpoch is called incorrectly
+    return false;
   }
 
-  async isCloseWindowOpen(studioAddress: string, epoch: number): Promise<boolean> {
-    const contract = new ethers.Contract(
-      studioAddress,
-      STUDIO_PROXY_ABI,
-      this.provider
-    );
-
-    try {
-      const endTime = await contract.getEpochEndTime(epoch);
-      const currentTime = Math.floor(Date.now() / 1000);
-      // Window is open if current time >= epoch end time
-      return currentTime >= Number(endTime);
-    } catch {
-      // If contract doesn't enforce timing, assume window is open
-      return true;
-    }
+  async isCloseWindowOpen(_studioAddress: string, _epoch: number): Promise<boolean> {
+    // ChaosChain doesn't enforce time-based close windows
+    // The RewardsDistributor allows closeEpoch anytime after work submission
+    // Only the owner can call closeEpoch
+    return true;
   }
 
   // ===========================================================================
@@ -380,11 +400,14 @@ export class StudioProxyEncoder implements ContractEncoder {
     evidenceRoot: string,
     evidenceUri: string
   ): string {
+    // Convert evidenceUri string to bytes for the contract's feedbackAuth parameter
+    // In Jan 2026 spec, feedbackAuth is deprecated but kept for ABI compatibility
+    const evidenceBytes = ethers.toUtf8Bytes(evidenceUri);
     return this.iface.encodeFunctionData('submitWork', [
       dataHash,
       threadRoot,
       evidenceRoot,
-      evidenceUri,
+      evidenceBytes,
     ]);
   }
 

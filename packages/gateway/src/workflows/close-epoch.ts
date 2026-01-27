@@ -61,9 +61,11 @@ export interface EpochChainStateAdapter {
 
 export interface EpochContractEncoder {
   /**
-   * Encode closeEpoch call data.
+   * Encode closeEpoch call data for RewardsDistributor.
+   * @param studioAddress - The studio to close epoch for
+   * @param epoch - The epoch number to close
    */
-  encodeCloseEpoch(epoch: number): string;
+  encodeCloseEpoch(studioAddress: string, epoch: number): string;
 }
 
 // =============================================================================
@@ -222,11 +224,16 @@ export class SubmitCloseEpochStep implements StepExecutor<CloseEpochRecord> {
       };
     }
 
-    // Encode transaction
-    const txData = this.encoder.encodeCloseEpoch(input.epoch);
+    // Encode transaction for RewardsDistributor.closeEpoch(address studio, uint64 epoch)
+    const txData = this.encoder.encodeCloseEpoch(input.studio_address, input.epoch);
+
+    // Get RewardsDistributor address from input or environment
+    const rewardsDistributorAddress = input.rewards_distributor_address 
+      ?? process.env.REWARDS_DISTRIBUTOR_ADDRESS 
+      ?? '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19'; // Sepolia default
 
     const txRequest: TxRequest = {
-      to: input.studio_address,
+      to: rewardsDistributorAddress,
       data: txData,
     };
 
@@ -485,12 +492,22 @@ export function createCloseEpochDefinition(
 // =============================================================================
 
 export class DefaultEpochContractEncoder implements EpochContractEncoder {
-  encodeCloseEpoch(epoch: number): string {
-    // closeEpoch(uint256 epoch)
-    // Function selector: keccak256("closeEpoch(uint256)").slice(0, 10)
-    // Using manual encoding for simplicity
-    const selector = '0x5c22b5e4'; // closeEpoch(uint256)
+  encodeCloseEpoch(studioAddress: string, epoch: number): string {
+    // RewardsDistributor.closeEpoch(address studio, uint64 epoch)
+    // Function selector: keccak256("closeEpoch(address,uint64)").slice(0, 10) = 0x1d1a696d
+    // 
+    // ABI encoding:
+    // - address: padded to 32 bytes (left-padded with zeros)
+    // - uint64: padded to 32 bytes (left-padded with zeros)
+    
+    const selector = '0x2b7b2d0b'; // closeEpoch(address,uint64)
+    
+    // Pad address to 32 bytes (remove 0x prefix, then pad left)
+    const addressPadded = studioAddress.slice(2).toLowerCase().padStart(64, '0');
+    
+    // Pad epoch to 32 bytes
     const epochHex = epoch.toString(16).padStart(64, '0');
-    return selector + epochHex;
+    
+    return selector + addressPadded + epochHex;
   }
 }

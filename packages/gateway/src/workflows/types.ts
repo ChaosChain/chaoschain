@@ -169,6 +169,7 @@ export interface CloseEpochInput {
   studio_address: string;
   epoch: number;
   signer_address: string;     // Which key signs on-chain txs
+  rewards_distributor_address?: string; // Optional - if not provided, uses env var
 }
 
 // =============================================================================
