@@ -4,7 +4,8 @@
  * Exports types, guards, and assertions that enforce Gateway invariants.
  */
 
-export {
+// Type-only exports (interfaces don't exist at runtime)
+export type {
   // Branded types
   XmtpConversationId,
   XmtpMessageId,
@@ -13,6 +14,16 @@ export {
   SignerAddress,
   OpaqueMessageContent,
   
+  // Interfaces
+  AllowedXmtpOperations,
+  ForbiddenXmtpOperations,
+  AllowedArweaveOperations,
+  ArweaveFailureSemantic,
+  FrozenWorkflowType,
+} from './invariants.js';
+
+// Value exports (exist at runtime)
+export {
   // Type constructors
   xmtpConversationId,
   xmtpMessageId,
@@ -29,17 +40,12 @@ export {
   assertNoBatching,
   assertFrozenWorkflowType,
   
-  // Interfaces
-  AllowedXmtpOperations,
-  ForbiddenXmtpOperations,
-  AllowedArweaveOperations,
-  ArweaveFailureSemantic,
+  // Runtime functions
   mapArweaveErrorToState,
   
   // Guards
   SignerSerializationGuard,
   FROZEN_WORKFLOW_TYPES,
-  FrozenWorkflowType,
   
   // Documentation markers
   orchestrationOnly,

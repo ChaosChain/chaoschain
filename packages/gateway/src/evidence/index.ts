@@ -7,10 +7,8 @@
  * Evidence does NOT trigger workflows.
  */
 
-export {
-  EvidenceHeader,
-  EvidencePackage,
-  EvidenceBuilderConfig,
-  EvidenceBuilder,
-  MockEvidenceBuilder,
-} from './builder.js';
+// Type-only exports
+export type { EvidenceHeader, EvidencePackage, EvidenceBuilderConfig } from './builder.js';
+
+// Value exports
+export { EvidenceBuilder, MockEvidenceBuilder } from './builder.js';

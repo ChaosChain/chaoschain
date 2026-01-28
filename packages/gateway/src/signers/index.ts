@@ -2,10 +2,8 @@
  * Signers Module
  */
 
-export {
-  SignerManager,
-  SignerNotFoundError,
-  SignerUnavailableError,
-  InMemorySignerManager,
-  validateSignerExists,
-} from './manager.js';
+// Type-only exports
+export type { SignerManager } from './manager.js';
+
+// Value exports
+export { SignerNotFoundError, SignerUnavailableError, InMemorySignerManager, validateSignerExists } from './manager.js';

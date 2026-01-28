@@ -18,8 +18,8 @@
  * - Workflows MUST NOT synchronously call other workflows
  */
 
-// Types
-export {
+// Type-only exports (interfaces and type aliases)
+export type {
   WorkflowMetaState,
   WorkflowType,
   WorkSubmissionStep,
@@ -28,64 +28,50 @@ export {
   WorkflowError,
   WorkflowRecord,
   WorkSubmissionRecord,
-  // ScoreSubmission types
   ScoreSubmissionStep,
   ScoreSubmissionInput,
   ScoreSubmissionProgress,
   ScoreSubmissionRecord,
-  // CloseEpoch types
   CloseEpochStep,
   CloseEpochInput,
   CloseEpochProgress,
   CloseEpochRecord,
-  // Common types
   FailureCategory,
   ClassifiedError,
   TxStatus,
   TxReceipt,
   ArweaveStatus,
   RetryPolicy,
-  DEFAULT_RETRY_POLICY,
   StepResult,
 } from './types.js';
 
-// Persistence
-export {
-  WorkflowPersistence,
-  InMemoryWorkflowPersistence,
-} from './persistence.js';
+// Value exports from types
+export { DEFAULT_RETRY_POLICY } from './types.js';
 
-// Transaction Queue
-export {
-  TxRequest,
-  TxSubmitResult,
-  ChainAdapter,
-  TxQueue,
-} from './tx-queue.js';
+// Persistence types
+export type { WorkflowPersistence } from './persistence.js';
+export { InMemoryWorkflowPersistence } from './persistence.js';
 
-// Reconciliation
-export {
-  ChainStateAdapter,
-  ArweaveAdapter,
-  ReconciliationResult,
-  WorkflowReconciler,
-} from './reconciliation.js';
+// Transaction Queue types
+export type { TxRequest, TxSubmitResult, ChainAdapter } from './tx-queue.js';
+export { TxQueue } from './tx-queue.js';
 
-// Engine
-export {
-  StepExecutor,
-  WorkflowDefinition,
-  EngineEvent,
-  EventHandler,
-  WorkflowEngine,
-} from './engine.js';
+// Reconciliation types
+export type { ChainStateAdapter, ArweaveAdapter, ReconciliationResult } from './reconciliation.js';
+export { WorkflowReconciler } from './reconciliation.js';
 
-// WorkSubmission Workflow
-export {
+// Engine types
+export type { StepExecutor, WorkflowDefinition, EngineEvent, EventHandler } from './engine.js';
+export { WorkflowEngine } from './engine.js';
+
+// WorkSubmission types
+export type {
   ArweaveUploader,
   ContractEncoder,
   RewardsDistributorEncoder,
   RewardsDistributorStateAdapter,
+} from './work-submission.js';
+export {
   UploadEvidenceStep,
   AwaitArweaveConfirmStep,
   SubmitWorkOnchainStep,
@@ -96,11 +82,13 @@ export {
   createWorkSubmissionDefinition,
 } from './work-submission.js';
 
-// ScoreSubmission Workflow
-export {
+// ScoreSubmission types
+export type {
   ScoreContractEncoder,
   ScoreChainStateAdapter,
   ValidatorRegistrationEncoder,
+} from './score-submission.js';
+export {
   CommitScoreStep,
   AwaitCommitConfirmStep,
   RevealScoreStep,
@@ -113,10 +101,9 @@ export {
   DefaultValidatorRegistrationEncoder,
 } from './score-submission.js';
 
-// CloseEpoch Workflow
+// CloseEpoch types
+export type { EpochChainStateAdapter, EpochContractEncoder } from './close-epoch.js';
 export {
-  EpochChainStateAdapter,
-  EpochContractEncoder,
   CheckPreconditionsStep,
   SubmitCloseEpochStep,
   AwaitCloseEpochConfirmStep,

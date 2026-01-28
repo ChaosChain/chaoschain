@@ -2,8 +2,8 @@
  * Observability Module
  */
 
-export {
-  WorkflowMetrics,
-  NoOpMetrics,
-  ConsoleMetrics,
-} from './metrics.js';
+// Type-only exports
+export type { WorkflowMetrics } from './metrics.js';
+
+// Value exports
+export { NoOpMetrics, ConsoleMetrics } from './metrics.js';

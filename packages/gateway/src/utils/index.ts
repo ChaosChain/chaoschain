@@ -2,4 +2,8 @@
  * Utilities Module
  */
 
-export { Logger, LogContext, JsonLogger, createLogger } from './logger.js';
+// Type-only exports (interfaces)
+export type { Logger, LogContext } from './logger.js';
+
+// Value exports (classes and functions)
+export { JsonLogger, createLogger } from './logger.js';

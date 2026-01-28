@@ -13,9 +13,8 @@ export {
   createChainAdapterWithSigner,
 } from './chain-adapter.js';
 
-export {
-  TurboClient,
-  TurboArweaveAdapter,
-  IrysArweaveAdapter,
-  MockArweaveAdapter,
-} from './arweave-adapter.js';
+// Type-only exports
+export type { TurboClient } from './arweave-adapter.js';
+
+// Value exports
+export { TurboArweaveAdapter, IrysArweaveAdapter, MockArweaveAdapter } from './arweave-adapter.js';

@@ -9,10 +9,8 @@
  * Gateway does NOT parse, interpret, or react to message content.
  */
 
-export {
-  XmtpMessage,
-  XmtpGatewayClient,
-  XmtpClientConfig,
-  XmtpAdapter,
-  MockXmtpAdapter,
-} from './client.js';
+// Type-only exports
+export type { XmtpMessage, XmtpGatewayClient, XmtpClientConfig } from './client.js';
+
+// Value exports
+export { XmtpAdapter, MockXmtpAdapter } from './client.js';

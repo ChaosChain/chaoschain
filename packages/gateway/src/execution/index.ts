@@ -2,12 +2,8 @@
  * Execution Module
  */
 
-export {
-  TimeoutConfig,
-  DEFAULT_TIMEOUT_CONFIG,
-  StepTimeoutError,
-  getStepTimeout,
-  withTimeout,
-  TimeoutGuard,
-  createTimeoutGuard,
-} from './timeout.js';
+// Type-only exports
+export type { TimeoutConfig, TimeoutGuard } from './timeout.js';
+
+// Value exports
+export { DEFAULT_TIMEOUT_CONFIG, StepTimeoutError, getStepTimeout, withTimeout, createTimeoutGuard } from './timeout.js';
