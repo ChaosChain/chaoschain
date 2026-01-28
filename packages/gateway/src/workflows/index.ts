@@ -100,13 +100,17 @@ export {
 export {
   ScoreContractEncoder,
   ScoreChainStateAdapter,
+  ValidatorRegistrationEncoder,
   CommitScoreStep,
   AwaitCommitConfirmStep,
   RevealScoreStep,
   AwaitRevealConfirmStep,
+  RegisterValidatorStep,
+  AwaitRegisterValidatorConfirmStep,
   createScoreSubmissionWorkflow,
   createScoreSubmissionDefinition,
   DefaultScoreContractEncoder,
+  DefaultValidatorRegistrationEncoder,
 } from './score-submission.js';
 
 // CloseEpoch Workflow

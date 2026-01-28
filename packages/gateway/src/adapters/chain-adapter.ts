@@ -58,8 +58,11 @@ const REWARDS_DISTRIBUTOR_ABI = [
   'function closeEpoch(address studio, uint64 epoch) external',
   // Work registration
   'function registerWork(address studio, uint64 epoch, bytes32 dataHash) external',
+  // Validator registration
+  'function registerValidator(bytes32 dataHash, address validator) external',
   // Query functions
   'function getEpochWork(address studio, uint64 epoch) external view returns (bytes32[] memory)',
+  'function getValidators(bytes32 dataHash) external view returns (address[] memory)',
 ];
 
 // =============================================================================
@@ -388,6 +391,37 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
       const workHashes: string[] = await contract.getEpochWork(studioAddress, epoch);
       return workHashes.some((hash: string) => 
         hash.toLowerCase() === dataHash.toLowerCase()
+      );
+    } catch {
+      // Contract call failed - assume not registered
+      return false;
+    }
+  }
+
+  // ===========================================================================
+  // RewardsDistributor Validator Registration (for ScoreSubmission reconciliation)
+  // ===========================================================================
+
+  async isValidatorRegisteredInRewardsDistributor(
+    dataHash: string,
+    validatorAddress: string
+  ): Promise<boolean> {
+    if (!this.rewardsDistributorAddress) {
+      // No RewardsDistributor configured - assume not registered
+      return false;
+    }
+
+    try {
+      const contract = new ethers.Contract(
+        this.rewardsDistributorAddress,
+        REWARDS_DISTRIBUTOR_ABI,
+        this.provider
+      );
+      
+      // Get all validators for this dataHash and check if validator is included
+      const validators: string[] = await contract.getValidators(dataHash);
+      return validators.some((v: string) => 
+        v.toLowerCase() === validatorAddress.toLowerCase()
       );
     } catch {
       // Contract call failed - assume not registered

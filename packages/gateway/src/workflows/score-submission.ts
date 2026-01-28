@@ -56,6 +56,26 @@ export interface ScoreContractEncoder {
 }
 
 // =============================================================================
+// VALIDATOR REGISTRATION ENCODER INTERFACE
+// =============================================================================
+
+export interface ValidatorRegistrationEncoder {
+  /**
+   * Encode registerValidator call data for RewardsDistributor.
+   * registerValidator(bytes32 dataHash, address validator)
+   */
+  encodeRegisterValidator(
+    dataHash: string,
+    validatorAddress: string
+  ): string;
+
+  /**
+   * Get the RewardsDistributor address.
+   */
+  getRewardsDistributorAddress(): string;
+}
+
+// =============================================================================
 // CHAIN STATE ADAPTER FOR SCORE SUBMISSION
 // =============================================================================
 
@@ -86,6 +106,14 @@ export interface ScoreChainStateAdapter {
     dataHash: string,
     validator: string
   ): Promise<{ commitHash: string; timestamp: number } | null>;
+
+  /**
+   * Check if validator is registered in RewardsDistributor for this dataHash.
+   */
+  isValidatorRegisteredInRewardsDistributor?(
+    dataHash: string,
+    validatorAddress: string
+  ): Promise<boolean>;
 }
 
 // =============================================================================
@@ -490,9 +518,9 @@ export class AwaitRevealConfirmStep implements StepExecutor<ScoreSubmissionRecor
   async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
     const { input, progress } = workflow;
 
-    // Idempotency: if already confirmed, we're done
+    // Idempotency: if already confirmed, move to register validator
     if (progress.reveal_confirmed) {
-      return { type: 'SUCCESS', nextStep: null };
+      return { type: 'SUCCESS', nextStep: 'REGISTER_VALIDATOR' };
     }
 
     if (!progress.reveal_tx_hash) {
@@ -519,7 +547,8 @@ export class AwaitRevealConfirmStep implements StepExecutor<ScoreSubmissionRecor
             reveal_block: receipt.blockNumber,
             reveal_confirmed_at: Date.now(),
           });
-          return { type: 'SUCCESS', nextStep: null }; // COMPLETED
+          // After reveal confirmed, register validator with RewardsDistributor
+          return { type: 'SUCCESS', nextStep: 'REGISTER_VALIDATOR' };
 
         case 'reverted':
           return {
@@ -562,6 +591,275 @@ export class AwaitRevealConfirmStep implements StepExecutor<ScoreSubmissionRecor
 }
 
 // =============================================================================
+// REGISTER VALIDATOR STEP
+// =============================================================================
+
+/**
+ * Step 5: Register validator with RewardsDistributor.
+ * 
+ * This step bridges the gap between StudioProxy (where scores are submitted)
+ * and RewardsDistributor (where validators are tracked for closeEpoch).
+ */
+export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+  private validatorEncoder: ValidatorRegistrationEncoder;
+  private chainState: ScoreChainStateAdapter;
+
+  constructor(
+    txQueue: TxQueue,
+    persistence: WorkflowPersistence,
+    validatorEncoder: ValidatorRegistrationEncoder,
+    chainState: ScoreChainStateAdapter
+  ) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+    this.validatorEncoder = validatorEncoder;
+    this.chainState = chainState;
+  }
+
+  isIrreversible(): boolean {
+    return true;
+  }
+
+  async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if we already have a register tx hash, skip to confirmation
+    if (progress.register_validator_tx_hash) {
+      return { type: 'SUCCESS', nextStep: 'AWAIT_REGISTER_VALIDATOR_CONFIRM' };
+    }
+
+    // Check if already registered (idempotent)
+    if (this.chainState.isValidatorRegisteredInRewardsDistributor) {
+      const isRegistered = await this.chainState.isValidatorRegisteredInRewardsDistributor(
+        input.data_hash,
+        input.validator_address
+      );
+      if (isRegistered) {
+        // Already registered, skip to completion
+        await this.persistence.appendProgress(workflow.id, {
+          register_validator_confirmed: true,
+          register_validator_confirmed_at: Date.now(),
+        });
+        return { type: 'SUCCESS', nextStep: null }; // COMPLETED
+      }
+    }
+
+    // Precondition: reveal must be confirmed
+    if (!progress.reveal_confirmed) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'Reveal not confirmed',
+          code: 'REVEAL_NOT_CONFIRMED',
+        },
+      };
+    }
+
+    // Encode registerValidator transaction
+    const txData = this.validatorEncoder.encodeRegisterValidator(
+      input.data_hash,
+      input.validator_address
+    );
+
+    const txRequest: TxRequest = {
+      to: this.validatorEncoder.getRewardsDistributorAddress(),
+      data: txData,
+    };
+
+    try {
+      const txHash = await this.txQueue.submitOnly(
+        workflow.id,
+        input.signer_address,
+        txRequest
+      );
+
+      // Persist tx hash (critical checkpoint)
+      await this.persistence.appendProgress(workflow.id, { 
+        register_validator_tx_hash: txHash 
+      });
+
+      return { type: 'SUCCESS', nextStep: 'AWAIT_REGISTER_VALIDATOR_CONFIRM' };
+    } catch (error) {
+      const classified = this.classifyTxError(error);
+
+      if (classified.category === 'PERMANENT') {
+        // If already registered, treat as success
+        if (classified.code === 'ALREADY_REGISTERED') {
+          await this.persistence.appendProgress(workflow.id, {
+            register_validator_confirmed: true,
+            register_validator_confirmed_at: Date.now(),
+          });
+          return { type: 'SUCCESS', nextStep: null }; // COMPLETED
+        }
+        return { type: 'FAILED', error: classified };
+      }
+
+      return { type: 'RETRY', error: classified };
+    }
+  }
+
+  private classifyTxError(error: unknown): ClassifiedError {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Contract reverts
+    if (message.includes('already') || message.includes('registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Validator already registered',
+        code: 'ALREADY_REGISTERED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('not owner') || message.includes('unauthorized') || message.includes('onlyOwner')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Not authorized to register validator',
+        code: 'NOT_AUTHORIZED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('no work') || message.includes('work not found')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Work not registered',
+        code: 'WORK_NOT_REGISTERED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Nonce issues are recoverable
+    if (message.includes('nonce too low')) {
+      return {
+        category: 'RECOVERABLE',
+        message: 'Nonce too low (tx may have landed)',
+        code: 'NONCE_TOO_LOW',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Network errors are transient
+    if (message.includes('network') || message.includes('timeout')) {
+      return {
+        category: 'TRANSIENT',
+        message: 'Network error',
+        code: 'NETWORK_ERROR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    return {
+      category: 'UNKNOWN',
+      message,
+      code: 'UNKNOWN_TX_ERROR',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+}
+
+/**
+ * Step 6: Wait for register validator transaction confirmation.
+ */
+export class AwaitRegisterValidatorConfirmStep implements StepExecutor<ScoreSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+
+  constructor(txQueue: TxQueue, persistence: WorkflowPersistence) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    return true;
+  }
+
+  async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if already confirmed, we're done
+    if (progress.register_validator_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    if (!progress.register_validator_tx_hash) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'No register validator tx hash found',
+          code: 'MISSING_REGISTER_VALIDATOR_TX_HASH',
+        },
+      };
+    }
+
+    try {
+      const receipt = await this.txQueue.waitForTx(progress.register_validator_tx_hash);
+
+      // Release signer lock after confirmation
+      this.txQueue.releaseSignerLock(input.signer_address);
+
+      switch (receipt.status) {
+        case 'confirmed':
+          await this.persistence.appendProgress(workflow.id, {
+            register_validator_confirmed: true,
+            register_validator_confirmed_at: Date.now(),
+          });
+          return { type: 'SUCCESS', nextStep: null }; // COMPLETED
+
+        case 'reverted':
+          // Check if reverted because already registered (idempotent)
+          if (receipt.revertReason?.includes('already') || 
+              receipt.revertReason?.includes('registered')) {
+            await this.persistence.appendProgress(workflow.id, {
+              register_validator_confirmed: true,
+              register_validator_confirmed_at: Date.now(),
+            });
+            return { type: 'SUCCESS', nextStep: null }; // COMPLETED
+          }
+          return {
+            type: 'FAILED',
+            error: {
+              category: 'PERMANENT',
+              message: `Register validator tx reverted: ${receipt.revertReason}`,
+              code: 'REGISTER_VALIDATOR_TX_REVERTED',
+            },
+          };
+
+        case 'pending':
+          return {
+            type: 'RETRY',
+            error: {
+              category: 'TRANSIENT',
+              message: 'Register validator transaction still pending',
+              code: 'REGISTER_VALIDATOR_TX_PENDING',
+            },
+          };
+
+        case 'not_found':
+          return {
+            type: 'STALLED',
+            reason: 'Register validator transaction not found after timeout',
+          };
+      }
+    } catch (error) {
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: error instanceof Error ? error.message : String(error),
+          code: 'REGISTER_VALIDATOR_WAIT_ERROR',
+          originalError: error instanceof Error ? error : undefined,
+        },
+      };
+    }
+  }
+}
+
+// =============================================================================
 // WORKFLOW FACTORY
 // =============================================================================
 
@@ -587,12 +885,16 @@ export function createScoreSubmissionWorkflow(
 
 /**
  * Create ScoreSubmission workflow definition.
+ * 
+ * @param validatorEncoder - Optional encoder for RewardsDistributor.registerValidator.
+ *   If not provided, the workflow will complete after reveal (legacy behavior).
  */
 export function createScoreSubmissionDefinition(
   txQueue: TxQueue,
   persistence: WorkflowPersistence,
   encoder: ScoreContractEncoder,
-  chainState: ScoreChainStateAdapter
+  chainState: ScoreChainStateAdapter,
+  validatorEncoder?: ValidatorRegistrationEncoder
 ): WorkflowDefinition<ScoreSubmissionRecord> {
   const steps = new Map<string, StepExecutor<ScoreSubmissionRecord>>();
 
@@ -600,6 +902,16 @@ export function createScoreSubmissionDefinition(
   steps.set('AWAIT_COMMIT_CONFIRM', new AwaitCommitConfirmStep(txQueue, persistence));
   steps.set('REVEAL_SCORE', new RevealScoreStep(txQueue, persistence, encoder, chainState));
   steps.set('AWAIT_REVEAL_CONFIRM', new AwaitRevealConfirmStep(txQueue, persistence));
+  
+  // Add validator registration steps if encoder is provided
+  if (validatorEncoder) {
+    steps.set('REGISTER_VALIDATOR', new RegisterValidatorStep(
+      txQueue, persistence, validatorEncoder, chainState
+    ));
+    steps.set('AWAIT_REGISTER_VALIDATOR_CONFIRM', new AwaitRegisterValidatorConfirmStep(
+      txQueue, persistence
+    ));
+  }
 
   return {
     type: 'ScoreSubmission',
@@ -610,6 +922,8 @@ export function createScoreSubmissionDefinition(
       'AWAIT_COMMIT_CONFIRM',
       'REVEAL_SCORE',
       'AWAIT_REVEAL_CONFIRM',
+      'REGISTER_VALIDATOR',
+      'AWAIT_REGISTER_VALIDATOR_CONFIRM',
     ],
   };
 }
@@ -667,5 +981,36 @@ export class DefaultScoreContractEncoder implements ScoreContractEncoder {
       [dataHash, scores, salt]
     );
     return this.revealScoreSelector + params.slice(2);
+  }
+}
+
+// =============================================================================
+// DEFAULT VALIDATOR REGISTRATION ENCODER
+// =============================================================================
+
+export class DefaultValidatorRegistrationEncoder implements ValidatorRegistrationEncoder {
+  private rewardsDistributorAddress: string;
+  private registerValidatorSelector: string;
+
+  constructor(rewardsDistributorAddress: string) {
+    this.rewardsDistributorAddress = rewardsDistributorAddress;
+    // registerValidator(bytes32 dataHash, address validator)
+    this.registerValidatorSelector = ethers.id('registerValidator(bytes32,address)').slice(0, 10);
+  }
+
+  encodeRegisterValidator(
+    dataHash: string,
+    validatorAddress: string
+  ): string {
+    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+    const params = abiCoder.encode(
+      ['bytes32', 'address'],
+      [dataHash, validatorAddress]
+    );
+    return this.registerValidatorSelector + params.slice(2);
+  }
+
+  getRewardsDistributorAddress(): string {
+    return this.rewardsDistributorAddress;
   }
 }

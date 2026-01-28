@@ -18,7 +18,7 @@ import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowReconciler } from './workflows/reconciliation.js';
 import { TxQueue } from './workflows/tx-queue.js';
 import { createWorkSubmissionDefinition } from './workflows/work-submission.js';
-import { createScoreSubmissionDefinition, DefaultScoreContractEncoder } from './workflows/score-submission.js';
+import { createScoreSubmissionDefinition, DefaultScoreContractEncoder, DefaultValidatorRegistrationEncoder } from './workflows/score-submission.js';
 import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
 import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
@@ -172,15 +172,22 @@ export class Gateway {
       'WorkSubmission workflow registered (with REGISTER_WORK step)'
     );
 
-    // 2. ScoreSubmission workflow
+    // 2. ScoreSubmission workflow (now includes REGISTER_VALIDATOR step)
+    const validatorEncoder = new DefaultValidatorRegistrationEncoder(
+      this.config.rewardsDistributorAddress
+    );
     const scoreSubmissionDef = createScoreSubmissionDefinition(
       txQueue,
       persistence,
       scoreEncoder,
-      chainAdapter as any // ChainStateAdapter for score queries
+      chainAdapter as any, // ChainStateAdapter for score queries
+      validatorEncoder // For REGISTER_VALIDATOR step
     );
     this.engine.registerWorkflow(scoreSubmissionDef);
-    this.logger.info({}, 'ScoreSubmission workflow registered');
+    this.logger.info(
+      { rewardsDistributor: this.config.rewardsDistributorAddress },
+      'ScoreSubmission workflow registered (with REGISTER_VALIDATOR step)'
+    );
 
     // 3. CloseEpoch workflow
     const closeEpochDef = createCloseEpochDefinition(

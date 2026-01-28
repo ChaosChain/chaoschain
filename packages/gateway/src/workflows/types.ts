@@ -47,7 +47,9 @@ export type ScoreSubmissionStep =
   | 'COMMIT_SCORE'
   | 'AWAIT_COMMIT_CONFIRM'
   | 'REVEAL_SCORE'
-  | 'AWAIT_REVEAL_CONFIRM';
+  | 'AWAIT_REVEAL_CONFIRM'
+  | 'REGISTER_VALIDATOR'
+  | 'AWAIT_REGISTER_VALIDATOR_CONFIRM';
 
 // =============================================================================
 // CLOSE EPOCH WORKFLOW STEPS
@@ -163,6 +165,11 @@ export interface ScoreSubmissionProgress {
   reveal_confirmed?: boolean;
   reveal_block?: number;
   reveal_confirmed_at?: number;
+
+  // Register validator with RewardsDistributor
+  register_validator_tx_hash?: string;
+  register_validator_confirmed?: boolean;
+  register_validator_confirmed_at?: number;
 }
 
 export type ScoreSubmissionRecord = WorkflowRecord<ScoreSubmissionInput, ScoreSubmissionProgress>;

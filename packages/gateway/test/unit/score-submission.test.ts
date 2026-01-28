@@ -26,6 +26,7 @@ import {
   createScoreSubmissionDefinition,
   ScoreContractEncoder,
   ScoreChainStateAdapter,
+  ValidatorRegistrationEncoder,
 } from '../../src/workflows/index.js';
 
 // =============================================================================
@@ -56,6 +57,14 @@ function createMockScoreChainStateAdapter(): ScoreChainStateAdapter {
     commitExists: vi.fn().mockResolvedValue(false),
     revealExists: vi.fn().mockResolvedValue(false),
     getCommit: vi.fn().mockResolvedValue(null),
+    isValidatorRegisteredInRewardsDistributor: vi.fn().mockResolvedValue(false),
+  };
+}
+
+function createMockValidatorRegistrationEncoder(): ValidatorRegistrationEncoder {
+  return {
+    encodeRegisterValidator: vi.fn().mockReturnValue('0xregistervalidatordata'),
+    getRewardsDistributorAddress: vi.fn().mockReturnValue('0xRewardsDistributor'),
   };
 }
 
@@ -96,6 +105,7 @@ describe('A. ScoreSubmission Reconciliation-before-irreversible', () => {
   let scoreChainState: ScoreChainStateAdapter;
   let arweaveAdapter: ArweaveAdapter;
   let scoreEncoder: ScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
   let txQueue: TxQueue;
   let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
@@ -107,6 +117,7 @@ describe('A. ScoreSubmission Reconciliation-before-irreversible', () => {
     scoreChainState = createMockScoreChainStateAdapter();
     arweaveAdapter = createMockArweaveAdapter();
     scoreEncoder = createMockScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
     txQueue = new TxQueue(chainAdapter);
     reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
     engine = new WorkflowEngine(persistence, reconciler);
@@ -115,7 +126,8 @@ describe('A. ScoreSubmission Reconciliation-before-irreversible', () => {
       txQueue,
       persistence,
       scoreEncoder,
-      scoreChainState
+      scoreChainState,
+      validatorEncoder
     );
     engine.registerWorkflow(definition);
   });
@@ -140,8 +152,9 @@ describe('A. ScoreSubmission Reconciliation-before-irreversible', () => {
   });
 
   it('CRITICAL: should NOT call submitTx for reveal when reveal already exists', async () => {
-    // Setup: Reveal already exists on-chain
+    // Setup: Reveal already exists on-chain and validator already registered
     (scoreChainState.revealExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
     const input = createTestInput();
     const workflow = createScoreSubmissionWorkflow(input);
@@ -156,7 +169,7 @@ describe('A. ScoreSubmission Reconciliation-before-irreversible', () => {
     await persistence.create(workflow);
     await engine.resumeWorkflow(workflow.id);
 
-    // Should complete via reconciliation (reveal exists)
+    // Should complete via reconciliation (reveal exists and validator registered)
     const finalWorkflow = await persistence.load(workflow.id);
     expect(finalWorkflow?.state).toBe('COMPLETED');
     // submitTx should not be called for reveal since it already exists
@@ -210,6 +223,7 @@ describe('B. ScoreSubmission Crash recovery', () => {
   let scoreChainState: ScoreChainStateAdapter;
   let arweaveAdapter: ArweaveAdapter;
   let scoreEncoder: ScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
   let txQueue: TxQueue;
   let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
@@ -221,6 +235,7 @@ describe('B. ScoreSubmission Crash recovery', () => {
     scoreChainState = createMockScoreChainStateAdapter();
     arweaveAdapter = createMockArweaveAdapter();
     scoreEncoder = createMockScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
     txQueue = new TxQueue(chainAdapter);
     reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
     engine = new WorkflowEngine(persistence, reconciler);
@@ -229,14 +244,17 @@ describe('B. ScoreSubmission Crash recovery', () => {
       txQueue,
       persistence,
       scoreEncoder,
-      scoreChainState
+      scoreChainState,
+      validatorEncoder
     );
     engine.registerWorkflow(definition);
   });
 
-  it('should complete workflow on restart when reveal is already confirmed', async () => {
+  it('should complete workflow on restart when reveal and validator registration are confirmed', async () => {
     // Simulate: Gateway crashed after reveal submitted but before recording confirmation
     (scoreChainState.revealExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    // Also mock validator registration as confirmed for full completion
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
     const input = createTestInput();
     const workflow = createScoreSubmissionWorkflow(input);
@@ -297,8 +315,9 @@ describe('B. ScoreSubmission Crash recovery', () => {
 
     await persistence.create(workflow);
 
-    // Mock reveal exists (already done)
+    // Mock reveal exists and validator registered (already done)
     (scoreChainState.revealExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
     await engine.reconcileAllActive();
 
@@ -318,6 +337,7 @@ describe('C. ScoreSubmission FAILED vs STALLED', () => {
   let scoreChainState: ScoreChainStateAdapter;
   let arweaveAdapter: ArweaveAdapter;
   let scoreEncoder: ScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
   let txQueue: TxQueue;
   let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
@@ -329,6 +349,7 @@ describe('C. ScoreSubmission FAILED vs STALLED', () => {
     scoreChainState = createMockScoreChainStateAdapter();
     arweaveAdapter = createMockArweaveAdapter();
     scoreEncoder = createMockScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
     txQueue = new TxQueue(chainAdapter);
     reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
     engine = new WorkflowEngine(persistence, reconciler, {
@@ -343,7 +364,8 @@ describe('C. ScoreSubmission FAILED vs STALLED', () => {
       txQueue,
       persistence,
       scoreEncoder,
-      scoreChainState
+      scoreChainState,
+      validatorEncoder
     );
     engine.registerWorkflow(definition);
   });
@@ -489,6 +511,7 @@ describe('D. ScoreSubmission Commit-Reveal pattern', () => {
   let scoreChainState: ScoreChainStateAdapter;
   let arweaveAdapter: ArweaveAdapter;
   let scoreEncoder: ScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
   let txQueue: TxQueue;
   let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
@@ -500,6 +523,7 @@ describe('D. ScoreSubmission Commit-Reveal pattern', () => {
     scoreChainState = createMockScoreChainStateAdapter();
     arweaveAdapter = createMockArweaveAdapter();
     scoreEncoder = createMockScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
     txQueue = new TxQueue(chainAdapter);
     reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
     engine = new WorkflowEngine(persistence, reconciler);
@@ -508,7 +532,8 @@ describe('D. ScoreSubmission Commit-Reveal pattern', () => {
       txQueue,
       persistence,
       scoreEncoder,
-      scoreChainState
+      scoreChainState,
+      validatorEncoder
     );
     engine.registerWorkflow(definition);
   });
@@ -592,6 +617,7 @@ describe('ScoreSubmission Idempotency', () => {
   let scoreChainState: ScoreChainStateAdapter;
   let arweaveAdapter: ArweaveAdapter;
   let scoreEncoder: ScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
   let txQueue: TxQueue;
   let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
@@ -603,6 +629,7 @@ describe('ScoreSubmission Idempotency', () => {
     scoreChainState = createMockScoreChainStateAdapter();
     arweaveAdapter = createMockArweaveAdapter();
     scoreEncoder = createMockScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
     txQueue = new TxQueue(chainAdapter);
     reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
     engine = new WorkflowEngine(persistence, reconciler);
@@ -611,7 +638,8 @@ describe('ScoreSubmission Idempotency', () => {
       txQueue,
       persistence,
       scoreEncoder,
-      scoreChainState
+      scoreChainState,
+      validatorEncoder
     );
     engine.registerWorkflow(definition);
   });
@@ -636,6 +664,8 @@ describe('ScoreSubmission Idempotency', () => {
 
   it('should skip reveal tx if reveal_tx_hash already exists', async () => {
     (scoreChainState.revealExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    // Also mock validator as already registered so no REGISTER_VALIDATOR tx is submitted
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(true);
 
     const input = createTestInput();
     const workflow = createScoreSubmissionWorkflow(input);
@@ -651,7 +681,7 @@ describe('ScoreSubmission Idempotency', () => {
     await persistence.create(workflow);
     await engine.resumeWorkflow(workflow.id);
 
-    // Should NOT submit new tx
+    // Should NOT submit new tx (reveal already has tx hash, validator already registered)
     expect(chainAdapter.submitTx).not.toHaveBeenCalled();
   });
 });

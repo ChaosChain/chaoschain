@@ -305,11 +305,19 @@ export class WorkflowReconciler {
 
   /**
    * Internal: Reconcile ScoreSubmission workflow.
+   * 
+   * Updated to handle the full workflow including validator registration:
+   * 1. COMMIT_SCORE → AWAIT_COMMIT_CONFIRM
+   * 2. AWAIT_COMMIT_CONFIRM → REVEAL_SCORE
+   * 3. REVEAL_SCORE → AWAIT_REVEAL_CONFIRM
+   * 4. AWAIT_REVEAL_CONFIRM → REGISTER_VALIDATOR
+   * 5. REGISTER_VALIDATOR → AWAIT_REGISTER_VALIDATOR_CONFIRM
+   * 6. AWAIT_REGISTER_VALIDATOR_CONFIRM → COMPLETED
    */
   private async reconcileScoreSubmissionInternal(
     workflow: ScoreSubmissionRecord
   ): Promise<ReconciliationResult> {
-    const { input, progress } = workflow;
+    const { input, progress, step } = workflow;
 
     if (!this.scoreChainState) {
       // No score chain state adapter, skip reconciliation
@@ -317,7 +325,68 @@ export class WorkflowReconciler {
     }
 
     // ==========================================================================
-    // RULE 1: Check if reveal already exists (highest priority - workflow done)
+    // RULE 1: Check if validator is registered in RewardsDistributor (highest priority)
+    // If registered, workflow is COMPLETE
+    // ==========================================================================
+    if (this.scoreChainState.isValidatorRegisteredInRewardsDistributor) {
+      const isRegistered = await this.scoreChainState.isValidatorRegisteredInRewardsDistributor(
+        input.data_hash,
+        input.validator_address
+      );
+
+      if (isRegistered) {
+        // Validator is fully registered - workflow is complete
+        return { action: 'COMPLETE' };
+      }
+    }
+
+    // ==========================================================================
+    // RULE 2: Check register validator tx status (if we have a tx hash)
+    // ==========================================================================
+    if (progress.register_validator_tx_hash && !progress.register_validator_confirmed) {
+      const receipt = await this.txQueue.checkTxStatus(progress.register_validator_tx_hash);
+
+      if (receipt === null) {
+        return { action: 'NO_CHANGE' };
+      }
+
+      switch (receipt.status) {
+        case 'confirmed':
+          // Check if actually registered
+          if (this.scoreChainState.isValidatorRegisteredInRewardsDistributor) {
+            const isRegistered = await this.scoreChainState.isValidatorRegisteredInRewardsDistributor(
+              input.data_hash,
+              input.validator_address
+            );
+            if (isRegistered) {
+              return { action: 'COMPLETE' };
+            }
+          }
+          // Tx confirmed, trust it
+          return { action: 'COMPLETE' };
+
+        case 'reverted':
+          // Check if reverted because already registered (idempotent)
+          if (receipt.revertReason?.includes('already') || 
+              receipt.revertReason?.includes('registered')) {
+            return { action: 'COMPLETE' };
+          }
+          return { action: 'FAIL', reason: `register_validator_tx_reverted: ${receipt.revertReason}` };
+
+        case 'pending':
+          return { action: 'NO_CHANGE' };
+
+        case 'not_found':
+          // Clear tx hash and retry
+          return { 
+            action: 'UPDATE_PROGRESS', 
+            updates: { register_validator_tx_hash: undefined } 
+          };
+      }
+    }
+
+    // ==========================================================================
+    // RULE 3: Check if reveal exists - if so, advance to REGISTER_VALIDATOR
     // ==========================================================================
     const revealExists = await this.scoreChainState.revealExists(
       input.studio_address,
@@ -326,13 +395,22 @@ export class WorkflowReconciler {
     );
 
     if (revealExists) {
-      return { action: 'COMPLETE' };
+      // Reveal is on chain - check if we should advance to REGISTER_VALIDATOR
+      if (step === 'REVEAL_SCORE' || step === 'AWAIT_REVEAL_CONFIRM') {
+        // Skip to REGISTER_VALIDATOR
+        return { 
+          action: 'ADVANCE_TO_STEP', 
+          step: 'REGISTER_VALIDATOR' 
+        };
+      }
+      // If we're at REGISTER_VALIDATOR or later, continue execution
+      return { action: 'NO_CHANGE' };
     }
 
     // ==========================================================================
-    // RULE 2: Check reveal tx status (if we have a reveal tx hash)
+    // RULE 4: Check reveal tx status (if we have a reveal tx hash)
     // ==========================================================================
-    if (progress.reveal_tx_hash) {
+    if (progress.reveal_tx_hash && !progress.reveal_confirmed) {
       const receipt = await this.txQueue.checkTxStatus(progress.reveal_tx_hash);
 
       if (receipt === null) {
@@ -347,7 +425,11 @@ export class WorkflowReconciler {
             input.validator_address
           );
           if (revealDoubleCheck) {
-            return { action: 'COMPLETE' };
+            // Advance to REGISTER_VALIDATOR
+            return { 
+              action: 'ADVANCE_TO_STEP', 
+              step: 'REGISTER_VALIDATOR' 
+            };
           }
           return { action: 'FAIL', reason: 'reveal_tx_confirmed_but_reveal_not_found' };
 
@@ -367,7 +449,7 @@ export class WorkflowReconciler {
     }
 
     // ==========================================================================
-    // RULE 3: Check if commit already exists
+    // RULE 5: Check if commit already exists
     // ==========================================================================
     const commitExists = await this.scoreChainState.commitExists(
       input.studio_address,
@@ -384,7 +466,7 @@ export class WorkflowReconciler {
     }
 
     // ==========================================================================
-    // RULE 4: Check commit tx status (if we have a commit tx hash)
+    // RULE 6: Check commit tx status (if we have a commit tx hash)
     // ==========================================================================
     if (progress.commit_tx_hash && !progress.commit_confirmed) {
       const receipt = await this.txQueue.checkTxStatus(progress.commit_tx_hash);
@@ -428,7 +510,7 @@ export class WorkflowReconciler {
     }
 
     // ==========================================================================
-    // RULE 5: No reconciliation needed
+    // RULE 7: No reconciliation needed
     // ==========================================================================
     return { action: 'NO_CHANGE' };
   }
