@@ -364,6 +364,38 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
   }
 
   // ===========================================================================
+  // RewardsDistributor Work Registration (for reconciliation)
+  // ===========================================================================
+
+  async isWorkRegisteredInRewardsDistributor(
+    studioAddress: string,
+    epoch: number,
+    dataHash: string
+  ): Promise<boolean> {
+    if (!this.rewardsDistributorAddress) {
+      // No RewardsDistributor configured - assume not registered
+      return false;
+    }
+
+    try {
+      const contract = new ethers.Contract(
+        this.rewardsDistributorAddress,
+        REWARDS_DISTRIBUTOR_ABI,
+        this.provider
+      );
+      
+      // Get all work hashes for this epoch and check if dataHash is included
+      const workHashes: string[] = await contract.getEpochWork(studioAddress, epoch);
+      return workHashes.some((hash: string) => 
+        hash.toLowerCase() === dataHash.toLowerCase()
+      );
+    } catch {
+      // Contract call failed - assume not registered
+      return false;
+    }
+  }
+
+  // ===========================================================================
   // Private Helpers
   // ===========================================================================
 
@@ -426,6 +458,28 @@ export class StudioProxyEncoder implements ContractEncoder {
       workers,
       weights,
       evidenceUri,
+    ]);
+  }
+}
+
+// =============================================================================
+// REWARDS DISTRIBUTOR ENCODER IMPLEMENTATION
+// =============================================================================
+
+import { RewardsDistributorEncoder } from '../workflows/work-submission.js';
+
+export class DefaultRewardsDistributorEncoder implements RewardsDistributorEncoder {
+  private iface: ethers.Interface;
+
+  constructor() {
+    this.iface = new ethers.Interface(REWARDS_DISTRIBUTOR_ABI);
+  }
+
+  encodeRegisterWork(studioAddress: string, epoch: number, dataHash: string): string {
+    return this.iface.encodeFunctionData('registerWork', [
+      studioAddress,
+      epoch,
+      dataHash,
     ]);
   }
 }

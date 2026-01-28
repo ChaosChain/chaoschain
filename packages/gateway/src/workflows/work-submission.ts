@@ -67,6 +67,34 @@ export interface ContractEncoder {
 }
 
 // =============================================================================
+// REWARDS DISTRIBUTOR ENCODER INTERFACE
+// =============================================================================
+
+export interface RewardsDistributorEncoder {
+  /**
+   * Encode registerWork call data for RewardsDistributor.
+   * @param studioAddress - The studio address
+   * @param epoch - The epoch number
+   * @param dataHash - The work data hash
+   */
+  encodeRegisterWork(studioAddress: string, epoch: number, dataHash: string): string;
+}
+
+// =============================================================================
+// REWARDS DISTRIBUTOR STATE ADAPTER INTERFACE
+// =============================================================================
+
+export interface RewardsDistributorStateAdapter {
+  /**
+   * Check if work is registered in RewardsDistributor for an epoch.
+   * @param studioAddress - The studio address
+   * @param epoch - The epoch number
+   * @param dataHash - The work data hash
+   */
+  isWorkRegistered(studioAddress: string, epoch: number, dataHash: string): Promise<boolean>;
+}
+
+// =============================================================================
 // STEP EXECUTORS
 // =============================================================================
 
@@ -447,7 +475,8 @@ export class AwaitTxConfirmStep implements StepExecutor<WorkSubmissionRecord> {
             onchain_block: receipt.blockNumber,
             onchain_confirmed_at: Date.now(),
           });
-          return { type: 'SUCCESS', nextStep: null };
+          // Continue to REGISTER_WORK step
+          return { type: 'SUCCESS', nextStep: 'REGISTER_WORK' };
 
         case 'reverted':
           return {
@@ -493,6 +522,245 @@ export class AwaitTxConfirmStep implements StepExecutor<WorkSubmissionRecord> {
 }
 
 // =============================================================================
+// STEP 5: REGISTER WORK WITH REWARDS DISTRIBUTOR
+// =============================================================================
+
+/**
+ * Step 5: Register work with RewardsDistributor
+ * 
+ * After work is submitted to StudioProxy, it must be registered with
+ * RewardsDistributor for epoch tracking. This enables closeEpoch().
+ */
+export class RegisterWorkStep implements StepExecutor<WorkSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+  private encoder: RewardsDistributorEncoder;
+  private rewardsDistributorAddress: string;
+
+  constructor(
+    txQueue: TxQueue,
+    persistence: WorkflowPersistence,
+    encoder: RewardsDistributorEncoder,
+    rewardsDistributorAddress: string
+  ) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+    this.encoder = encoder;
+    this.rewardsDistributorAddress = rewardsDistributorAddress;
+  }
+
+  isIrreversible(): boolean {
+    // On-chain registration is irreversible - MUST reconcile first
+    return true;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if we already have a register tx hash, skip to confirmation
+    if (progress.register_tx_hash) {
+      return { type: 'SUCCESS', nextStep: 'AWAIT_REGISTER_CONFIRM' };
+    }
+
+    // Precondition: work must be confirmed on-chain first
+    if (!progress.onchain_confirmed) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'Work not confirmed on-chain before registration',
+          code: 'WORK_NOT_CONFIRMED',
+        },
+      };
+    }
+
+    // Encode RewardsDistributor.registerWork(studio, epoch, dataHash)
+    const txData = this.encoder.encodeRegisterWork(
+      input.studio_address,
+      input.epoch,
+      input.data_hash
+    );
+
+    const txRequest: TxRequest = {
+      to: this.rewardsDistributorAddress,
+      data: txData,
+    };
+
+    try {
+      const txHash = await this.txQueue.submitOnly(
+        workflow.id,
+        input.signer_address,
+        txRequest
+      );
+
+      // Persist tx hash (critical checkpoint)
+      await this.persistence.appendProgress(workflow.id, { register_tx_hash: txHash });
+
+      return { type: 'SUCCESS', nextStep: 'AWAIT_REGISTER_CONFIRM' };
+    } catch (error) {
+      const classified = this.classifyTxError(error);
+
+      if (classified.category === 'PERMANENT') {
+        return { type: 'FAILED', error: classified };
+      }
+
+      return { type: 'RETRY', error: classified };
+    }
+  }
+
+  private classifyTxError(error: unknown): ClassifiedError {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Already registered is idempotent success - but the reconciliation should skip this
+    // If we hit this error, something is wrong but we can treat it as success
+    if (message.includes('already registered') || message.includes('work exists')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Work already registered (idempotent)',
+        code: 'ALREADY_REGISTERED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Only owner can register
+    if (message.includes('not owner') || message.includes('Ownable')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Only protocol owner can register work',
+        code: 'NOT_OWNER',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Nonce issues are recoverable
+    if (message.includes('nonce too low')) {
+      return {
+        category: 'RECOVERABLE',
+        message: 'Nonce too low (tx may have landed)',
+        code: 'NONCE_TOO_LOW',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Network errors
+    if (message.includes('network') || message.includes('timeout')) {
+      return {
+        category: 'TRANSIENT',
+        message: 'Network error',
+        code: 'NETWORK_ERROR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    return {
+      category: 'UNKNOWN',
+      message,
+      code: 'UNKNOWN_REGISTER_ERROR',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+}
+
+/**
+ * Step 6: Wait for register work confirmation
+ */
+export class AwaitRegisterConfirmStep implements StepExecutor<WorkSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+
+  constructor(txQueue: TxQueue, persistence: WorkflowPersistence) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    return true;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if already confirmed, we're done
+    if (progress.register_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    if (!progress.register_tx_hash) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'No register tx hash found',
+          code: 'MISSING_REGISTER_TX_HASH',
+        },
+      };
+    }
+
+    try {
+      const receipt = await this.txQueue.waitForTx(progress.register_tx_hash);
+
+      // Release the signer lock
+      this.txQueue.releaseSignerLock(input.signer_address);
+
+      switch (receipt.status) {
+        case 'confirmed':
+          await this.persistence.appendProgress(workflow.id, {
+            register_confirmed: true,
+            register_confirmed_at: Date.now(),
+          });
+          return { type: 'SUCCESS', nextStep: null };
+
+        case 'reverted':
+          // Check if it's because already registered (idempotent success)
+          if (receipt.revertReason?.includes('already') || 
+              receipt.revertReason?.includes('registered')) {
+            // Treat as success - work is registered
+            await this.persistence.appendProgress(workflow.id, {
+              register_confirmed: true,
+              register_confirmed_at: Date.now(),
+            });
+            return { type: 'SUCCESS', nextStep: null };
+          }
+          return {
+            type: 'FAILED',
+            error: {
+              category: 'PERMANENT',
+              message: `Register transaction reverted: ${receipt.revertReason}`,
+              code: 'REGISTER_TX_REVERTED',
+            },
+          };
+
+        case 'pending':
+          return {
+            type: 'RETRY',
+            error: {
+              category: 'TRANSIENT',
+              message: 'Register transaction still pending',
+              code: 'REGISTER_TX_PENDING',
+            },
+          };
+
+        case 'not_found':
+          return {
+            type: 'STALLED',
+            reason: 'Register transaction not found after timeout',
+          };
+      }
+    } catch (error) {
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: error instanceof Error ? error.message : String(error),
+          code: 'REGISTER_TX_WAIT_ERROR',
+          originalError: error instanceof Error ? error : undefined,
+        },
+      };
+    }
+  }
+}
+
+// =============================================================================
 // WORKFLOW FACTORY
 // =============================================================================
 
@@ -518,12 +786,22 @@ export function createWorkSubmissionWorkflow(
 
 /**
  * Create WorkSubmission workflow definition.
+ * 
+ * The full workflow now includes:
+ * 1. UPLOAD_EVIDENCE - Upload to Arweave
+ * 2. AWAIT_ARWEAVE_CONFIRM - Wait for Arweave confirmation
+ * 3. SUBMIT_WORK_ONCHAIN - Submit to StudioProxy
+ * 4. AWAIT_TX_CONFIRM - Wait for StudioProxy tx confirmation
+ * 5. REGISTER_WORK - Register with RewardsDistributor
+ * 6. AWAIT_REGISTER_CONFIRM - Wait for registration confirmation
  */
 export function createWorkSubmissionDefinition(
   arweave: ArweaveUploader,
   txQueue: TxQueue,
   persistence: WorkflowPersistence,
-  contractEncoder: ContractEncoder
+  contractEncoder: ContractEncoder,
+  rewardsDistributorEncoder: RewardsDistributorEncoder,
+  rewardsDistributorAddress: string
 ): WorkflowDefinition<WorkSubmissionRecord> {
   const steps = new Map<string, StepExecutor<WorkSubmissionRecord>>();
 
@@ -531,6 +809,8 @@ export function createWorkSubmissionDefinition(
   steps.set('AWAIT_ARWEAVE_CONFIRM', new AwaitArweaveConfirmStep(arweave, persistence));
   steps.set('SUBMIT_WORK_ONCHAIN', new SubmitWorkOnchainStep(txQueue, persistence, contractEncoder));
   steps.set('AWAIT_TX_CONFIRM', new AwaitTxConfirmStep(txQueue, persistence));
+  steps.set('REGISTER_WORK', new RegisterWorkStep(txQueue, persistence, rewardsDistributorEncoder, rewardsDistributorAddress));
+  steps.set('AWAIT_REGISTER_CONFIRM', new AwaitRegisterConfirmStep(txQueue, persistence));
 
   return {
     type: 'WorkSubmission',
@@ -541,6 +821,8 @@ export function createWorkSubmissionDefinition(
       'AWAIT_ARWEAVE_CONFIRM',
       'SUBMIT_WORK_ONCHAIN',
       'AWAIT_TX_CONFIRM',
+      'REGISTER_WORK',
+      'AWAIT_REGISTER_CONFIRM',
     ],
   };
 }

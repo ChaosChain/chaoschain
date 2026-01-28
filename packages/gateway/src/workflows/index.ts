@@ -84,10 +84,14 @@ export {
 export {
   ArweaveUploader,
   ContractEncoder,
+  RewardsDistributorEncoder,
+  RewardsDistributorStateAdapter,
   UploadEvidenceStep,
   AwaitArweaveConfirmStep,
   SubmitWorkOnchainStep,
   AwaitTxConfirmStep,
+  RegisterWorkStep,
+  AwaitRegisterConfirmStep,
   createWorkSubmissionWorkflow,
   createWorkSubmissionDefinition,
 } from './work-submission.js';

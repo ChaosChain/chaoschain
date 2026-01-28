@@ -21,7 +21,7 @@ import { createWorkSubmissionDefinition } from './workflows/work-submission.js';
 import { createScoreSubmissionDefinition, DefaultScoreContractEncoder } from './workflows/score-submission.js';
 import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
 import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
-import { EthersChainAdapter, StudioProxyEncoder } from './adapters/chain-adapter.js';
+import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
 import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
 import { createRoutes, errorHandler } from './http/index.js';
 import { createLogger, Logger } from './utils/index.js';
@@ -155,16 +155,22 @@ export class Gateway {
     const studioEncoder = new StudioProxyEncoder();
     const scoreEncoder = new DefaultScoreContractEncoder();
     const epochEncoder = new DefaultEpochContractEncoder();
+    const rewardsDistributorEncoder = new DefaultRewardsDistributorEncoder();
 
-    // 1. WorkSubmission workflow
+    // 1. WorkSubmission workflow (now includes REGISTER_WORK step)
     const workSubmissionDef = createWorkSubmissionDefinition(
       arweaveAdapter,
       txQueue,
       persistence,
-      studioEncoder
+      studioEncoder,
+      rewardsDistributorEncoder,
+      this.config.rewardsDistributorAddress
     );
     this.engine.registerWorkflow(workSubmissionDef);
-    this.logger.info({}, 'WorkSubmission workflow registered');
+    this.logger.info(
+      { rewardsDistributor: this.config.rewardsDistributorAddress },
+      'WorkSubmission workflow registered (with REGISTER_WORK step)'
+    );
 
     // 2. ScoreSubmission workflow
     const scoreSubmissionDef = createScoreSubmissionDefinition(

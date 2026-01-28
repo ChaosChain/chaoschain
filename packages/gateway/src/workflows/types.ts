@@ -35,7 +35,9 @@ export type WorkSubmissionStep =
   | 'UPLOAD_EVIDENCE'
   | 'AWAIT_ARWEAVE_CONFIRM'
   | 'SUBMIT_WORK_ONCHAIN'
-  | 'AWAIT_TX_CONFIRM';
+  | 'AWAIT_TX_CONFIRM'
+  | 'REGISTER_WORK'
+  | 'AWAIT_REGISTER_CONFIRM';
 
 // =============================================================================
 // SCORE SUBMISSION WORKFLOW STEPS
@@ -83,6 +85,10 @@ export interface WorkSubmissionProgress {
   onchain_confirmed?: boolean;
   onchain_block?: number;
   onchain_confirmed_at?: number;
+  // Register work with RewardsDistributor
+  register_tx_hash?: string;
+  register_confirmed?: boolean;
+  register_confirmed_at?: number;
 }
 
 // =============================================================================
