@@ -509,7 +509,7 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 │   │  ┌─────────────────────────────────────────────────────────────┐  │   │
 │   │  │                 WORKFLOW ENGINE                             │  │   │
 │   │  │  • WorkSubmission    (6 steps, incl. REGISTER_WORK)         │  │   │
-│   │  │  • ScoreSubmission   (commit-reveal pattern)                │  │   │
+│   │  │  • ScoreSubmission   (6 steps, incl. REGISTER_VALIDATOR)    │  │   │
 │   │  │  • CloseEpoch        (precondition checks)                  │  │   │
 │   │  └─────────────────────────────────────────────────────────────┘  │   │
 │   │                                                                   │   │
@@ -798,6 +798,9 @@ A: Workflows are crash-resilient. On restart, the Gateway reconciles with on-cha
 
 **Q: What is REGISTER_WORK and why is it needed?**  
 A: REGISTER_WORK is step 5 of the WorkSubmission workflow. StudioProxy and RewardsDistributor are isolated contracts by design. After submitting work to StudioProxy, the Gateway must explicitly call `RewardsDistributor.registerWork()` so that `closeEpoch()` can include that work in consensus. Without this step, `closeEpoch()` fails with "No work in epoch".
+
+**Q: What is REGISTER_VALIDATOR and why is it needed?**  
+A: REGISTER_VALIDATOR is step 5 of the ScoreSubmission workflow. Similar to REGISTER_WORK, this step bridges the protocol isolation between StudioProxy (where scores are committed/revealed) and RewardsDistributor (where validators are tracked). After revealing scores to StudioProxy, the Gateway calls `RewardsDistributor.registerValidator()` so that `closeEpoch()` can include the validator's scores in consensus. Without this step, `closeEpoch()` fails with "No validators".
 
 **Q: Why are StudioProxy and RewardsDistributor separate?**  
 A: Protocol isolation: StudioProxy handles work submission, escrow, and agent stakes. RewardsDistributor handles epoch management, consensus, and reward distribution. This separation allows independent upgrades and cleaner security boundaries. The Gateway orchestrates the handoff between them.

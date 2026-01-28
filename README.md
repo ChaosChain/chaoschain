@@ -320,6 +320,22 @@ UPLOAD_EVIDENCE → AWAIT_ARWEAVE_CONFIRM → SUBMIT_WORK_ONCHAIN → AWAIT_TX_C
 
 The Gateway orchestrates the handoff: after submitting work to StudioProxy, it must explicitly register that work with RewardsDistributor so `closeEpoch()` can succeed.
 
+#### ScoreSubmission Workflow (6 Steps)
+
+```
+COMMIT_SCORE → AWAIT_COMMIT_CONFIRM → REVEAL_SCORE → AWAIT_REVEAL_CONFIRM → REGISTER_VALIDATOR → AWAIT_REGISTER_VALIDATOR_CONFIRM → COMPLETED
+
+1. COMMIT_SCORE                    Submit commit hash to StudioProxy.commitScore()
+2. AWAIT_COMMIT_CONFIRM            Wait for commit tx confirmation
+3. REVEAL_SCORE                    Reveal actual scores via StudioProxy.revealScore()
+4. AWAIT_REVEAL_CONFIRM            Wait for reveal tx confirmation
+5. REGISTER_VALIDATOR              Register validator with RewardsDistributor.registerValidator()
+6. AWAIT_REGISTER_VALIDATOR_CONFIRM Wait for RewardsDistributor tx confirmation
+→ COMPLETED
+```
+
+**Why REGISTER_VALIDATOR?** Same protocol isolation as WorkSubmission — scores are submitted to StudioProxy, but validators must be registered with RewardsDistributor for `closeEpoch()` to include their scores in consensus.
+
 ### Using Gateway via SDK
 
 ```python
