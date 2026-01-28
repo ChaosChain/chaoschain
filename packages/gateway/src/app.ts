@@ -62,9 +62,9 @@ export function loadConfigFromEnv(): GatewayConfig {
     rpcUrl: process.env.RPC_URL ?? 'http://localhost:8545',
     chainId: parseInt(process.env.CHAIN_ID ?? '11155111', 10), // Sepolia
     confirmationBlocks: parseInt(process.env.CONFIRMATION_BLOCKS ?? '2', 10),
-    // ChaosChain contract addresses (Sepolia)
-    chaosCoreAddress: process.env.CHAOS_CORE_ADDRESS ?? '0xF6a57f04a08e3b5cC3c12D71c66189a0c0A73378',
-    rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19',
+    // ChaosChain contract addresses (Sepolia) - v0.4.31 ERC-8004 Feb 2026 ABI
+    chaosCoreAddress: process.env.CHAOS_CORE_ADDRESS ?? '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
+    rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
     // Arweave Turbo gateway
     turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
@@ -119,16 +119,30 @@ export class Gateway {
       'Chain adapter initialized'
     );
 
-    // Register signer from environment
+    // Register signers from environment
+    const { ethers } = await import('ethers');
+    const provider = await this.createProvider();
+    
+    // Primary signer
     const signerPrivateKey = process.env.SIGNER_PRIVATE_KEY;
     if (signerPrivateKey) {
-      const { ethers } = await import('ethers');
-      const wallet = new ethers.Wallet(signerPrivateKey, await this.createProvider());
+      const wallet = new ethers.Wallet(signerPrivateKey, provider);
       const signerAddress = await wallet.getAddress();
       chainAdapter.registerSigner(signerAddress.toLowerCase(), wallet);
       this.logger.info({ address: signerAddress }, 'Signer registered from SIGNER_PRIVATE_KEY');
     } else {
       this.logger.warn({}, 'No SIGNER_PRIVATE_KEY configured - workflows requiring tx submission will fail');
+    }
+    
+    // Additional signers (SIGNER_PRIVATE_KEY_2, SIGNER_PRIVATE_KEY_3, etc.)
+    for (let i = 2; i <= 10; i++) {
+      const additionalKey = process.env[`SIGNER_PRIVATE_KEY_${i}`];
+      if (additionalKey) {
+        const wallet = new ethers.Wallet(additionalKey, provider);
+        const signerAddress = await wallet.getAddress();
+        chainAdapter.registerSigner(signerAddress.toLowerCase(), wallet);
+        this.logger.info({ address: signerAddress }, `Signer registered from SIGNER_PRIVATE_KEY_${i}`);
+      }
     }
 
     // Initialize tx queue

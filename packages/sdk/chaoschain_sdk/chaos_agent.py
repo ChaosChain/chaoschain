@@ -86,19 +86,19 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                # Official ERC-8004 Registries (Jan 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
+                # Official ERC-8004 Registries (Feb 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
                 'identity_registry': '0x8004A818BFB912233c491871b3d84c89A494BD9e',
                 'reputation_registry': '0x8004B663056A597Dffe9eCcC1965A193B7388713',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol v0.4.30 (deployed Jan 17, 2026) - VERIFIED ON-CHAIN
-                # ERC-8004 Jan 2026 compatible: No feedbackAuth, string tags, endpoint parameter
-                # Multi-agent submitWorkMultiAgent now works (feedbackAuth removed)
+                # ChaosChain Protocol v0.4.31 (deployed Jan 28, 2026) - ERC-8004 Feb 2026 ABI
+                # giveFeedback: score (uint8) -> value (int128) + valueDecimals (uint8)
+                # validationResponse: tag (bytes32) -> tag (string)
                 'chaos_registry': '0x7F38C1aFFB24F30500d9174ed565110411E42d50',
-                'chaos_core': '0xF6a57f04736A52a38b273b0204d636506a780E67',
-                'rewards_distributor': '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19',
-                'studio_factory': '0x230e76a105A9737Ea801BB7d0624D495506EE257',
+                'chaos_core': '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
+                'rewards_distributor': '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
+                'studio_factory': '0x54Cbf5fa7d10ECBab4f46D71FAD298A230A16aF6',
                 # LogicModules
                 'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3'
             },
