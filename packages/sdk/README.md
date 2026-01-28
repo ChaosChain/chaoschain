@@ -232,11 +232,14 @@ workflow = sdk.submit_work_via_gateway(
     signer_address=sdk.wallet_manager.address
 )
 
-# Gateway computes:
-# 1. Fetches XMTP messages → constructs causal DAG
-# 2. Computes contribution weights from path centrality
-# 3. Uploads evidence to Arweave
-# 4. Submits work transaction with computed roots
+# Gateway executes WorkSubmission workflow (6 steps):
+# 1. UPLOAD_EVIDENCE        → Upload to Arweave
+# 2. AWAIT_ARWEAVE_CONFIRM  → Wait for Arweave confirmation
+# 3. SUBMIT_WORK_ONCHAIN    → Call StudioProxy.submitWork()
+# 4. AWAIT_TX_CONFIRM       → Wait for tx confirmation
+# 5. REGISTER_WORK          → Call RewardsDistributor.registerWork()
+# 6. AWAIT_REGISTER_CONFIRM → Wait for tx confirmation
+# → COMPLETED
 
 final = sdk.gateway.wait_for_completion(workflow['id'])
 print(f"Work submitted: {final['state']}")
@@ -246,6 +249,12 @@ print(f"Work submitted: {final['state']}")
 - Deterministic: Same evidence always produces identical DAG and weights
 - No local state: SDK doesn't need XMTP or Arweave access
 - Crash-resilient: Computation resumes if Gateway restarts
+
+**Why REGISTER_WORK step?**
+- StudioProxy and RewardsDistributor are isolated by design (protocol isolation)
+- Work submitted to StudioProxy must be explicitly registered with RewardsDistributor
+- Without this step, `closeEpoch()` fails with "No work in epoch"
+- Gateway orchestrates this handoff automatically
 
 ### Multi-Agent Work Submission
 
@@ -499,7 +508,7 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 │   │                                                                   │   │
 │   │  ┌─────────────────────────────────────────────────────────────┐  │   │
 │   │  │                 WORKFLOW ENGINE                             │  │   │
-│   │  │  • WorkSubmission    (idempotent, resumable)                │  │   │
+│   │  │  • WorkSubmission    (6 steps, incl. REGISTER_WORK)         │  │   │
 │   │  │  • ScoreSubmission   (commit-reveal pattern)                │  │   │
 │   │  │  • CloseEpoch        (precondition checks)                  │  │   │
 │   │  └─────────────────────────────────────────────────────────────┘  │   │
@@ -786,6 +795,12 @@ A: Pass `gateway_url="https://gateway.chaoscha.in"` when initializing the SDK. T
 
 **Q: What happens if the Gateway crashes?**  
 A: Workflows are crash-resilient. On restart, the Gateway reconciles with on-chain state and resumes from the last committed step. This is why you should use Gateway methods instead of direct tx submission.
+
+**Q: What is REGISTER_WORK and why is it needed?**  
+A: REGISTER_WORK is step 5 of the WorkSubmission workflow. StudioProxy and RewardsDistributor are isolated contracts by design. After submitting work to StudioProxy, the Gateway must explicitly call `RewardsDistributor.registerWork()` so that `closeEpoch()` can include that work in consensus. Without this step, `closeEpoch()` fails with "No work in epoch".
+
+**Q: Why are StudioProxy and RewardsDistributor separate?**  
+A: Protocol isolation: StudioProxy handles work submission, escrow, and agent stakes. RewardsDistributor handles epoch management, consensus, and reward distribution. This separation allows independent upgrades and cleaner security boundaries. The Gateway orchestrates the handoff between them.
 
 ---
 

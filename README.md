@@ -296,6 +296,29 @@ The Gateway is the **orchestration layer** that bridges the SDK to all off-chain
 4. **Tx Serialization** — One signer = one nonce stream (no races)
 5. **Crash Resilient** — Workflows resume from last committed state after restart
 6. **Economically Powerless** — Gateway cannot mint, burn, or move value
+7. **Protocol Isolation** — StudioProxy and RewardsDistributor are separate contracts; Gateway orchestrates the handoff
+
+### WorkSubmission Workflow (6 Steps)
+
+The Gateway's `WorkSubmission` workflow orchestrates the complete work submission lifecycle:
+
+```
+UPLOAD_EVIDENCE → AWAIT_ARWEAVE_CONFIRM → SUBMIT_WORK_ONCHAIN → AWAIT_TX_CONFIRM → REGISTER_WORK → AWAIT_REGISTER_CONFIRM → COMPLETED
+
+1. UPLOAD_EVIDENCE        Upload evidence package to Arweave
+2. AWAIT_ARWEAVE_CONFIRM  Wait for Arweave tx confirmation
+3. SUBMIT_WORK_ONCHAIN    Submit work to StudioProxy.submitWork()
+4. AWAIT_TX_CONFIRM       Wait for StudioProxy tx confirmation
+5. REGISTER_WORK          Register work with RewardsDistributor.registerWork()
+6. AWAIT_REGISTER_CONFIRM Wait for RewardsDistributor tx confirmation
+→ COMPLETED
+```
+
+**Why REGISTER_WORK?** StudioProxy and RewardsDistributor are isolated by design:
+- `StudioProxy` — Handles work submission, escrow, agent stakes
+- `RewardsDistributor` — Handles epoch management, consensus, rewards
+
+The Gateway orchestrates the handoff: after submitting work to StudioProxy, it must explicitly register that work with RewardsDistributor so `closeEpoch()` can succeed.
 
 ### Using Gateway via SDK
 
@@ -685,7 +708,7 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 | **ChaosCore** | Factory that creates Studios | `createStudio()`, `registerLogicModule()`, `getStudioCount()` |
 | **StudioProxyFactory** | Deploys lightweight proxies (gas optimization) | `createStudioProxy()` — internal use only |
 | **StudioProxy** | Per-job contract holding escrow + state | `registerAgent()`, `submitWork()`, `submitScoreVector()` |
-| **RewardsDistributor** | PoA engine: consensus, rewards, reputation | `closeEpoch()` — the magic happens here! |
+| **RewardsDistributor** | PoA engine: consensus, rewards, reputation | `registerWork()`, `closeEpoch()` — the magic happens here! |
 | **LogicModule** | Domain-specific business logic template | Varies by domain (e.g., `FinanceStudioLogic`) |
 
 ---
