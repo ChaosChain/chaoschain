@@ -1142,13 +1142,14 @@ contract StudioProxy is IStudioProxy, EIP712, ReentrancyGuard {
         string memory endpoint = ""; // Studio endpoint (optional)
         
         // Try to publish feedback with x402 PaymentProof
-        // Jan 2026 spec: No feedbackAuth required - permissionless feedback
+        // Feb 2026 ABI: value (int128) + valueDecimals (uint8) instead of score
         try reputationRegistry.giveFeedback(
             task.clientAgentId,
-            score,
+            int128(uint128(score)),   // Cast uint8 score to int128 value
+            0,                         // valueDecimals = 0 (integer scores 0-100)
             tag1,
             tag2,
-            endpoint,                 // NEW: endpoint parameter (Jan 2026)
+            endpoint,
             task.paymentProofUri,     // Contains x402 PaymentProof
             task.paymentProofHash     // Hash of payment proof
         ) {

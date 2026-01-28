@@ -208,15 +208,17 @@ contract RewardsDistributorUnitTest is Test {
 }
 
 /**
- * @notice Minimal mock for unit tests - does not implement full ERC-8004
+ * @notice Minimal mock for unit tests (Feb 2026 ABI)
  */
 contract MockIdentityRegistryUnit is IERC8004IdentityV1 {
     mapping(uint256 => address) private _owners;
+    mapping(uint256 => address) private _agentWallets;
     uint256 private _nextTokenId = 1;
     
     function register() external override returns (uint256 agentId) {
         agentId = _nextTokenId++;
         _owners[agentId] = msg.sender;
+        _agentWallets[agentId] = msg.sender;
         emit Transfer(address(0), msg.sender, agentId);
         return agentId;
     }
@@ -227,11 +229,15 @@ contract MockIdentityRegistryUnit is IERC8004IdentityV1 {
     function balanceOf(address) external pure override returns (uint256) { return 1; }
     function isApprovedForAll(address, address) external pure override returns (bool) { return false; }
     function getApproved(uint256) external pure override returns (address) { return address(0); }
+    function isAuthorizedOrOwner(address spender, uint256 agentId) external view override returns (bool) {
+        require(_owners[agentId] != address(0), "ERC721NonexistentToken");
+        return spender == _owners[agentId];
+    }
     function tokenURI(uint256) external pure override returns (string memory) { return ""; }
-    function agentExists(uint256 tokenId) external view override returns (bool) { return _owners[tokenId] != address(0); }
-    function totalAgents() external view override returns (uint256) { return _nextTokenId - 1; }
     function getMetadata(uint256, string memory) external pure override returns (bytes memory) { return ""; }
     function setMetadata(uint256, string memory, bytes memory) external override {}
-    function setAgentUri(uint256, string calldata) external override {}
+    function setAgentURI(uint256, string calldata) external override {}
+    function getAgentWallet(uint256 agentId) external view override returns (address) { return _agentWallets[agentId]; }
     function setAgentWallet(uint256, address, uint256, bytes calldata) external override {}
+    function unsetAgentWallet(uint256 agentId) external override { _agentWallets[agentId] = address(0); }
 }

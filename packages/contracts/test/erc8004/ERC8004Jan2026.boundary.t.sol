@@ -133,7 +133,7 @@ contract ERC8004Jan2026BoundaryTest is Test {
     
     /**
      * @notice Verify feedbackAuth is NOT used in giveFeedback calls
-     * @dev Jan 2026 spec REMOVED feedbackAuth - it should not be present
+     * @dev Feb 2026 ABI has 8 params: (agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash)
      */
     function test_giveFeedback_no_feedbackAuth() public {
         (address proxy, ) = _createStudioWithAgents();
@@ -143,17 +143,17 @@ contract ERC8004Jan2026BoundaryTest is Test {
         rewardsDistributor.registerValidator(dataHash, validatorAgent);
         
         // The strict mock tracks the number of parameters received
-        // Jan 2026 signature: (agentId, score, tag1, tag2, endpoint, feedbackUri, feedbackHash)
-        // That's 7 parameters, NOT 8 (old spec had feedbackAuth as 8th)
+        // Feb 2026 signature: (agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash)
+        // That's 8 parameters (value replaced score, valueDecimals was added)
         
         rewardsDistributor.closeEpoch(proxy, 1);
         
         // If feedbackAuth was still being passed, the strict mock would revert
-        // because it only accepts the Jan 2026 7-parameter signature
+        // because it only accepts the Feb 2026 8-parameter signature
         assertEq(
             strictReputationRegistry.lastCallParameterCount(),
-            7,
-            "giveFeedback should have exactly 7 parameters (no feedbackAuth)"
+            8,
+            "giveFeedback should have exactly 8 parameters (Feb 2026 ABI)"
         );
     }
     
@@ -190,8 +190,8 @@ contract ERC8004Jan2026BoundaryTest is Test {
         
         rewardsDistributor.closeEpoch(proxy, 1);
         
-        uint8 score = strictReputationRegistry.lastScore();
-        assertTrue(score <= 100, "Score must be <= 100");
+        int128 value = strictReputationRegistry.lastValue();
+        assertTrue(value >= 0 && value <= 100, "Value must be 0-100");
     }
     
     /**
@@ -270,6 +270,28 @@ contract ERC8004Jan2026BoundaryTest is Test {
         );
     }
     
+    // ============ ABI Selector Regression Tests ============
+    
+    /**
+     * @notice Regression test: Verify giveFeedback selector matches upstream ERC-8004 ABI
+     * @dev Feb 2026 ABI: giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)
+     * Selector: keccak256("giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)")[:4]
+     */
+    function test_giveFeedback_selector_matches_upstream() public {
+        // The expected selector for giveFeedback with Feb 2026 ABI
+        // giveFeedback(uint256 agentId, int128 value, uint8 valueDecimals, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)
+        bytes4 expectedSelector = bytes4(keccak256("giveFeedback(uint256,int128,uint8,string,string,string,string,bytes32)"));
+        
+        // Get the actual selector from the interface
+        bytes4 actualSelector = IERC8004Reputation.giveFeedback.selector;
+        
+        assertEq(
+            actualSelector,
+            expectedSelector,
+            "giveFeedback selector must match upstream ERC-8004 Feb 2026 ABI"
+        );
+    }
+    
     // ============ Helper Functions ============
     
     function _createStudioWithAgents() internal returns (address proxy, uint256 studioId) {
@@ -299,8 +321,8 @@ contract ERC8004Jan2026BoundaryTest is Test {
 }
 
 /**
- * @notice STRICT Mock Reputation Registry for Jan 2026 spec compliance testing
- * @dev This mock ENFORCES the Jan 2026 spec and REVERTS on invalid calls
+ * @notice STRICT Mock Reputation Registry for Feb 2026 ABI compliance testing
+ * @dev This mock ENFORCES the Feb 2026 ABI and REVERTS on invalid calls
  */
 contract StrictJan2026ReputationMock is IERC8004Reputation {
     // Call tracking
@@ -310,7 +332,8 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
     
     // Last call values
     uint256 public lastAgentId;
-    uint8 public lastScore;
+    int128 public lastValue;
+    uint8 public lastValueDecimals;
     string public lastTag1;
     string public lastTag2;
     string public lastEndpoint;
@@ -334,42 +357,41 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
     }
     
     /**
-     * @notice Jan 2026 compliant giveFeedback
-     * @dev REVERTS if called with wrong signature (e.g., bytes32 tags or feedbackAuth)
+     * @notice Feb 2026 ABI compliant giveFeedback
+     * @dev REVERTS if called with wrong signature
      */
     function giveFeedback(
         uint256 agentId,
-        uint8 score,
+        int128 value,
+        uint8 valueDecimals,
         string calldata tag1,
         string calldata tag2,
         string calldata endpoint,
         string calldata feedbackUri,
         bytes32 feedbackHash
     ) external override {
-        // Record that we received exactly 7 parameters (Jan 2026 spec)
-        _lastCallParameterCount = 7;
+        // Record that we received exactly 8 parameters (Feb 2026 ABI)
+        _lastCallParameterCount = 8;
         
-        // Validate Jan 2026 requirements
+        // Validate requirements
         
-        // 1. tags must be strings (implicit - we're receiving them as strings)
-        // If someone tried to call with bytes32 tags, it wouldn't compile
+        // 1. valueDecimals must be <= 18
+        require(valueDecimals <= 18, "StrictMock: valueDecimals must be <= 18");
         
         // 2. endpoint must be provided (even if empty)
-        _endpointProvided = true;  // If we got here, endpoint was in the signature
+        _endpointProvided = true;
         
-        // 3. score must be valid
-        require(score <= 100, "StrictMock: Score must be 0-100");
-        
-        // 4. tag1 should be non-empty (dimension name)
+        // 3. tag1 should be non-empty (dimension name)
         require(bytes(tag1).length > 0, "StrictMock: tag1 (dimension) required");
         
-        // 5. tag2 should be non-empty (studio address)
+        // 4. tag2 should be non-empty (studio address)
         require(bytes(tag2).length > 0, "StrictMock: tag2 (studio) required");
         
         // Store for verification
         _giveFeedbackCalls++;
         lastAgentId = agentId;
-        lastScore = score;
+        lastValue = value;
+        lastValueDecimals = valueDecimals;
         lastTag1 = tag1;
         lastTag2 = tag2;
         lastEndpoint = endpoint;
@@ -380,7 +402,9 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
             agentId,
             msg.sender,
             uint64(_giveFeedbackCalls),
-            score,
+            value,
+            valueDecimals,
+            tag1,   // indexedTag1 (also emitted as non-indexed)
             tag1,
             tag2,
             endpoint,
@@ -398,21 +422,22 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
     }
     
     function getSummary(uint256, address[] calldata, string calldata, string calldata) 
-        external pure override returns (uint64, uint8) 
+        external pure override returns (uint64, int128, uint8) 
     {
-        return (0, 0);
+        return (0, 0, 0);
     }
     
     function readFeedback(uint256, address, uint64) external pure override returns (
-        uint8, string memory, string memory, bool
+        int128, uint8, string memory, string memory, bool
     ) {
-        return (0, "", "", false);
+        return (0, 0, "", "", false);
     }
     
     function readAllFeedback(uint256, address[] calldata, string calldata, string calldata, bool) 
         external pure override returns (
             address[] memory,
             uint64[] memory,
+            int128[] memory,
             uint8[] memory,
             string[] memory,
             string[] memory,
@@ -422,6 +447,7 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
         return (
             new address[](0),
             new uint64[](0),
+            new int128[](0),
             new uint8[](0),
             new string[](0),
             new string[](0),
@@ -443,17 +469,19 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
 }
 
 /**
- * @notice Mock Identity Registry for ERC-8004 boundary tests
+ * @notice Mock Identity Registry for ERC-8004 boundary tests (Feb 2026 ABI)
  */
 contract MockIdentityRegistryERC8004 is IERC8004IdentityV1 {
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;
+    mapping(uint256 => address) private _agentWallets;
     uint256 private _nextTokenId = 1;
     
     function register() external override returns (uint256 agentId) {
         agentId = _nextTokenId++;
         _owners[agentId] = msg.sender;
         _balances[msg.sender]++;
+        _agentWallets[agentId] = msg.sender;
         emit Transfer(address(0), msg.sender, agentId);
         return agentId;
     }
@@ -467,11 +495,15 @@ contract MockIdentityRegistryERC8004 is IERC8004IdentityV1 {
     function balanceOf(address owner) external view override returns (uint256) { return _balances[owner]; }
     function isApprovedForAll(address, address) external pure override returns (bool) { return false; }
     function getApproved(uint256) external pure override returns (address) { return address(0); }
+    function isAuthorizedOrOwner(address spender, uint256 agentId) external view override returns (bool) {
+        require(_owners[agentId] != address(0), "ERC721NonexistentToken");
+        return spender == _owners[agentId];
+    }
     function tokenURI(uint256) external pure override returns (string memory) { return ""; }
-    function agentExists(uint256 tokenId) external view override returns (bool) { return _owners[tokenId] != address(0); }
-    function totalAgents() external view override returns (uint256) { return _nextTokenId - 1; }
     function getMetadata(uint256, string memory) external pure override returns (bytes memory) { return ""; }
     function setMetadata(uint256, string memory, bytes memory) external override {}
-    function setAgentUri(uint256, string calldata) external override {}
+    function setAgentURI(uint256, string calldata) external override {}
+    function getAgentWallet(uint256 agentId) external view override returns (address) { return _agentWallets[agentId]; }
     function setAgentWallet(uint256, address, uint256, bytes calldata) external override {}
+    function unsetAgentWallet(uint256 agentId) external override { _agentWallets[agentId] = address(0); }
 }

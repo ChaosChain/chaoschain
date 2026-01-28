@@ -312,13 +312,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 consensusScores[i]
             ));
             
-            // Jan 2026 spec: No feedbackAuth parameter - permissionless feedback
+            // Feb 2026 ABI: value (int128) + valueDecimals (uint8) instead of score
             try reputationRegistry.giveFeedback(
                 agentId,
-                consensusScores[i],
+                int128(uint128(consensusScores[i])),  // Cast uint8 score to int128 value
+                0,                                     // valueDecimals = 0 (integer scores 0-100)
                 tag1,
                 tag2,
-                endpoint,                                                          // NEW: endpoint parameter
+                endpoint,
                 string(abi.encodePacked("chaoschain://", _toHexString(dataHash))), // feedbackURI
                 feedbackHash
             ) {} catch {}
@@ -668,12 +669,13 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         avgScore = avgScore / consensusScores.length;
         
         // Try to publish validation response (may fail if mock)
+        // Feb 2026 ABI: tag is now string type
         try IERC8004Validation(validationRegistry).validationResponse(
             dataHash,                    // requestHash
             uint8(avgScore),            // response (0-100)
-            "",                         // responseUri (optional)
+            "",                         // responseURI (optional)
             bytes32(0),                 // responseHash (optional)
-            bytes32("CHAOSCHAIN_CONSENSUS") // tag
+            "CHAOSCHAIN_CONSENSUS"      // tag (now string)
         ) {
             // Success - validation published
         } catch {
@@ -940,14 +942,15 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             string memory dimensionTag = dimensionNames[i];
             
             // Try to publish feedback with Triple-Verified Stack proofs
-            // Jan 2026 spec: No feedbackAuth parameter - permissionless feedback
+            // Feb 2026 ABI: value (int128) + valueDecimals (uint8) instead of score
             try IERC8004Reputation(reputationRegistry).giveFeedback(
                 workerAgentId,
-                scores[i],           // Score for this dimension (0-100)
-                dimensionTag,        // tag1: Dimension name (string)
-                studioTag,           // tag2: Studio address (string)
-                endpoint,            // NEW: endpoint parameter (Jan 2026)
-                feedbackUri,         // Contains full PoA analysis + proofs
+                int128(uint128(scores[i])),  // Cast uint8 score to int128 value
+                0,                            // valueDecimals = 0 (integer scores 0-100)
+                dimensionTag,                 // tag1: Dimension name (string)
+                studioTag,                    // tag2: Studio address (string)
+                endpoint,
+                feedbackUri,                  // Contains full PoA analysis + proofs
                 feedbackHash
             ) {
                 // Success - reputation published for this dimension
@@ -999,13 +1002,14 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         string memory endpoint = ""; // Optional endpoint
         
         // Try to publish feedback with Triple-Verified Stack proofs
-        // Jan 2026 spec: No feedbackAuth parameter - permissionless feedback
+        // Feb 2026 ABI: value (int128) + valueDecimals (uint8) instead of score
         try IERC8004Reputation(reputationRegistry).giveFeedback(
             validatorAgentId,
-            performanceScore,
+            int128(uint128(performanceScore)),  // Cast uint8 score to int128 value
+            0,                                   // valueDecimals = 0 (integer scores 0-100)
             tag1,
             tag2,
-            endpoint,              // NEW: endpoint parameter (Jan 2026)
+            endpoint,
             feedbackUri,           // Contains IntegrityProof
             feedbackHash           // Hash of feedback content
         ) {
