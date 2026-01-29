@@ -3,26 +3,21 @@ pragma solidity ^0.8.24;
 
 /**
  * @title IERC8004IdentityV1
- * @notice Minimal interface for ERC-8004 Jan 2026 IdentityRegistry (ERC-721 based)
- * @dev Based on ERC-8004 Jan 2026 spec where agents are ERC-721 NFTs
+ * @notice Interface for ERC-8004 IdentityRegistry (Feb 2026 ABI update)
+ * @dev Based on official ERC-8004 contracts v2.0.0 (ERC-721 based)
  * 
- * Key Changes from Oct 2025:
- * - agentRegistry: formal format "{namespace}:{chainId}:{identityRegistry}"
- * - tokenURI renamed to agentURI in spec; setAgentURI function added
- * - Reserved metadata key "agentWallet" with signature verification:
- *   - Cannot be set via setMetadata() or during register()
- *   - Initially set to owner's address
- *   - Changed via setAgentWallet() with EIP-712/ERC-1271 signature
- *   - Reset to zero address on transfer
- * - Optional endpoint domain verification via /.well-known/agent-registration.json
+ * Key Changes:
+ * - MetadataEntry struct: key→metadataKey, value→metadataValue
+ * - setAgentUri → setAgentURI (capital I)
+ * - Added: isAuthorizedOrOwner, getAgentWallet, unsetAgentWallet
  * 
- * Full implementation: https://github.com/ChaosChain/trustless-agents-erc-ri
+ * Full implementation: https://github.com/erc-8004/erc-8004-contracts
  * 
- * @author ChaosChain Labs
+ * @author ERC-8004 Working Group
  */
 interface IERC8004IdentityV1 {
     
-    // ============ ERC-721 Core (What We Need) ============
+    // ============ ERC-721 Core ============
     
     /**
      * @notice Get the owner of an agent NFT
@@ -53,7 +48,16 @@ interface IERC8004IdentityV1 {
      */
     function getApproved(uint256 tokenId) external view returns (address operator);
     
-    // ============ ERC-8004 v1 Specific ============
+    /**
+     * @notice Check if spender is owner or approved for the agent
+     * @dev Reverts with ERC721NonexistentToken if agent doesn't exist
+     * @param spender The address to check
+     * @param agentId The agent ID
+     * @return True if spender is owner or approved
+     */
+    function isAuthorizedOrOwner(address spender, uint256 agentId) external view returns (bool);
+    
+    // ============ ERC-8004 Specific ============
     
     /**
      * @notice Get the token URI for an agent (points to registration file)
@@ -62,77 +66,73 @@ interface IERC8004IdentityV1 {
      */
     function tokenURI(uint256 tokenId) external view returns (string memory uri);
     
+    // ============ Registration Functions ============
+    
     /**
-     * @notice Check if an agent exists
-     * @param tokenId The agent ID to check
-     * @return exists True if the agent exists
+     * @notice Metadata entry structure (Feb 2026 ABI)
+     * @dev CHANGED: key→metadataKey, value→metadataValue
      */
-    function agentExists(uint256 tokenId) external view returns (bool exists);
+    struct MetadataEntry {
+        string metadataKey;
+        bytes metadataValue;
+    }
     
     /**
-     * @notice Get total number of registered agents
-     * @return count The total agent count
-     */
-    function totalAgents() external view returns (uint256 count);
-    
-    // ============ ERC-8004 v1 Registration Functions ============
-    
-    /**
-     * @notice Register a new agent without tokenURI
+     * @notice Register a new agent without URI
      * @return agentId The newly minted agent ID
      */
     function register() external returns (uint256 agentId);
     
     /**
-     * @notice Register a new agent with tokenURI
-     * @param tokenUri The URI pointing to agent metadata
+     * @notice Register a new agent with URI
+     * @param agentURI The URI pointing to agent metadata
      * @return agentId The newly minted agent ID
      */
-    function register(string memory tokenUri) external returns (uint256 agentId);
+    function register(string memory agentURI) external returns (uint256 agentId);
     
     /**
-     * @notice Register a new agent with tokenURI and metadata
-     * @param tokenUri The URI pointing to agent metadata
+     * @notice Register a new agent with URI and metadata
+     * @param agentURI The URI pointing to agent metadata
      * @param metadata Array of key-value metadata entries
      * @return agentId The newly minted agent ID
      */
-    function register(string memory tokenUri, MetadataEntry[] memory metadata) external returns (uint256 agentId);
+    function register(string memory agentURI, MetadataEntry[] memory metadata) external returns (uint256 agentId);
     
-    // ============ ERC-8004 v1 Metadata Functions ============
-    
-    /**
-     * @notice Metadata entry structure
-     */
-    struct MetadataEntry {
-        string key;
-        bytes value;
-    }
+    // ============ Metadata Functions ============
     
     /**
      * @notice Get metadata for an agent
      * @param agentId The agent ID
-     * @param key The metadata key
-     * @return value The metadata value
+     * @param metadataKey The metadata key
+     * @return The metadata value
      */
-    function getMetadata(uint256 agentId, string memory key) external view returns (bytes memory value);
+    function getMetadata(uint256 agentId, string memory metadataKey) external view returns (bytes memory);
     
     /**
      * @notice Set metadata for an agent
+     * @dev Cannot set reserved key "agentWallet"
      * @param agentId The agent ID
-     * @param key The metadata key
-     * @param value The metadata value
+     * @param metadataKey The metadata key
+     * @param metadataValue The metadata value
      */
-    function setMetadata(uint256 agentId, string memory key, bytes memory value) external;
+    function setMetadata(uint256 agentId, string memory metadataKey, bytes memory metadataValue) external;
     
     /**
-     * @notice Update agent URI (Jan 2026: renamed from setTokenURI to setAgentURI)
+     * @notice Update agent URI (Feb 2026: renamed from setAgentUri to setAgentURI)
      * @param agentId The agent ID
-     * @param newUri The new URI
+     * @param newURI The new URI
      */
-    function setAgentUri(uint256 agentId, string calldata newUri) external;
+    function setAgentURI(uint256 agentId, string calldata newURI) external;
     
     /**
-     * @notice Set agent wallet with signature verification (Jan 2026 NEW)
+     * @notice Get the agent's verified wallet address
+     * @param agentId The agent ID
+     * @return The wallet address (zero if unset)
+     */
+    function getAgentWallet(uint256 agentId) external view returns (address);
+    
+    /**
+     * @notice Set agent wallet with signature verification
      * @dev Reserved key "agentWallet" cannot be set via setMetadata()
      * Agent owner must prove control of new wallet via EIP-712 (EOA) or ERC-1271 (smart contract)
      * @param agentId The agent ID
@@ -142,11 +142,16 @@ interface IERC8004IdentityV1 {
      */
     function setAgentWallet(uint256 agentId, address newWallet, uint256 deadline, bytes calldata signature) external;
     
+    /**
+     * @notice Unset agent wallet (clear to zero address)
+     * @param agentId The agent ID
+     */
+    function unsetAgentWallet(uint256 agentId) external;
+    
     // ============ Events (ERC-721 Standard) ============
     
     /**
      * @dev Emitted when agent is minted/transferred
-     * @dev For registration: Transfer(address(0), owner, tokenId)
      */
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     
@@ -160,26 +165,20 @@ interface IERC8004IdentityV1 {
      */
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
     
-    // ============ ERC-8004 v1 Specific Events ============
+    // ============ ERC-8004 Specific Events ============
     
     /**
      * @dev Emitted when an agent is registered
      */
-    event Registered(uint256 indexed agentId, string tokenURI, address indexed owner);
+    event Registered(uint256 indexed agentId, string agentURI, address indexed owner);
     
     /**
      * @dev Emitted when metadata is set
      */
-    event MetadataSet(uint256 indexed agentId, string indexed indexedKey, string key, bytes value);
+    event MetadataSet(uint256 indexed agentId, string indexed indexedMetadataKey, string metadataKey, bytes metadataValue);
     
     /**
-     * @dev Emitted when URI is updated (Jan 2026: renamed from TokenURIUpdated to URIUpdated)
+     * @dev Emitted when URI is updated
      */
     event URIUpdated(uint256 indexed agentId, string newURI, address indexed updatedBy);
-    
-    /**
-     * @dev DEPRECATED: Kept for backward compatibility
-     */
-    event UriUpdated(uint256 indexed agentId, string newUri, address indexed updatedBy);
 }
-

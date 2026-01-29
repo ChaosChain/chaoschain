@@ -3,17 +3,15 @@ pragma solidity ^0.8.24;
 
 /**
  * @title IERC8004Reputation
- * @notice Interface for ERC-8004 Jan 2026 ReputationRegistry
- * @dev Based on official ERC-8004 Jan 2026 spec update
+ * @notice Interface for ERC-8004 ReputationRegistry (Feb 2026 ABI update)
+ * @dev Based on official ERC-8004 contracts v2.0.0
  * 
- * KEY CHANGES from Oct 2025 spec:
- * - REMOVED feedbackAuth parameter (no pre-authorization required)
- * - ADDED endpoint parameter for feedback
- * - CHANGED tag1, tag2 from bytes32 to string
- * - ADDED feedbackIndex to NewFeedback event
+ * KEY CHANGES from Jan 2026 spec:
+ * - CHANGED score (uint8) to value (int128) + valueDecimals (uint8)
+ * - This allows signed decimal values (e.g., -3.2% = -32 with valueDecimals=1)
  * 
  * ChaosChain protocol uses this for reputation/feedback management.
- * Full implementation: https://github.com/ChaosChain/trustless-agents-erc-ri
+ * Full implementation: https://github.com/erc-8004/erc-8004-contracts
  * 
  * @author ERC-8004 Working Group
  */
@@ -22,31 +20,31 @@ interface IERC8004Reputation {
     // ============ Structs ============
     
     /**
-     * @notice Feedback entry structure (Jan 2026 spec)
-     * @dev Tags changed from bytes32 to string
+     * @notice Feedback entry structure (Feb 2026 ABI)
+     * @dev Changed: score (uint8) → value (int128) + valueDecimals (uint8)
      */
     struct Feedback {
-        uint8 score;
+        int128 value;
+        uint8 valueDecimals;
         string tag1;
         string tag2;
         bool isRevoked;
     }
     
-    // NOTE: FeedbackAuth struct REMOVED in Jan 2026 spec
-    // Feedback submission is now permissionless (any clientAddress can submit)
-    
     // ============ Events ============
     
     /**
-     * @dev Emitted when new feedback is given (Jan 2026 spec)
-     * @notice CHANGED: Added feedbackIndex, endpoint; tags now string (tag1 indexed as string)
+     * @dev Emitted when new feedback is given (Feb 2026 ABI)
+     * @notice CHANGED: score (uint8) → value (int128) + valueDecimals (uint8)
      */
     event NewFeedback(
         uint256 indexed agentId,
         address indexed clientAddress,
         uint64 feedbackIndex,
-        uint8 score,
-        string indexed tag1,
+        int128 value,
+        uint8 valueDecimals,
+        string indexed indexedTag1,
+        string tag1,
         string tag2,
         string endpoint,
         string feedbackURI,
@@ -64,7 +62,6 @@ interface IERC8004Reputation {
     
     /**
      * @dev Emitted when a response is appended to feedback
-     * @notice CHANGED: responseUri renamed to responseURI
      */
     event ResponseAppended(
         uint256 indexed agentId,
@@ -78,10 +75,11 @@ interface IERC8004Reputation {
     // ============ Core Functions ============
     
     /**
-     * @notice Give feedback for an agent (Jan 2026 spec)
-     * @dev CHANGED: Removed feedbackAuth, added endpoint, tags now string
+     * @notice Give feedback for an agent (Feb 2026 ABI)
+     * @dev CHANGED: score (uint8) → value (int128) + valueDecimals (uint8)
      * @param agentId The agent ID (must be validly registered)
-     * @param score The feedback score (0-100)
+     * @param value The feedback value (signed, can be negative)
+     * @param valueDecimals Number of decimal places (0-18)
      * @param tag1 First categorization tag (OPTIONAL, string)
      * @param tag2 Second categorization tag (OPTIONAL, string)
      * @param endpoint URI of the endpoint being reviewed (OPTIONAL)
@@ -90,7 +88,8 @@ interface IERC8004Reputation {
      */
     function giveFeedback(
         uint256 agentId,
-        uint8 score,
+        int128 value,
+        uint8 valueDecimals,
         string calldata tag1,
         string calldata tag2,
         string calldata endpoint,
@@ -131,29 +130,31 @@ interface IERC8004Reputation {
     function getIdentityRegistry() external view returns (address);
     
     /**
-     * @notice Get summary for an agent (Jan 2026 spec)
-     * @dev Tags changed to string; filtering by clientAddresses mitigates Sybil attacks
+     * @notice Get summary for an agent (Feb 2026 ABI)
+     * @dev CHANGED: returns summaryValue (int128) + summaryValueDecimals (uint8) instead of averageScore
      * @param agentId The agent ID (required)
-     * @param clientAddresses Optional filter by client addresses
+     * @param clientAddresses Filter by client addresses (REQUIRED to mitigate Sybil)
      * @param tag1 Optional tag1 filter
      * @param tag2 Optional tag2 filter
      * @return count Number of feedback entries
-     * @return averageScore Average score (0-100)
+     * @return summaryValue Average value (signed)
+     * @return summaryValueDecimals Decimal precision of summary value
      */
     function getSummary(
         uint256 agentId,
         address[] calldata clientAddresses,
         string calldata tag1,
         string calldata tag2
-    ) external view returns (uint64 count, uint8 averageScore);
+    ) external view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals);
     
     /**
-     * @notice Read feedback for an agent from a client (Jan 2026 spec)
-     * @dev CHANGED: feedbackIndex parameter name, returns string tags
+     * @notice Read feedback for an agent from a client (Feb 2026 ABI)
+     * @dev CHANGED: returns value (int128) + valueDecimals (uint8) instead of score
      * @param agentId The agent ID
      * @param clientAddress The client address
      * @param feedbackIndex The feedback index
-     * @return score The feedback score
+     * @return value The feedback value (signed)
+     * @return valueDecimals Decimal precision
      * @return tag1 First tag (string)
      * @return tag2 Second tag (string)
      * @return isRevoked Whether feedback is revoked
@@ -162,19 +163,20 @@ interface IERC8004Reputation {
         uint256 agentId,
         address clientAddress,
         uint64 feedbackIndex
-    ) external view returns (uint8 score, string memory tag1, string memory tag2, bool isRevoked);
+    ) external view returns (int128 value, uint8 valueDecimals, string memory tag1, string memory tag2, bool isRevoked);
     
     /**
-     * @notice Read all feedback for an agent (Jan 2026 spec)
-     * @dev CHANGED: Returns feedbackIndexes array, string tags; revoked omitted by default
+     * @notice Read all feedback for an agent (Feb 2026 ABI)
+     * @dev CHANGED: returns values (int128[]) + valueDecimals (uint8[]) instead of scores
      * @param agentId The agent ID (required)
      * @param clientAddresses Optional filter by client addresses
      * @param tag1 Optional tag1 filter
      * @param tag2 Optional tag2 filter
      * @param includeRevoked Whether to include revoked feedback (default: false)
-     * @return clientAddresses_ Array of client addresses
+     * @return clients Array of client addresses
      * @return feedbackIndexes Array of feedback indexes
-     * @return scores Array of scores
+     * @return values Array of values (signed)
+     * @return valueDecimals Array of decimal precisions
      * @return tag1s Array of tag1 strings
      * @return tag2s Array of tag2 strings
      * @return revokedStatuses Array of revoked statuses
@@ -186,9 +188,10 @@ interface IERC8004Reputation {
         string calldata tag2,
         bool includeRevoked
     ) external view returns (
-        address[] memory clientAddresses_,
+        address[] memory clients,
         uint64[] memory feedbackIndexes,
-        uint8[] memory scores,
+        int128[] memory values,
+        uint8[] memory valueDecimals,
         string[] memory tag1s,
         string[] memory tag2s,
         bool[] memory revokedStatuses
@@ -198,19 +201,19 @@ interface IERC8004Reputation {
      * @notice Get last feedback index for an agent from a client
      * @param agentId The agent ID
      * @param clientAddress The client address
-     * @return index The last feedback index
+     * @return The last feedback index
      */
-    function getLastIndex(uint256 agentId, address clientAddress) external view returns (uint64 index);
+    function getLastIndex(uint256 agentId, address clientAddress) external view returns (uint64);
     
     /**
      * @notice Get all clients who gave feedback for an agent
      * @param agentId The agent ID
-     * @return clients Array of client addresses
+     * @return Array of client addresses
      */
-    function getClients(uint256 agentId) external view returns (address[] memory clients);
+    function getClients(uint256 agentId) external view returns (address[] memory);
     
     /**
-     * @notice Get response count for feedback (Jan 2026 spec)
+     * @notice Get response count for feedback
      * @dev agentId required, others optional filters
      * @param agentId The agent ID
      * @param clientAddress The client address
@@ -225,4 +228,3 @@ interface IERC8004Reputation {
         address[] calldata responders
     ) external view returns (uint64 count);
 }
-

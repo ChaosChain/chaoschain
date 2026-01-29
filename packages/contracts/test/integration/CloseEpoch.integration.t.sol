@@ -344,17 +344,19 @@ contract CloseEpochIntegrationTest is Test {
 }
 
 /**
- * @notice Mock Identity Registry for integration tests
+ * @notice Mock Identity Registry for integration tests (Feb 2026 ABI)
  */
 contract MockIdentityRegistryIntegration is IERC8004IdentityV1 {
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;
+    mapping(uint256 => address) private _agentWallets;
     uint256 private _nextTokenId = 1;
     
     function register() external override returns (uint256 agentId) {
         agentId = _nextTokenId++;
         _owners[agentId] = msg.sender;
         _balances[msg.sender]++;
+        _agentWallets[agentId] = msg.sender;
         emit Transfer(address(0), msg.sender, agentId);
         return agentId;
     }
@@ -368,25 +370,30 @@ contract MockIdentityRegistryIntegration is IERC8004IdentityV1 {
     function balanceOf(address owner) external view override returns (uint256) { return _balances[owner]; }
     function isApprovedForAll(address, address) external pure override returns (bool) { return false; }
     function getApproved(uint256) external pure override returns (address) { return address(0); }
+    function isAuthorizedOrOwner(address spender, uint256 agentId) external view override returns (bool) {
+        require(_owners[agentId] != address(0), "ERC721NonexistentToken");
+        return spender == _owners[agentId];
+    }
     function tokenURI(uint256) external pure override returns (string memory) { return ""; }
-    function agentExists(uint256 tokenId) external view override returns (bool) { return _owners[tokenId] != address(0); }
-    function totalAgents() external view override returns (uint256) { return _nextTokenId - 1; }
     function getMetadata(uint256, string memory) external pure override returns (bytes memory) { return ""; }
     function setMetadata(uint256, string memory, bytes memory) external override {}
-    function setAgentUri(uint256, string calldata) external override {}
+    function setAgentURI(uint256, string calldata) external override {}
+    function getAgentWallet(uint256 agentId) external view override returns (address) { return _agentWallets[agentId]; }
     function setAgentWallet(uint256, address, uint256, bytes calldata) external override {}
+    function unsetAgentWallet(uint256 agentId) external override { _agentWallets[agentId] = address(0); }
 }
 
 /**
  * @notice Mock Reputation Registry that tracks giveFeedback calls
- * @dev Used to verify ERC-8004 integration is working
+ * @dev Used to verify ERC-8004 integration is working (Feb 2026 ABI)
  */
 contract MockReputationRegistryIntegration is IERC8004Reputation {
     uint256 private _giveFeedbackCalls;
     
     // Track the last giveFeedback call parameters for verification
     uint256 public lastAgentId;
-    uint8 public lastScore;
+    int128 public lastValue;
+    uint8 public lastValueDecimals;
     string public lastTag1;
     string public lastTag2;
     string public lastEndpoint;
@@ -401,7 +408,8 @@ contract MockReputationRegistryIntegration is IERC8004Reputation {
     
     function giveFeedback(
         uint256 agentId,
-        uint8 score,
+        int128 value,
+        uint8 valueDecimals,
         string calldata tag1,
         string calldata tag2,
         string calldata endpoint,
@@ -410,17 +418,20 @@ contract MockReputationRegistryIntegration is IERC8004Reputation {
     ) external override {
         _giveFeedbackCalls++;
         lastAgentId = agentId;
-        lastScore = score;
+        lastValue = value;
+        lastValueDecimals = valueDecimals;
         lastTag1 = tag1;
         lastTag2 = tag2;
         lastEndpoint = endpoint;
         
-        // Emit event for verification (Jan 2026 spec with 9 params)
+        // Emit event for verification (Feb 2026 ABI with 11 params)
         emit NewFeedback(
             agentId,
             msg.sender,
             uint64(_giveFeedbackCalls),
-            score,
+            value,
+            valueDecimals,
+            tag1,   // indexedTag1
             tag1,
             tag2,
             endpoint,
@@ -438,21 +449,22 @@ contract MockReputationRegistryIntegration is IERC8004Reputation {
     }
     
     function getSummary(uint256, address[] calldata, string calldata, string calldata) 
-        external pure override returns (uint64, uint8) 
+        external pure override returns (uint64, int128, uint8) 
     {
-        return (0, 0);
+        return (0, 0, 0);
     }
     
     function readFeedback(uint256, address, uint64) external pure override returns (
-        uint8, string memory, string memory, bool
+        int128, uint8, string memory, string memory, bool
     ) {
-        return (0, "", "", false);
+        return (0, 0, "", "", false);
     }
     
     function readAllFeedback(uint256, address[] calldata, string calldata, string calldata, bool) 
         external pure override returns (
             address[] memory,
             uint64[] memory,
+            int128[] memory,
             uint8[] memory,
             string[] memory,
             string[] memory,
@@ -462,6 +474,7 @@ contract MockReputationRegistryIntegration is IERC8004Reputation {
         return (
             new address[](0),
             new uint64[](0),
+            new int128[](0),
             new uint8[](0),
             new string[](0),
             new string[](0),

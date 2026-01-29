@@ -64,6 +64,18 @@ from .core_sdk import ChaosChainAgentSDK
 from .chaos_agent import ChaosAgent
 from .wallet_manager import WalletManager
 from .x402_payment_manager import X402PaymentManager
+from .gateway_client import (
+    GatewayClient,
+    WorkflowType,
+    WorkflowState,
+    WorkflowStatus,
+    WorkflowProgress,
+    WorkflowError,
+    GatewayError,
+    GatewayConnectionError,
+    GatewayTimeoutError,
+    WorkflowFailedError,
+)
 
 # Mandates (optional - requires mandates-core package)
 try:
@@ -75,10 +87,11 @@ except ImportError:
     MandateManager = None
     Mandate = None
 
-# XMTP & Causal Audit (optional - requires xmtp package)
+# XMTP & DKG (DEPRECATED - these have moved to Gateway)
+# These are kept for backward compatibility only
 try:
-    from .xmtp_client import XMTPManager, XMTPMessage
-    from .dkg import DKG, DKGNode
+    from .xmtp_client import XMTPManager, XMTPMessage  # DEPRECATED
+    from .dkg import DKG, DKGNode  # DEPRECATED
     from .verifier_agent import VerifierAgent, AuditResult
     from .studio_manager import StudioManager, Task, WorkerBid
     _has_xmtp = True
@@ -228,6 +241,18 @@ __all__ = [
     "ChaosAgent",
     "WalletManager",
     "X402PaymentManager",
+    
+    # Gateway Client
+    "GatewayClient",
+    "WorkflowType",
+    "WorkflowState",
+    "WorkflowStatus",
+    "WorkflowProgress",
+    "WorkflowError",
+    "GatewayError",
+    "GatewayConnectionError",
+    "GatewayTimeoutError",
+    "WorkflowFailedError",
     
     # Types
     "NetworkConfig",

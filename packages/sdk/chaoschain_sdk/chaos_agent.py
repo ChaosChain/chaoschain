@@ -86,19 +86,19 @@ class ChaosAgent:
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
             },
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                # Official ERC-8004 Registries (Jan 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
+                # Official ERC-8004 Registries (Feb 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
                 'identity_registry': '0x8004A818BFB912233c491871b3d84c89A494BD9e',
                 'reputation_registry': '0x8004B663056A597Dffe9eCcC1965A193B7388713',
                 'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
                 'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
                 'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol v0.4.30 (deployed Jan 17, 2026) - VERIFIED ON-CHAIN
-                # ERC-8004 Jan 2026 compatible: No feedbackAuth, string tags, endpoint parameter
-                # Multi-agent submitWorkMultiAgent now works (feedbackAuth removed)
+                # ChaosChain Protocol v0.4.31 (deployed Jan 28, 2026) - ERC-8004 Feb 2026 ABI
+                # giveFeedback: score (uint8) -> value (int128) + valueDecimals (uint8)
+                # validationResponse: tag (bytes32) -> tag (string)
                 'chaos_registry': '0x7F38C1aFFB24F30500d9174ed565110411E42d50',
-                'chaos_core': '0xF6a57f04736A52a38b273b0204d636506a780E67',
-                'rewards_distributor': '0x0549772a3fF4F095C57AEFf655B3ed97B7925C19',
-                'studio_factory': '0x230e76a105A9737Ea801BB7d0624D495506EE257',
+                'chaos_core': '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
+                'rewards_distributor': '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
+                'studio_factory': '0x54Cbf5fa7d10ECBab4f46D71FAD298A230A16aF6',
                 # LogicModules
                 'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3'
             },
@@ -402,19 +402,24 @@ class ChaosAgent:
         - CHANGED tag1, tag2 from bytes32 to string
         - ADDED feedbackIndex to NewFeedback event
         - readFeedback returns string tags and feedbackIndex parameter renamed
+        
+        Feb 2026 ABI UPDATE:
+        - CHANGED score (uint8) to value (int128) + valueDecimals (uint8)
+        - getSummary returns summaryValue (int128) + summaryValueDecimals (uint8)
+        - readFeedback returns value (int128) + valueDecimals (uint8)
         """
         return [
-            # Core Functions (Jan 2026 spec)
+            # Core Functions (Feb 2026 ABI)
             {
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
-                    {"name": "score", "type": "uint8"},
-                    {"name": "tag1", "type": "string"},        # CHANGED: bytes32 -> string
-                    {"name": "tag2", "type": "string"},        # CHANGED: bytes32 -> string
-                    {"name": "endpoint", "type": "string"},    # NEW: endpoint parameter
-                    {"name": "feedbackURI", "type": "string"}, # RENAMED: feedbackUri -> feedbackURI
+                    {"name": "value", "type": "int128"},        # CHANGED: uint8 score -> int128 value
+                    {"name": "valueDecimals", "type": "uint8"}, # NEW: decimal precision
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
+                    {"name": "endpoint", "type": "string"},
+                    {"name": "feedbackURI", "type": "string"},
                     {"name": "feedbackHash", "type": "bytes32"}
-                    # REMOVED: feedbackAuth parameter
                 ],
                 "name": "giveFeedback",
                 "outputs": [],
@@ -444,18 +449,19 @@ class ChaosAgent:
                 "stateMutability": "nonpayable",
                 "type": "function"
             },
-            # Read Functions (Jan 2026 spec)
+            # Read Functions (Feb 2026 ABI)
             {
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddresses", "type": "address[]"},
-                    {"name": "tag1", "type": "string"},  # CHANGED: bytes32 -> string
-                    {"name": "tag2", "type": "string"}   # CHANGED: bytes32 -> string
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"}
                 ],
                 "name": "getSummary",
                 "outputs": [
                     {"name": "count", "type": "uint64"},
-                    {"name": "averageScore", "type": "uint8"}
+                    {"name": "summaryValue", "type": "int128"},      # CHANGED: uint8 averageScore -> int128 summaryValue
+                    {"name": "summaryValueDecimals", "type": "uint8"} # NEW: decimal precision
                 ],
                 "stateMutability": "view",
                 "type": "function"
@@ -464,13 +470,14 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddress", "type": "address"},
-                    {"name": "feedbackIndex", "type": "uint64"}  # RENAMED: index -> feedbackIndex
+                    {"name": "feedbackIndex", "type": "uint64"}
                 ],
                 "name": "readFeedback",
                 "outputs": [
-                    {"name": "score", "type": "uint8"},
-                    {"name": "tag1", "type": "string"},   # CHANGED: bytes32 -> string
-                    {"name": "tag2", "type": "string"},   # CHANGED: bytes32 -> string
+                    {"name": "value", "type": "int128"},         # CHANGED: uint8 score -> int128 value
+                    {"name": "valueDecimals", "type": "uint8"},  # NEW: decimal precision
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
                     {"name": "isRevoked", "type": "bool"}
                 ],
                 "stateMutability": "view",
@@ -480,17 +487,18 @@ class ChaosAgent:
                 "inputs": [
                     {"name": "agentId", "type": "uint256"},
                     {"name": "clientAddresses", "type": "address[]"},
-                    {"name": "tag1", "type": "string"},   # CHANGED: bytes32 -> string
-                    {"name": "tag2", "type": "string"},   # CHANGED: bytes32 -> string
+                    {"name": "tag1", "type": "string"},
+                    {"name": "tag2", "type": "string"},
                     {"name": "includeRevoked", "type": "bool"}
                 ],
                 "name": "readAllFeedback",
                 "outputs": [
-                    {"name": "clientAddresses_", "type": "address[]"},
-                    {"name": "feedbackIndexes", "type": "uint64[]"},  # NEW: feedbackIndexes
-                    {"name": "scores", "type": "uint8[]"},
-                    {"name": "tag1s", "type": "string[]"},   # CHANGED: bytes32[] -> string[]
-                    {"name": "tag2s", "type": "string[]"},   # CHANGED: bytes32[] -> string[]
+                    {"name": "clients", "type": "address[]"},
+                    {"name": "feedbackIndexes", "type": "uint64[]"},
+                    {"name": "values", "type": "int128[]"},           # CHANGED: uint8[] scores -> int128[] values
+                    {"name": "valueDecimals", "type": "uint8[]"},     # NEW: decimal precisions
+                    {"name": "tag1s", "type": "string[]"},
+                    {"name": "tag2s", "type": "string[]"},
                     {"name": "revokedStatuses", "type": "bool[]"}
                 ],
                 "stateMutability": "view",
@@ -1499,15 +1507,16 @@ class ChaosAgent:
             
             rprint(f"[yellow]💬 Submitting feedback: {score}/100 for agent #{agent_id}[/yellow]")
             
-            # Jan 2026: giveFeedback(agentId, score, tag1, tag2, endpoint, feedbackURI, feedbackHash)
-            # NO feedbackAuth parameter - permissionless feedback
+            # Feb 2026 ABI: giveFeedback(agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackURI, feedbackHash)
+            # score is cast to int128, valueDecimals=0 for integer scores
             contract_call = self.reputation_registry.functions.giveFeedback(
                 agent_id,
-                score,
-                tag1,           # string
-                tag2,           # string
-                endpoint,       # NEW: endpoint parameter
-                feedback_uri,   # string
+                score,          # int128 value (0-100 works directly)
+                0,              # valueDecimals = 0 (integer scores)
+                tag1,
+                tag2,
+                endpoint,
+                feedback_uri,
                 feedback_hash_bytes
             )
             
@@ -1766,8 +1775,8 @@ class ChaosAgent:
                 # Read all feedback from this client
                 for idx in range(last_index):
                     try:
-                        # readFeedback returns (score, tag1, tag2, isRevoked)
-                        score, feedback_tag1, feedback_tag2, is_revoked = reputation_registry.functions.readFeedback(
+                        # Feb 2026 ABI: readFeedback returns (value, valueDecimals, tag1, tag2, isRevoked)
+                        value, value_decimals, feedback_tag1, feedback_tag2, is_revoked = reputation_registry.functions.readFeedback(
                             agent_id,
                             client,
                             idx
@@ -1780,9 +1789,13 @@ class ChaosAgent:
                             continue
                         
                         if not is_revoked:
+                            # Convert value to effective score (divide by 10^valueDecimals)
+                            effective_score = value / (10 ** value_decimals) if value_decimals > 0 else value
                             all_feedback.append({
                                 'client': client,
-                                'score': score,
+                                'score': int(effective_score),  # Keep backward compatible 'score' key
+                                'value': value,
+                                'valueDecimals': value_decimals,
                                 'tag1': feedback_tag1.hex() if isinstance(feedback_tag1, bytes) else str(feedback_tag1),
                                 'tag2': feedback_tag2.hex() if isinstance(feedback_tag2, bytes) else str(feedback_tag2),
                                 'index': idx
