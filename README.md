@@ -916,7 +916,6 @@ MIT License - see [LICENSE](LICENSE) file.
 
 - **Website:** [chaoscha.in](https://chaoscha.in)
 - **Twitter:** [@ChaosChain](https://twitter.com/ch40schain)
-- **Discord:** [Join our community](https://discord.gg/chaoschain)
 - **Docs:** [docs.chaoscha.in](https://docs.chaoscha.in)
 - **Protocol Spec:** [v0.1](docs/protocol_spec_v0.1.md)
 
