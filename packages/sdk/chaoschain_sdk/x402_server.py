@@ -12,10 +12,8 @@ from datetime import datetime, timezone
 from rich import print as rprint
 from flask import Flask, request, jsonify, Response
 
-# Official Coinbase x402 imports
-from x402.types import PaymentRequirements
-from x402.exact import decode_payment
-from x402.encoding import safe_base64_decode, safe_base64_encode
+# Official Coinbase x402 imports (v2.0.0)
+from x402 import PaymentRequirements, parse_payment_payload
 
 from .types import NetworkConfig
 from .exceptions import PaymentError, ConfigurationError
@@ -264,8 +262,8 @@ class X402PaywallServer:
             Payment verification result
         """
         try:
-            # Decode payment header
-            payment_data = decode_payment(x_payment_header)
+            # Decode payment header using x402 2.0 API
+            payment_data = parse_payment_payload(x_payment_header)
             
             # Create payment requirements for verification
             payment_requirements = self.payment_manager.create_payment_requirements(
@@ -364,9 +362,10 @@ class X402PaywallServer:
             }
             
             # Add X-PAYMENT-RESPONSE header (official x402 spec)
-            response.headers['X-PAYMENT-RESPONSE'] = safe_base64_encode(
+            import base64
+            response.headers['X-PAYMENT-RESPONSE'] = base64.b64encode(
                 json.dumps(settlement_response).encode()
-            )
+            ).decode('utf-8')
             
             rprint(f"[green]✅ Service delivered: {service_info['description']} (Paid: ${service_info['amount']} USDC)[/green]")
             

@@ -42,11 +42,14 @@ const STUDIO_PROXY_ABI = [
   'function submitWorkMultiAgent(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, address[] calldata workers, uint16[] calldata weights, string calldata evidenceUri) external',
   // View functions for checking existing submissions
   'function getWorkSubmission(bytes32 dataHash) external view returns (address submitter, bytes32 threadRoot, bytes32 evidenceRoot, bytes memory feedbackAuth, uint64 timestamp)',
-  // Score submission (commit-reveal)
+  // Score submission (commit-reveal mode)
   'function commitScore(bytes32 dataHash, bytes32 commitHash) external',
   'function revealScore(bytes32 dataHash, uint16[] calldata scores, bytes32 salt) external',
   'function getScoreCommit(bytes32 dataHash, address validator) external view returns (bytes32 commitHash, uint64 timestamp)',
   'function getScoreReveal(bytes32 dataHash, address validator) external view returns (uint16[] memory scores, uint64 timestamp)',
+  // Score submission (direct mode)
+  'function submitScoreVectorForWorker(bytes32 dataHash, address worker, bytes calldata scoreVector) external',
+  'function getScoreForWorker(bytes32 dataHash, address validator, address worker) external view returns (bytes memory scores, uint64 timestamp)',
 ];
 
 // =============================================================================
@@ -316,6 +319,32 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Check if a direct score exists for this validator/worker pair.
+   * (direct scoring mode)
+   */
+  async scoreExistsForWorker(
+    studioAddress: string,
+    dataHash: string,
+    validator: string,
+    worker: string
+  ): Promise<boolean> {
+    const contract = new ethers.Contract(
+      studioAddress,
+      STUDIO_PROXY_ABI,
+      this.provider
+    );
+
+    try {
+      const score = await contract.getScoreForWorker(dataHash, validator, worker);
+      // If scores bytes is non-empty, score exists
+      return score.scores && score.scores.length > 0;
+    } catch {
+      // Contract may not have this function, or other error
+      return false;
     }
   }
 

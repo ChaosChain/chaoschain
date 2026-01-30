@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chaoschain-sdk"
-version = "0.3.2"
+version = "0.4.0"
 description = "Production SDK for building verifiable AI agents with ChaosChain Protocol - Studios, Proof of Agency, ERC-8004 (Jan 2026), x402"
 readme = "README.md"
 license = "MIT"
@@ -51,8 +51,8 @@ dependencies = [
     # ERC-8004 Mandates (deterministic agreements)
     "mandates-core>=0.1.3",
     
-    # x402 Payment Protocol (Coinbase official)
-    "x402>=0.2.1",
+    # x402 Payment Protocol (Coinbase official v2.0)
+    "x402>=2.0.0",
     
     # Wallet Manager
     "cryptography>=41.0.0",

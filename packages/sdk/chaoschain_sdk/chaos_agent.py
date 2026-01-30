@@ -78,6 +78,23 @@ class ChaosAgent:
         """
         # Network-specific configuration with actual deployed addresses
         contract_addresses = {
+            # ═══════════════════════════════════════════════════════════════════
+            # MAINNET - Production ERC-8004 Registries
+            # ═══════════════════════════════════════════════════════════════════
+            NetworkConfig.ETHEREUM_MAINNET: {
+                # Official ERC-8004 Registries (Jan 2026 spec)
+                # https://github.com/erc-8004/erc-8004-contracts
+                'identity_registry': '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
+                'reputation_registry': '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
+                'validation_registry': None,  # Not yet deployed on mainnet
+                'usdc_token': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',  # USDC on mainnet
+                'treasury': None,  # ChaosChain not yet on mainnet
+                # Note: ChaosChain protocol contracts not yet deployed on mainnet
+                # Agent registration works, reputation comes from ChaosChain protocol
+            },
+            # ═══════════════════════════════════════════════════════════════════
+            # TESTNETS
+            # ═══════════════════════════════════════════════════════════════════
             NetworkConfig.BASE_SEPOLIA: {
                 'identity_registry': '0x8004AA63c570c570eBF15376c0dB199918BFe9Fb',
                 'reputation_registry': '0x8004bd8daB57f14Ed299135749a5CB5c42d341BF',

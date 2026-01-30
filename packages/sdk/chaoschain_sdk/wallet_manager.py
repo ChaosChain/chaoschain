@@ -50,7 +50,11 @@ class WalletManager:
     def _initialize_web3_connection(self):
         """Initialize Web3 connection based on network configuration."""
         # Default public RPC URLs (can be overridden via environment variables)
+        # For mainnet, we use a public RPC by default but STRONGLY recommend setting ETH_MAINNET_RPC_URL
         default_rpc_urls = {
+            # === MAINNET ===
+            NetworkConfig.ETHEREUM_MAINNET: 'https://ethereum-rpc.publicnode.com',  # Rate-limited, use own RPC for production
+            # === TESTNETS ===
             NetworkConfig.BASE_SEPOLIA: 'https://sepolia.base.org',
             NetworkConfig.ETHEREUM_SEPOLIA: 'https://ethereum-sepolia-rpc.publicnode.com',
             NetworkConfig.OPTIMISM_SEPOLIA: 'https://sepolia.optimism.io',
@@ -60,6 +64,9 @@ class WalletManager:
         }
         
         rpc_urls = {
+            # === MAINNET ===
+            NetworkConfig.ETHEREUM_MAINNET: os.getenv('ETH_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.ETHEREUM_MAINNET]),
+            # === TESTNETS ===
             NetworkConfig.BASE_SEPOLIA: os.getenv('BASE_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.BASE_SEPOLIA]),
             NetworkConfig.ETHEREUM_SEPOLIA: os.getenv('SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.ETHEREUM_SEPOLIA]), 
             NetworkConfig.OPTIMISM_SEPOLIA: os.getenv('OPTIMISM_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.OPTIMISM_SEPOLIA]),
