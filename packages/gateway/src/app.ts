@@ -18,7 +18,12 @@ import { WorkflowEngine } from './workflows/engine.js';
 import { WorkflowReconciler } from './workflows/reconciliation.js';
 import { TxQueue } from './workflows/tx-queue.js';
 import { createWorkSubmissionDefinition } from './workflows/work-submission.js';
-import { createScoreSubmissionDefinition, DefaultScoreContractEncoder, DefaultValidatorRegistrationEncoder } from './workflows/score-submission.js';
+import { 
+  createScoreSubmissionDefinition, 
+  DefaultScoreContractEncoder, 
+  DefaultDirectScoreContractEncoder,
+  DefaultValidatorRegistrationEncoder 
+} from './workflows/score-submission.js';
 import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
 import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
@@ -167,7 +172,6 @@ export class Gateway {
 
     // Register all workflow definitions
     const studioEncoder = new StudioProxyEncoder();
-    const scoreEncoder = new DefaultScoreContractEncoder();
     const epochEncoder = new DefaultEpochContractEncoder();
     const rewardsDistributorEncoder = new DefaultRewardsDistributorEncoder();
 
@@ -186,21 +190,27 @@ export class Gateway {
       'WorkSubmission workflow registered (with REGISTER_WORK step)'
     );
 
-    // 2. ScoreSubmission workflow (now includes REGISTER_VALIDATOR step)
+    // 2. ScoreSubmission workflow (supports BOTH direct and commit-reveal modes)
     const validatorEncoder = new DefaultValidatorRegistrationEncoder(
       this.config.rewardsDistributorAddress
     );
+    const directScoreEncoder = new DefaultDirectScoreContractEncoder();
+    const commitRevealScoreEncoder = new DefaultScoreContractEncoder();
+    
     const scoreSubmissionDef = createScoreSubmissionDefinition(
       txQueue,
       persistence,
-      scoreEncoder,
       chainAdapter as any, // ChainStateAdapter for score queries
-      validatorEncoder // For REGISTER_VALIDATOR step
+      {
+        directEncoder: directScoreEncoder,           // For direct mode (default, MVP)
+        commitRevealEncoder: commitRevealScoreEncoder, // For commit-reveal mode (available)
+        validatorEncoder,                            // For REGISTER_VALIDATOR step (both modes)
+      }
     );
     this.engine.registerWorkflow(scoreSubmissionDef);
     this.logger.info(
       { rewardsDistributor: this.config.rewardsDistributorAddress },
-      'ScoreSubmission workflow registered (with REGISTER_VALIDATOR step)'
+      'ScoreSubmission workflow registered (direct + commit-reveal modes, with REGISTER_VALIDATOR step)'
     );
 
     // 3. CloseEpoch workflow

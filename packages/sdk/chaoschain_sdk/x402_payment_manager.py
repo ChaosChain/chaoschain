@@ -20,11 +20,8 @@ from rich import print as rprint
 # EIP-3009 and EIP-712 imports
 from eth_account.messages import encode_typed_data
 
-# Official Coinbase x402 imports
-from x402.clients import x402Client
-from x402.types import PaymentRequirements
-from x402.encoding import safe_base64_encode
-from x402.exact import encode_payment, prepare_payment_header, sign_payment_header
+# Official Coinbase x402 imports (v2.0.0)
+from x402 import x402Client, PaymentRequirements
 
 from .types import NetworkConfig, PaymentProof, AgentID, TransactionHash
 from .exceptions import PaymentError, ConfigurationError
@@ -145,7 +142,7 @@ class X402PaymentManager:
             rprint(f"[cyan]💰 Using ERC-20 token: {self.token_symbol} at {self.usdc_address}[/cyan]")
     
     def _initialize_x402_client(self):
-        """Initialize official Coinbase x402Client."""
+        """Initialize x402 client (v2.0 uses a simpler initialization)."""
         try:
             # Get operator account for x402 transactions
             operator_private_key = os.getenv("CHAOSCHAIN_OPERATOR_PRIVATE_KEY")
@@ -153,18 +150,19 @@ class X402PaymentManager:
                 # Use first available wallet as operator
                 if self.wallet_manager.wallets:
                     first_agent = list(self.wallet_manager.wallets.keys())[0]
-                    operator_account = self.wallet_manager.wallets[first_agent]
+                    self.operator_account = self.wallet_manager.wallets[first_agent]
                 else:
                     raise ConfigurationError("No operator private key or wallets available for x402")
             else:
                 from eth_account import Account
-                operator_account = Account.from_key(operator_private_key)
+                self.operator_account = Account.from_key(operator_private_key)
             
-            # Initialize official Coinbase x402Client
-            self.x402_client = x402Client(account=operator_account)
+            # x402 v2.0: Client initialization is simpler
+            # We use custom EIP-3009 signing anyway, so just store the account
+            self.x402_client = None  # Not using library signing
             
         except Exception as e:
-            raise ConfigurationError(f"Failed to initialize x402Client: {str(e)}")
+            raise ConfigurationError(f"Failed to initialize x402 operator: {str(e)}")
     
     def _get_treasury_address(self) -> str:
         """
@@ -227,20 +225,22 @@ class X402PaymentManager:
         # Convert amount to wei (USDC has 6 decimals)
         amount_wei = int(Decimal(str(amount_usdc)) * Decimal("1000000"))
         
-        # Create x402 PaymentRequirements using official Coinbase format
+        # Create x402 PaymentRequirements using official Coinbase format (v2.0)
+        # Note: v2.0 uses 'amount' instead of 'max_amount_required'
+        # and resource/description/mime_type go in 'extra'
         payment_requirements = PaymentRequirements(
             scheme="exact",
             network=self.x402_network,
-            max_amount_required=str(amount_wei),
-            resource=f"/chaoschain/service/{service_description.lower().replace(' ', '-')}",
-            description=service_description,
-            mime_type="application/json",
+            amount=str(amount_wei),
             pay_to=to_address,
             max_timeout_seconds=300,  # 5 minutes
             asset=self.usdc_address,
             extra={
                 "name": "USDC",  # ✅ CORRECT: Base Sepolia USDC uses "USDC" not "USD Coin"
                 "version": "2",  # ✅ CORRECT: Version 2 for EIP-3009
+                "resource": f"/chaoschain/service/{service_description.lower().replace(' ', '-')}",
+                "description": service_description,
+                "mime_type": "application/json",
                 "chaoschain_metadata": {
                     "to_agent": to_agent,
                     "evidence_cid": evidence_cid,
@@ -286,27 +286,39 @@ class X402PaymentManager:
             # Convert amount to wei (USDC has 6 decimals)
             amount_wei = int(Decimal(str(amount_usdc)) * Decimal("1000000"))
             
-            # Create payment header structure using Coinbase x402 library
-            payment_header = prepare_payment_header(
-                sender_address=from_wallet.address,
-                x402_version=1,
-                payment_requirements=payment_requirements
-            )
+            # Build payment header structure manually (x402 v2.0 doesn't have prepare_payment_header)
+            # We do custom EIP-3009 signing anyway for proper facilitator compatibility
+            import secrets
             
-            # Fix nonce type (x402 library bug)
-            if 'payload' in payment_header and 'authorization' in payment_header['payload']:
-                auth = payment_header['payload']['authorization']
-                if 'nonce' in auth and isinstance(auth['nonce'], bytes):
-                    auth['nonce'] = auth['nonce'].hex()
+            # Generate random nonce (32 bytes)
+            nonce_bytes = secrets.token_bytes(32)
+            nonce_hex = nonce_bytes.hex()
+            nonce_bytes32 = '0x' + nonce_hex
             
-            # Extract authorization parameters for EIP-3009 signing
-            auth = payment_header['payload']['authorization']
+            # Set validity window (5 minutes from now)
+            current_time = int(time.time())
+            valid_after = current_time - 60  # 1 minute ago
+            valid_before = current_time + 300  # 5 minutes from now
             
-            # Convert nonce to bytes32 format
-            if isinstance(auth['nonce'], str):
-                nonce_bytes32 = '0x' + auth['nonce'] if not auth['nonce'].startswith('0x') else auth['nonce']
-            else:
-                nonce_bytes32 = '0x' + auth['nonce'].hex()
+            # Build EIP-3009 authorization structure
+            auth = {
+                'from': from_wallet.address,
+                'to': payment_requirements.pay_to,
+                'value': str(amount_wei),
+                'validAfter': str(valid_after),
+                'validBefore': str(valid_before),
+                'nonce': nonce_hex
+            }
+            
+            # Build payment header
+            payment_header = {
+                'x402Version': 1,
+                'scheme': 'exact',
+                'network': self.x402_network,
+                'payload': {
+                    'authorization': auth
+                }
+            }
             
             # EIP-712 domain data (dynamic chainId based on network)
             # CRITICAL: Must use "USDC" not "USD Coin" for Base Sepolia
@@ -458,21 +470,23 @@ class X402PaymentManager:
             import requests
             
             # Convert PaymentRequirements to camelCase (facilitator expects this format)
+            # In x402 v2.0, resource/description/mime_type are in the extra dict
+            extra = payment_requirements.extra or {}
             payment_reqs_dict = {
                 "scheme": payment_requirements.scheme,
                 "network": payment_requirements.network,
-                "maxAmountRequired": payment_requirements.max_amount_required,
+                "maxAmountRequired": payment_requirements.amount,
                 "payTo": payment_requirements.pay_to,
                 "asset": payment_requirements.asset,
-                "resource": payment_requirements.resource,
+                "resource": extra.get("resource", ""),
             }
             
-            # Add optional fields if present
-            if hasattr(payment_requirements, 'description') and payment_requirements.description:
-                payment_reqs_dict["description"] = payment_requirements.description
-            if hasattr(payment_requirements, 'mime_type') and payment_requirements.mime_type:
-                payment_reqs_dict["mimeType"] = payment_requirements.mime_type
-            if hasattr(payment_requirements, 'max_timeout_seconds') and payment_requirements.max_timeout_seconds:
+            # Add optional fields from extra
+            if extra.get("description"):
+                payment_reqs_dict["description"] = extra["description"]
+            if extra.get("mime_type"):
+                payment_reqs_dict["mimeType"] = extra["mime_type"]
+            if payment_requirements.max_timeout_seconds:
                 payment_reqs_dict["maxTimeoutSeconds"] = payment_requirements.max_timeout_seconds
             
             settlement_data = {

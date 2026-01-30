@@ -1,26 +1,90 @@
 # ChaosChain SDK
 
-**Production-ready Python SDK for building verifiable, accountable AI agent systems**
+**Production-ready Python SDK for building verifiable, monetizable AI agents**
 
 [![PyPI version](https://badge.fury.io/py/chaoschain-sdk.svg)](https://badge.fury.io/py/chaoschain-sdk)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ERC-8004 v1.0](https://img.shields.io/badge/ERC--8004-v1.0-success.svg)](https://eips.ethereum.org/EIPS/eip-8004)
-[![Protocol v0.1](https://img.shields.io/badge/Protocol-v0.1-purple.svg)](https://github.com/ChaosChain/chaoschain/blob/main/docs/protocol_spec_v0.1.md)
+[![x402 v2.0](https://img.shields.io/badge/x402-v2.0-blue.svg)](https://github.com/coinbase/x402)
 
-The ChaosChain SDK is a complete Python toolkit for building autonomous AI agents with:
-- **ChaosChain Protocol v0.1.0** - Studios, DKG, multi-agent verification, per-worker consensus
-- **ERC-8004 Jan 2026 Spec** ✅ **First implementation** - on-chain identity, reputation, validation
-- **x402 payments** using Coinbase's HTTP 402 protocol
-- **Google AP2** intent verification
-- **Process Integrity** with cryptographic proofs
-- **Pluggable architecture** - choose your storage, compute, and payment providers
+## 🎯 Core Features
+
+### 1. ERC-8004 Agent Identity (Mainnet Ready!)
+Register your AI agent on Ethereum with a unique on-chain identity:
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig
+
+sdk = ChaosChainAgentSDK(
+    agent_name="MyAgent",
+    agent_domain="myagent.ai",
+    network=NetworkConfig.ETHEREUM_MAINNET,  # or ETHEREUM_SEPOLIA for testing
+    private_key="0x..."
+)
+
+# Register on-chain (one-time, ~$2-5 gas)
+agent_id, tx_hash = sdk.register_identity()
+print(f"✅ Agent #{agent_id} registered on Ethereum Mainnet!")
+```
+
+### 2. x402 Payments (Coinbase Protocol v2.0)
+Accept crypto payments for your AI agent's services using [Coinbase's x402 protocol](https://github.com/coinbase/x402):
+
+```python
+from chaoschain_sdk import X402PaymentManager, WalletManager, NetworkConfig
+
+# Initialize payment manager
+wallet = WalletManager(network=NetworkConfig.BASE_SEPOLIA)
+payments = X402PaymentManager(wallet, network=NetworkConfig.BASE_SEPOLIA)
+
+# Execute agent-to-agent payment
+result = payments.execute_agent_payment(
+    from_agent="ClientBot",
+    to_agent="ServiceBot", 
+    amount_usdc=1.50,
+    service_description="AI Analysis"
+)
+print(f"✅ Payment TX: {result['main_transaction_hash']}")
+```
+
+### 3. x402 Paywall Server (Monetize Your Agent!)
+Turn your AI agent into a paid service with HTTP 402 Payment Required:
+
+```python
+from chaoschain_sdk import X402PaywallServer, X402PaymentManager
+
+# Create paywall server
+server = X402PaywallServer(
+    agent_name="MyAIService",
+    payment_manager=payments
+)
+
+# Decorate any function to require payment
+@server.require_payment(amount=0.50, description="Generate Image")
+def generate_image(request_data):
+    # Your AI logic here
+    return {"image_url": "https://..."}
+
+# Start server (clients pay via x402 protocol)
+server.run(host="0.0.0.0", port=8402)
+```
 
 **Zero setup required** - all contracts are pre-deployed, just `pip install` and build!
 
 ---
 
-## What's New in v0.3.3
+## What's New in v0.4.0
+
+| Feature | Description |
+|---------|-------------|
+| **Ethereum Mainnet Support** | ERC-8004 agent registration now works on mainnet! |
+| **x402 v2.0** | Updated to latest Coinbase x402 protocol |
+| **Direct Scoring Mode** | Gateway supports direct score submission (no commit-reveal) |
+| **Gateway Integration** | SDK routes all workflows through Gateway service |
+
+---
+
+## What's New in v0.3.3 (Previous)
 
 | Feature | Description |
 |---------|-------------|
@@ -58,6 +122,243 @@ pip install chaoschain-sdk
 pip install chaoschain-sdk[storage-all]  # All storage providers
 pip install chaoschain-sdk[all]          # Everything
 ```
+
+---
+
+## Network Support
+
+### ERC-8004 Agent Registration (Works NOW)
+
+| Network | Status | Use Case |
+|---------|--------|----------|
+| **Ethereum Mainnet** | ✅ Live | Production agent identity |
+| **Ethereum Sepolia** | ✅ Live | Development + ChaosChain protocol |
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig
+
+# === MAINNET (Production) ===
+# Register your AI agent on Ethereum mainnet
+# Requires real ETH for gas (~$2-5 for registration)
+sdk = ChaosChainAgentSDK(
+    agent_name="MyProductionAgent",
+    agent_domain="myagent.com",
+    network=NetworkConfig.ETHEREUM_MAINNET,  # 👈 MAINNET
+    private_key="your_mainnet_private_key"
+)
+agent_id, tx = sdk.register_identity()
+print(f"✅ Agent #{agent_id} registered on mainnet!")
+
+# === TESTNET (Development) ===
+# For development and ChaosChain protocol testing
+sdk = ChaosChainAgentSDK(
+    agent_name="MyTestAgent",
+    agent_domain="test.myagent.com",
+    network=NetworkConfig.ETHEREUM_SEPOLIA,  # 👈 TESTNET
+    private_key="your_testnet_private_key"
+)
+```
+
+### ERC-8004 Mainnet Contracts
+
+| Contract | Address |
+|----------|---------|
+| IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+
+### Environment Variables
+
+```bash
+# For production mainnet usage, set your own RPC URL (recommended)
+export ETH_MAINNET_RPC_URL="https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY"
+
+# For testnet development
+export SEPOLIA_RPC_URL="https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY"
+```
+
+---
+
+## ERC-8004 + x402 Complete Guide
+
+This section covers the two core features for building monetizable AI agents:
+
+### Step 1: Register Your Agent (ERC-8004)
+
+```python
+from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig
+
+# For PRODUCTION (Ethereum Mainnet)
+sdk = ChaosChainAgentSDK(
+    agent_name="MyProductionAgent",
+    agent_domain="myagent.com",
+    network=NetworkConfig.ETHEREUM_MAINNET,
+    private_key="0x..."  # Needs ~0.001 ETH for gas
+)
+
+# Register on-chain identity (one-time)
+agent_id, tx_hash = sdk.register_identity()
+print(f"✅ Agent #{agent_id} on mainnet!")
+print(f"🔗 https://etherscan.io/tx/{tx_hash}")
+
+# View your agent on 8004scan.io
+print(f"📊 https://8004scan.io/agents/mainnet/{agent_id}")
+```
+
+### Step 2: Setup x402 Payments
+
+```python
+from chaoschain_sdk import X402PaymentManager, WalletManager, NetworkConfig
+
+# Initialize wallet (use BASE_SEPOLIA for testing x402)
+wallet = WalletManager(
+    network=NetworkConfig.BASE_SEPOLIA,
+    private_key="0x..."
+)
+
+# Create payment manager
+payments = X402PaymentManager(
+    wallet_manager=wallet,
+    network=NetworkConfig.BASE_SEPOLIA
+)
+
+# Check facilitator connection
+schemes = payments.get_facilitator_supported_schemes()
+print(f"Supported schemes: {schemes}")
+```
+
+### Step 3: Accept Payments (Paywall Server)
+
+```python
+from chaoschain_sdk import X402PaywallServer
+
+# Create paywall server for your agent
+server = X402PaywallServer(
+    agent_name="MyAIService",
+    payment_manager=payments
+)
+
+# Any function can require payment!
+@server.require_payment(amount=1.00, description="AI Image Generation")
+def generate_image(request_data):
+    prompt = request_data.get("prompt", "")
+    # Your AI logic here...
+    return {"image_url": "https://...", "prompt": prompt}
+
+@server.require_payment(amount=0.10, description="Text Analysis")
+def analyze_text(request_data):
+    text = request_data.get("text", "")
+    # Your AI logic here...
+    return {"sentiment": "positive", "confidence": 0.95}
+
+# Start the server
+server.run(host="0.0.0.0", port=8402)
+# Clients: GET http://localhost:8402/chaoschain/service/generate_image
+# Response: 402 Payment Required (with x402 payment instructions)
+```
+
+### Step 4: Make Payments (Client Side)
+
+```python
+# Client making a payment to the service
+result = payments.execute_agent_payment(
+    from_agent="ClientBot",
+    to_agent="MyAIService",
+    amount_usdc=1.00,
+    service_description="AI Image Generation",
+    evidence_cid="ipfs://Qm..."  # Optional: link to evidence
+)
+
+if result["success"]:
+    print(f"✅ Payment successful!")
+    print(f"   TX: {result['main_transaction_hash']}")
+    print(f"   x402 Header: {result['x402_payment_header'][:50]}...")
+```
+
+### x402 Flow Summary
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     x402 PAYMENT FLOW                           │
+│                                                                 │
+│  1. Client requests service                                     │
+│     GET /chaoschain/service/generate_image                      │
+│                                                                 │
+│  2. Server returns 402 Payment Required                         │
+│     { "accepts": [{ "scheme": "exact", "amount": "1000000" }] } │
+│                                                                 │
+│  3. Client creates x402 payment (EIP-3009 signed)               │
+│     X-PAYMENT: <base64 encoded payment header>                  │
+│                                                                 │
+│  4. Client retries with payment header                          │
+│     GET /chaoschain/service/generate_image                      │
+│     X-PAYMENT: eyJ4NDAy...                                      │
+│                                                                 │
+│  5. Server verifies payment (via facilitator)                   │
+│     POST https://facilitator.../verify                          │
+│                                                                 │
+│  6. Server settles payment on-chain                             │
+│     POST https://facilitator.../settle                          │
+│                                                                 │
+│  7. Server returns service result                               │
+│     { "image_url": "https://..." }                              │
+│     X-PAYMENT-RESPONSE: <settlement receipt>                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Complete Example: Paid AI Agent
+
+```python
+"""
+Complete example: An AI agent that:
+1. Has on-chain identity (ERC-8004)
+2. Accepts crypto payments (x402)
+3. Provides AI services
+"""
+from chaoschain_sdk import (
+    ChaosChainAgentSDK, 
+    X402PaymentManager, 
+    X402PaywallServer,
+    WalletManager,
+    NetworkConfig
+)
+
+# === SETUP ===
+
+# 1. Register agent identity on mainnet
+sdk = ChaosChainAgentSDK(
+    agent_name="SmartAnalyzer",
+    agent_domain="analyzer.ai",
+    network=NetworkConfig.ETHEREUM_MAINNET,
+    private_key="0x..."
+)
+agent_id, _ = sdk.register_identity()
+print(f"✅ Agent #{agent_id} registered")
+
+# 2. Setup payment manager (Base Sepolia for payments)
+wallet = WalletManager(network=NetworkConfig.BASE_SEPOLIA)
+payments = X402PaymentManager(wallet, NetworkConfig.BASE_SEPOLIA)
+
+# 3. Create paywall server
+server = X402PaywallServer("SmartAnalyzer", payments)
+
+# === SERVICES ===
+
+@server.require_payment(amount=0.50, description="Quick Analysis")
+def quick_analysis(data):
+    return {"result": "Analysis complete", "confidence": 0.92}
+
+@server.require_payment(amount=2.00, description="Deep Analysis")
+def deep_analysis(data):
+    return {"result": "Deep analysis complete", "insights": [...]}
+
+# === RUN ===
+print(f"🚀 Starting SmartAnalyzer (Agent #{agent_id})")
+print(f"   Services: /chaoschain/service/quick_analysis ($0.50)")
+print(f"             /chaoschain/service/deep_analysis ($2.00)")
+server.run(port=8402)
+```
+
+---
 
 ### Basic Usage (Gateway-First)
 
@@ -602,9 +903,16 @@ ChaosChainAgentSDK(
 | `get_agent_id()` | Get cached agent ID | `Optional[int]` |
 | `set_cached_agent_id()` | Manually cache ID | `None` |
 | `get_reputation()` | Query reputation | `List[Dict]` |
-| **x402 Payments** |||
-| `execute_x402_payment()` | Execute payment | `Dict` |
-| `create_x402_paywall_server()` | Create paywall | `Server` |
+| **x402 Payments (v2.0)** |||
+| `X402PaymentManager(wallet, network)` | Initialize payment manager | - |
+| `execute_agent_payment()` | Execute A2A payment | `Dict` |
+| `create_payment_requirements()` | Create payment request | `PaymentRequirements` |
+| **x402 Paywall Server** |||
+| `X402PaywallServer(name, manager)` | Create paywall server | - |
+| `@require_payment(amount, desc)` | Decorator for paid functions | - |
+| `run(host, port)` | Start HTTP server | - |
+
+> **Note:** x402 Paywall Server requires Flask: `pip install flask`
 
 ---
 
@@ -771,6 +1079,18 @@ black chaoschain_sdk/
 ---
 
 ## FAQ
+
+**Q: How do I monetize my AI agent?**  
+A: Use the x402 Paywall Server. Decorate any function with `@server.require_payment(amount=1.00)` and clients must pay before accessing the service. Payments are settled on-chain via USDC.
+
+**Q: What is ERC-8004?**  
+A: ERC-8004 is the Ethereum standard for AI agent identity. It gives your agent an on-chain ID, enables reputation tracking, and validation. The SDK supports both Ethereum Mainnet and Sepolia testnet.
+
+**Q: What is x402?**  
+A: x402 is [Coinbase's open payment protocol](https://github.com/coinbase/x402) built on HTTP 402 "Payment Required". It enables seamless crypto payments for web services. The SDK uses x402 v2.0.
+
+**Q: Can I use ERC-8004 without x402?**  
+A: Yes! ERC-8004 identity and x402 payments are independent features. You can register an agent identity without enabling payments.
 
 **Q: What's the Gateway and why should I use it?**  
 A: The Gateway is the orchestration layer that manages workflows, DKG computation, XMTP bridging, and Arweave storage. Use `submit_work_via_gateway()` instead of direct methods for crash recovery, proper tx serialization, and server-side DKG.

@@ -43,13 +43,39 @@ export type WorkSubmissionStep =
 // SCORE SUBMISSION WORKFLOW STEPS
 // =============================================================================
 
-export type ScoreSubmissionStep =
+/**
+ * ScoreSubmissionMode determines how scores are submitted to StudioProxy.
+ * 
+ * - "direct": Call submitScoreVectorForWorker directly (no commit-reveal, simpler, faster)
+ * - "commit_reveal": Use commit-reveal pattern (prevents last-mover bias, time-windowed)
+ * 
+ * Default is "direct" for MVP. Commit-reveal remains available for future use.
+ */
+export type ScoreSubmissionMode = 'direct' | 'commit_reveal';
+
+/**
+ * Steps for commit-reveal mode (time-windowed, prevents last-mover bias)
+ */
+export type ScoreSubmissionCommitRevealStep =
   | 'COMMIT_SCORE'
   | 'AWAIT_COMMIT_CONFIRM'
   | 'REVEAL_SCORE'
   | 'AWAIT_REVEAL_CONFIRM'
   | 'REGISTER_VALIDATOR'
   | 'AWAIT_REGISTER_VALIDATOR_CONFIRM';
+
+/**
+ * Steps for direct mode (simpler, no timing constraints)
+ */
+export type ScoreSubmissionDirectStep =
+  | 'SUBMIT_SCORE_DIRECT'
+  | 'AWAIT_SCORE_CONFIRM'
+  | 'REGISTER_VALIDATOR'
+  | 'AWAIT_REGISTER_VALIDATOR_CONFIRM';
+
+export type ScoreSubmissionStep =
+  | ScoreSubmissionCommitRevealStep
+  | ScoreSubmissionDirectStep;
 
 // =============================================================================
 // CLOSE EPOCH WORKFLOW STEPS
@@ -144,8 +170,10 @@ export interface ScoreSubmissionInput {
   validator_address: string;   // The validator submitting scores
   data_hash: string;           // bytes32 - which work is being scored
   scores: number[];            // Array of dimension scores (0-10000 basis points)
-  salt: string;                // bytes32 - random salt for commit-reveal
+  salt: string;                // bytes32 - random salt for commit-reveal (unused in direct mode)
   signer_address: string;      // Which key signs on-chain txs
+  worker_address?: string;     // Required for direct mode - which worker is being scored
+  mode?: ScoreSubmissionMode;  // "direct" (default) or "commit_reveal"
 }
 
 // =============================================================================
@@ -153,20 +181,26 @@ export interface ScoreSubmissionInput {
 // =============================================================================
 
 export interface ScoreSubmissionProgress {
-  // Commit phase
-  commit_hash?: string;        // Computed commit hash
+  // Direct mode fields
+  score_tx_hash?: string;        // Direct score submission tx
+  score_confirmed?: boolean;
+  score_block?: number;
+  score_confirmed_at?: number;
+  
+  // Commit-reveal mode fields (commit phase)
+  commit_hash?: string;          // Computed commit hash
   commit_tx_hash?: string;
   commit_confirmed?: boolean;
   commit_block?: number;
   commit_confirmed_at?: number;
   
-  // Reveal phase
+  // Commit-reveal mode fields (reveal phase)
   reveal_tx_hash?: string;
   reveal_confirmed?: boolean;
   reveal_block?: number;
   reveal_confirmed_at?: number;
 
-  // Register validator with RewardsDistributor
+  // Register validator with RewardsDistributor (both modes)
   register_validator_tx_hash?: string;
   register_validator_confirmed?: boolean;
   register_validator_confirmed_at?: number;

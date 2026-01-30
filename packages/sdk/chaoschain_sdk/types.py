@@ -32,7 +32,26 @@ class AgentRole(str, Enum):
 
 
 class NetworkConfig(str, Enum):
-    """Supported blockchain networks with ERC-8004 v1.0 deployments."""
+    """
+    Supported blockchain networks with ERC-8004 v1.0 deployments.
+    
+    Mainnet:
+    - ETHEREUM_MAINNET: Production Ethereum mainnet
+    
+    Testnets:
+    - ETHEREUM_SEPOLIA: Ethereum Sepolia testnet (recommended for ChaosChain development)
+    - BASE_SEPOLIA: Base Sepolia testnet
+    - OPTIMISM_SEPOLIA: Optimism Sepolia testnet
+    - LINEA_SEPOLIA: Linea Sepolia testnet
+    - HEDERA_TESTNET: Hedera testnet
+    - BSC_TESTNET: BNB Chain testnet
+    - MODE_TESTNET: Mode testnet
+    - ZEROG_TESTNET: 0G testnet
+    """
+    # === MAINNET ===
+    ETHEREUM_MAINNET = "ethereum-mainnet"
+    
+    # === TESTNETS ===
     ETHEREUM_SEPOLIA = "ethereum-sepolia"
     BASE_SEPOLIA = "base-sepolia"
     OPTIMISM_SEPOLIA = "optimism-sepolia"

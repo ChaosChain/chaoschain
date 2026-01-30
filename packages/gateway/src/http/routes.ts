@@ -34,9 +34,11 @@ interface CreateScoreSubmissionRequest {
   epoch: number;
   validator_address: string;
   data_hash: string;
-  scores: number[];  // Array of scores (0-10000 basis points)
-  salt: string;      // bytes32 hex
+  scores: number[];       // Array of scores (0-10000 basis points)
+  salt: string;           // bytes32 hex (required for commit_reveal, optional for direct)
   signer_address: string;
+  worker_address?: string;  // Required for direct mode - the worker being scored
+  mode?: 'direct' | 'commit_reveal';  // Default: "direct"
 }
 
 interface CreateCloseEpochRequest {
@@ -185,29 +187,53 @@ export function createRoutes(
 
   // ===========================================================================
   // POST /workflows/score-submission
-  // Create a new ScoreSubmission workflow (commit-reveal pattern)
+  // Create a new ScoreSubmission workflow
+  // 
+  // Supports two modes:
+  // - "direct" (default): Simpler, no timing constraints
+  // - "commit_reveal": Prevents last-mover bias but has timing windows
   // ===========================================================================
   router.post(
     '/workflows/score-submission',
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const body = req.body as CreateScoreSubmissionRequest;
+        
+        // Validate mode
+        const mode = body.mode ?? 'direct';
+        if (mode !== 'direct' && mode !== 'commit_reveal') {
+          throw new ValidationError('mode must be "direct" or "commit_reveal"');
+        }
 
-        // Validate input
+        // Validate input based on mode
         const input: ScoreSubmissionInput = {
           studio_address: validateAddress(body.studio_address, 'studio_address'),
           epoch: validatePositiveInteger(body.epoch, 'epoch'),
           validator_address: validateAddress(body.validator_address, 'validator_address'),
           data_hash: validateBytes32(body.data_hash, 'data_hash'),
           scores: validateScoresArray(body.scores, 'scores'),
-          salt: validateBytes32(body.salt, 'salt'),
+          salt: body.salt ? validateBytes32(body.salt, 'salt') : '0x' + '0'.repeat(64), // Optional for direct mode
           signer_address: validateAddress(body.signer_address, 'signer_address'),
+          mode,
         };
+        
+        // Direct mode requires worker_address
+        if (mode === 'direct') {
+          if (!body.worker_address) {
+            throw new ValidationError('worker_address is required for direct scoring mode');
+          }
+          input.worker_address = validateAddress(body.worker_address, 'worker_address');
+        }
 
         // Create workflow record
         const workflow = createScoreSubmissionWorkflow(input);
 
-        logger.info({ workflowId: workflow.id, type: workflow.type }, 'Creating workflow');
+        logger.info({ 
+          workflowId: workflow.id, 
+          type: workflow.type,
+          mode,
+          step: workflow.step 
+        }, 'Creating score submission workflow');
 
         // Persist and start
         await engine.createWorkflow(workflow);

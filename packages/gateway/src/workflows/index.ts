@@ -28,7 +28,10 @@ export type {
   WorkflowError,
   WorkflowRecord,
   WorkSubmissionRecord,
+  ScoreSubmissionMode,
   ScoreSubmissionStep,
+  ScoreSubmissionCommitRevealStep,
+  ScoreSubmissionDirectStep,
   ScoreSubmissionInput,
   ScoreSubmissionProgress,
   ScoreSubmissionRecord,
@@ -85,18 +88,29 @@ export {
 // ScoreSubmission types
 export type {
   ScoreContractEncoder,
+  DirectScoreContractEncoder,
   ScoreChainStateAdapter,
   ValidatorRegistrationEncoder,
+  ScoreSubmissionEncoders,
 } from './score-submission.js';
 export {
+  // Direct mode steps (default, MVP)
+  SubmitScoreDirectStep,
+  AwaitScoreConfirmStep,
+  // Commit-reveal mode steps (legacy, available)
   CommitScoreStep,
   AwaitCommitConfirmStep,
   RevealScoreStep,
   AwaitRevealConfirmStep,
+  // Shared steps (both modes)
   RegisterValidatorStep,
   AwaitRegisterValidatorConfirmStep,
+  // Workflow factory
   createScoreSubmissionWorkflow,
   createScoreSubmissionDefinition,
+  createCommitRevealScoreSubmissionDefinition,
+  // Encoders
+  DefaultDirectScoreContractEncoder,
   DefaultScoreContractEncoder,
   DefaultValidatorRegistrationEncoder,
 } from './score-submission.js';

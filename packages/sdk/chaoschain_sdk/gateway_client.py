@@ -38,6 +38,17 @@ class WorkflowState(Enum):
     FAILED = "FAILED"
 
 
+class ScoreSubmissionMode(Enum):
+    """
+    Score submission modes supported by Gateway.
+    
+    - DIRECT: Simple direct scoring via submitScoreVectorForWorker (default, MVP)
+    - COMMIT_REVEAL: Commit-reveal pattern (prevents last-mover bias, time-windowed)
+    """
+    DIRECT = "direct"
+    COMMIT_REVEAL = "commit_reveal"
+
+
 @dataclass
 class WorkflowProgress:
     """Progress data for a workflow."""
@@ -46,6 +57,9 @@ class WorkflowProgress:
     onchain_tx_hash: Optional[str] = None
     onchain_confirmed: Optional[bool] = None
     onchain_block: Optional[int] = None
+    # Direct mode (score submission)
+    score_tx_hash: Optional[str] = None
+    # Commit-reveal mode (score submission)
     commit_tx_hash: Optional[str] = None
     reveal_tx_hash: Optional[str] = None
 
@@ -192,6 +206,7 @@ class GatewayClient:
             onchain_tx_hash=progress_data.get('onchain_tx_hash'),
             onchain_confirmed=progress_data.get('onchain_confirmed'),
             onchain_block=progress_data.get('onchain_block'),
+            score_tx_hash=progress_data.get('score_tx_hash'),
             commit_tx_hash=progress_data.get('commit_tx_hash'),
             reveal_tx_hash=progress_data.get('reveal_tx_hash'),
         )
@@ -300,16 +315,19 @@ class GatewayClient:
         validator_address: str,
         data_hash: str,
         scores: List[int],
-        salt: str,
-        signer_address: str
+        signer_address: str,
+        worker_address: Optional[str] = None,
+        salt: Optional[str] = None,
+        mode: ScoreSubmissionMode = ScoreSubmissionMode.DIRECT
     ) -> WorkflowStatus:
         """
-        Create a score submission workflow (commit-reveal).
+        Create a score submission workflow.
         
-        SDK prepares inputs; Gateway handles:
-        - Commit phase (hash of score + salt)
-        - Reveal phase (score + salt)
-        - Transaction confirmations
+        Supports two modes:
+        - DIRECT (default): Simple direct scoring, requires worker_address
+        - COMMIT_REVEAL: Commit-reveal pattern, requires salt
+        
+        SDK prepares inputs; Gateway handles all execution.
         
         Args:
             studio_address: Ethereum address of the studio
@@ -317,21 +335,43 @@ class GatewayClient:
             validator_address: Ethereum address of the validator
             data_hash: Bytes32 hash of the work being scored (as hex string)
             scores: Array of dimension scores (0-10000 basis points)
-            salt: Bytes32 random salt for commit-reveal (as hex string)
             signer_address: Ethereum address of the signer
+            worker_address: Ethereum address of the worker being scored (required for DIRECT mode)
+            salt: Bytes32 random salt for commit-reveal (as hex string, required for COMMIT_REVEAL mode)
+            mode: ScoreSubmissionMode - DIRECT (default) or COMMIT_REVEAL
         
         Returns:
             WorkflowStatus with workflow ID for polling
+        
+        Raises:
+            ValueError: If required parameters are missing for the chosen mode
         """
+        # Validate mode-specific requirements
+        if mode == ScoreSubmissionMode.DIRECT:
+            if not worker_address:
+                raise ValueError("worker_address is required for DIRECT scoring mode")
+        elif mode == ScoreSubmissionMode.COMMIT_REVEAL:
+            if not salt:
+                raise ValueError("salt is required for COMMIT_REVEAL scoring mode")
+        
         payload = {
             "studio_address": studio_address,
             "epoch": epoch,
             "validator_address": validator_address,
             "data_hash": data_hash,
             "scores": scores,
-            "salt": salt,
-            "signer_address": signer_address
+            "signer_address": signer_address,
+            "mode": mode.value
         }
+        
+        # Add mode-specific fields
+        if worker_address:
+            payload["worker_address"] = worker_address
+        if salt:
+            payload["salt"] = salt
+        else:
+            # Gateway requires salt field (even if unused in direct mode)
+            payload["salt"] = "0x" + "0" * 64
         
         result = self._request('POST', '/workflows/score-submission', json=payload)
         return self._parse_workflow_status(result)
@@ -515,14 +555,28 @@ class GatewayClient:
         validator_address: str,
         data_hash: str,
         scores: List[int],
-        salt: str,
         signer_address: str,
+        worker_address: Optional[str] = None,
+        salt: Optional[str] = None,
+        mode: ScoreSubmissionMode = ScoreSubmissionMode.DIRECT,
         on_progress: Optional[callable] = None
     ) -> WorkflowStatus:
         """
         Submit score and wait for completion.
         
         Convenience method that combines submit_score() and wait_for_completion().
+        
+        Args:
+            studio_address: Ethereum address of the studio
+            epoch: Epoch number
+            validator_address: Ethereum address of the validator
+            data_hash: Bytes32 hash of the work being scored (as hex string)
+            scores: Array of dimension scores (0-10000 basis points)
+            signer_address: Ethereum address of the signer
+            worker_address: Ethereum address of the worker being scored (required for DIRECT mode)
+            salt: Bytes32 random salt for commit-reveal (as hex string, required for COMMIT_REVEAL mode)
+            mode: ScoreSubmissionMode - DIRECT (default) or COMMIT_REVEAL
+            on_progress: Optional callback called on each poll with WorkflowStatus
         
         Returns:
             Final workflow status (COMPLETED)
@@ -537,8 +591,10 @@ class GatewayClient:
             validator_address=validator_address,
             data_hash=data_hash,
             scores=scores,
+            signer_address=signer_address,
+            worker_address=worker_address,
             salt=salt,
-            signer_address=signer_address
+            mode=mode
         )
         
         return self.wait_for_completion(workflow.id, on_progress=on_progress)

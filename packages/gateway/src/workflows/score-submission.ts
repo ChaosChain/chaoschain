@@ -1,13 +1,24 @@
 /**
  * ScoreSubmission Workflow Implementation
  * 
- * Handles the commit-reveal pattern for validator score submissions:
- * 1. COMMIT_SCORE - Submit commit hash to contract
- * 2. AWAIT_COMMIT_CONFIRM - Wait for commit tx confirmation
- * 3. REVEAL_SCORE - Submit reveal with actual scores
- * 4. AWAIT_REVEAL_CONFIRM - Wait for reveal tx confirmation
+ * Supports TWO scoring modes:
  * 
- * Commit-reveal prevents last-mover bias in scoring.
+ * 1. DIRECT MODE (default, MVP):
+ *    - SUBMIT_SCORE_DIRECT - Call submitScoreVectorForWorker
+ *    - AWAIT_SCORE_CONFIRM - Wait for confirmation
+ *    - REGISTER_VALIDATOR - Register with RewardsDistributor
+ *    - AWAIT_REGISTER_VALIDATOR_CONFIRM - Wait for confirmation
+ * 
+ * 2. COMMIT-REVEAL MODE (legacy, available):
+ *    - COMMIT_SCORE - Submit commit hash
+ *    - AWAIT_COMMIT_CONFIRM - Wait for commit confirmation
+ *    - REVEAL_SCORE - Submit reveal with scores
+ *    - AWAIT_REVEAL_CONFIRM - Wait for reveal confirmation
+ *    - REGISTER_VALIDATOR - Register with RewardsDistributor
+ *    - AWAIT_REGISTER_VALIDATOR_CONFIRM - Wait for confirmation
+ * 
+ * Direct mode is simpler and avoids time-window issues.
+ * Commit-reveal prevents last-mover bias but has timing constraints.
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -15,6 +26,7 @@ import { ethers } from 'ethers';
 import {
   ScoreSubmissionRecord,
   ScoreSubmissionInput,
+  ScoreSubmissionMode,
   StepResult,
   ClassifiedError,
 } from './types.js';
@@ -23,7 +35,7 @@ import { TxQueue, TxRequest } from './tx-queue.js';
 import { WorkflowPersistence } from './persistence.js';
 
 // =============================================================================
-// SCORE CONTRACT ENCODER INTERFACE
+// SCORE CONTRACT ENCODER INTERFACE (Commit-Reveal Mode)
 // =============================================================================
 
 export interface ScoreContractEncoder {
@@ -56,6 +68,22 @@ export interface ScoreContractEncoder {
 }
 
 // =============================================================================
+// DIRECT SCORE CONTRACT ENCODER INTERFACE (Direct Mode)
+// =============================================================================
+
+export interface DirectScoreContractEncoder {
+  /**
+   * Encode submitScoreVectorForWorker call data.
+   * submitScoreVectorForWorker(bytes32 dataHash, address worker, bytes scoreVector)
+   */
+  encodeSubmitScoreVectorForWorker(
+    dataHash: string,
+    workerAddress: string,
+    scores: number[]
+  ): string;
+}
+
+// =============================================================================
 // VALIDATOR REGISTRATION ENCODER INTERFACE
 // =============================================================================
 
@@ -82,6 +110,7 @@ export interface ValidatorRegistrationEncoder {
 export interface ScoreChainStateAdapter {
   /**
    * Check if a commit exists for this validator and data hash.
+   * (commit-reveal mode)
    */
   commitExists(
     studioAddress: string,
@@ -91,6 +120,7 @@ export interface ScoreChainStateAdapter {
 
   /**
    * Check if a reveal exists for this validator and data hash.
+   * (commit-reveal mode)
    */
   revealExists(
     studioAddress: string,
@@ -100,6 +130,7 @@ export interface ScoreChainStateAdapter {
 
   /**
    * Get commit details.
+   * (commit-reveal mode)
    */
   getCommit(
     studioAddress: string,
@@ -108,7 +139,19 @@ export interface ScoreChainStateAdapter {
   ): Promise<{ commitHash: string; timestamp: number } | null>;
 
   /**
+   * Check if a direct score exists for this validator, worker, and data hash.
+   * (direct mode)
+   */
+  scoreExistsForWorker?(
+    studioAddress: string,
+    dataHash: string,
+    validator: string,
+    worker: string
+  ): Promise<boolean>;
+
+  /**
    * Check if validator is registered in RewardsDistributor for this dataHash.
+   * (both modes)
    */
   isValidatorRegisteredInRewardsDistributor?(
     dataHash: string,
@@ -117,11 +160,273 @@ export interface ScoreChainStateAdapter {
 }
 
 // =============================================================================
-// STEP EXECUTORS
+// STEP EXECUTORS - DIRECT MODE
 // =============================================================================
 
 /**
- * Step 1: Submit commit hash on-chain
+ * Step 1 (Direct): Submit score vector directly
+ * Calls StudioProxy.submitScoreVectorForWorker(dataHash, worker, scoreVector)
+ */
+export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+  private encoder: DirectScoreContractEncoder;
+  private chainState: ScoreChainStateAdapter;
+
+  constructor(
+    txQueue: TxQueue,
+    persistence: WorkflowPersistence,
+    encoder: DirectScoreContractEncoder,
+    chainState: ScoreChainStateAdapter
+  ) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+    this.encoder = encoder;
+    this.chainState = chainState;
+  }
+
+  isIrreversible(): boolean {
+    // On-chain score submission is irreversible - MUST reconcile first
+    return true;
+  }
+
+  async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if we already have a score tx hash, skip to confirmation
+    if (progress.score_tx_hash) {
+      return { type: 'SUCCESS', nextStep: 'AWAIT_SCORE_CONFIRM' };
+    }
+
+    // Validate required input for direct mode
+    if (!input.worker_address) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'worker_address is required for direct scoring mode',
+          code: 'MISSING_WORKER_ADDRESS',
+        },
+      };
+    }
+
+    // Reconciliation: check if score already exists on-chain
+    if (this.chainState.scoreExistsForWorker) {
+      const scoreExists = await this.chainState.scoreExistsForWorker(
+        input.studio_address,
+        input.data_hash,
+        input.validator_address,
+        input.worker_address
+      );
+      if (scoreExists) {
+        // Score already on-chain, skip to validator registration
+        await this.persistence.appendProgress(workflow.id, {
+          score_confirmed: true,
+          score_confirmed_at: Date.now(),
+        });
+        return { type: 'SUCCESS', nextStep: 'REGISTER_VALIDATOR' };
+      }
+    }
+
+    // Encode transaction
+    const txData = this.encoder.encodeSubmitScoreVectorForWorker(
+      input.data_hash,
+      input.worker_address,
+      input.scores
+    );
+
+    const txRequest: TxRequest = {
+      to: input.studio_address,
+      data: txData,
+    };
+
+    try {
+      const txHash = await this.txQueue.submitOnly(
+        workflow.id,
+        input.signer_address,
+        txRequest
+      );
+
+      // Persist tx hash (critical checkpoint)
+      await this.persistence.appendProgress(workflow.id, { score_tx_hash: txHash });
+
+      return { type: 'SUCCESS', nextStep: 'AWAIT_SCORE_CONFIRM' };
+    } catch (error) {
+      const classified = this.classifyTxError(error);
+
+      if (classified.category === 'PERMANENT') {
+        return { type: 'FAILED', error: classified };
+      }
+
+      return { type: 'RETRY', error: classified };
+    }
+  }
+
+  private classifyTxError(error: unknown): ClassifiedError {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Contract reverts are permanent
+    if (message.includes('already scored') || message.includes('score exists')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Score already submitted for this worker',
+        code: 'ALREADY_SCORED',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('not registered') || message.includes('unauthorized') || message.includes('not a validator')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Not a registered validator',
+        code: 'NOT_VALIDATOR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('no work') || message.includes('work not found')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Work submission not found',
+        code: 'WORK_NOT_FOUND',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    if (message.includes('invalid worker') || message.includes('not a participant')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Worker is not a participant in this work',
+        code: 'INVALID_WORKER',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Nonce issues are recoverable
+    if (message.includes('nonce too low')) {
+      return {
+        category: 'RECOVERABLE',
+        message: 'Nonce too low (tx may have landed)',
+        code: 'NONCE_TOO_LOW',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    // Network errors are transient
+    if (message.includes('network') || message.includes('timeout')) {
+      return {
+        category: 'TRANSIENT',
+        message: 'Network error',
+        code: 'NETWORK_ERROR',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
+    return {
+      category: 'UNKNOWN',
+      message,
+      code: 'UNKNOWN_TX_ERROR',
+      originalError: error instanceof Error ? error : undefined,
+    };
+  }
+}
+
+/**
+ * Step 2 (Direct): Wait for score transaction confirmation
+ */
+export class AwaitScoreConfirmStep implements StepExecutor<ScoreSubmissionRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+
+  constructor(txQueue: TxQueue, persistence: WorkflowPersistence) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    return true;
+  }
+
+  async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    // Idempotency: if already confirmed, move to validator registration
+    if (progress.score_confirmed) {
+      return { type: 'SUCCESS', nextStep: 'REGISTER_VALIDATOR' };
+    }
+
+    if (!progress.score_tx_hash) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'No score tx hash found',
+          code: 'MISSING_SCORE_TX_HASH',
+        },
+      };
+    }
+
+    try {
+      const receipt = await this.txQueue.waitForTx(progress.score_tx_hash);
+
+      // Release signer lock after confirmation
+      this.txQueue.releaseSignerLock(input.signer_address);
+
+      switch (receipt.status) {
+        case 'confirmed':
+          await this.persistence.appendProgress(workflow.id, {
+            score_confirmed: true,
+            score_block: receipt.blockNumber,
+            score_confirmed_at: Date.now(),
+          });
+          return { type: 'SUCCESS', nextStep: 'REGISTER_VALIDATOR' };
+
+        case 'reverted':
+          return {
+            type: 'FAILED',
+            error: {
+              category: 'PERMANENT',
+              message: `Score transaction reverted: ${receipt.revertReason}`,
+              code: 'SCORE_TX_REVERTED',
+            },
+          };
+
+        case 'pending':
+          return {
+            type: 'RETRY',
+            error: {
+              category: 'TRANSIENT',
+              message: 'Score transaction still pending',
+              code: 'SCORE_TX_PENDING',
+            },
+          };
+
+        case 'not_found':
+          return {
+            type: 'STALLED',
+            reason: 'Score transaction not found after timeout',
+          };
+      }
+    } catch (error) {
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: error instanceof Error ? error.message : String(error),
+          code: 'SCORE_WAIT_ERROR',
+          originalError: error instanceof Error ? error : undefined,
+        },
+      };
+    }
+  }
+}
+
+// =============================================================================
+// STEP EXECUTORS - COMMIT-REVEAL MODE
+// =============================================================================
+
+/**
+ * Step 1 (Commit-Reveal): Submit commit hash on-chain
  */
 export class CommitScoreStep implements StepExecutor<ScoreSubmissionRecord> {
   private txQueue: TxQueue;
@@ -864,49 +1169,99 @@ export class AwaitRegisterValidatorConfirmStep implements StepExecutor<ScoreSubm
 // =============================================================================
 
 /**
+ * Get the initial step based on scoring mode.
+ * Default is "direct" mode.
+ */
+function getInitialStep(mode: ScoreSubmissionMode | undefined): string {
+  const effectiveMode = mode ?? 'direct';
+  return effectiveMode === 'direct' ? 'SUBMIT_SCORE_DIRECT' : 'COMMIT_SCORE';
+}
+
+/**
  * Create a ScoreSubmission workflow record.
+ * 
+ * Default mode is "direct" (simpler, no timing constraints).
+ * Mode "commit_reveal" is available for scenarios requiring last-mover bias prevention.
  */
 export function createScoreSubmissionWorkflow(
   input: ScoreSubmissionInput
 ): ScoreSubmissionRecord {
+  const effectiveMode = input.mode ?? 'direct';
+  const initialStep = getInitialStep(effectiveMode);
+  
   return {
     id: uuidv4(),
     type: 'ScoreSubmission',
     created_at: Date.now(),
     updated_at: Date.now(),
     state: 'CREATED',
-    step: 'COMMIT_SCORE',
+    step: initialStep,
     step_attempts: 0,
-    input,
+    input: {
+      ...input,
+      mode: effectiveMode, // Normalize mode to explicit value
+    },
     progress: {},
     signer: input.signer_address,
   };
 }
 
 /**
- * Create ScoreSubmission workflow definition.
+ * Encoders required for ScoreSubmission workflow.
+ */
+export interface ScoreSubmissionEncoders {
+  /** Encoder for commit-reveal mode (required for commit_reveal mode) */
+  commitRevealEncoder?: ScoreContractEncoder;
+  /** Encoder for direct mode (required for direct mode) */
+  directEncoder?: DirectScoreContractEncoder;
+  /** Encoder for validator registration (required for both modes) */
+  validatorEncoder?: ValidatorRegistrationEncoder;
+}
+
+/**
+ * Create ScoreSubmission workflow definition supporting BOTH modes.
  * 
- * @param validatorEncoder - Optional encoder for RewardsDistributor.registerValidator.
- *   If not provided, the workflow will complete after reveal (legacy behavior).
+ * The workflow will use the appropriate steps based on input.mode:
+ * - "direct": SUBMIT_SCORE_DIRECT → AWAIT_SCORE_CONFIRM → REGISTER_VALIDATOR → AWAIT_REGISTER_VALIDATOR_CONFIRM
+ * - "commit_reveal": COMMIT_SCORE → AWAIT_COMMIT_CONFIRM → REVEAL_SCORE → AWAIT_REVEAL_CONFIRM → REGISTER_VALIDATOR → AWAIT_REGISTER_VALIDATOR_CONFIRM
+ * 
+ * @param txQueue - Transaction queue for nonce management
+ * @param persistence - Workflow persistence
+ * @param chainState - Chain state adapter
+ * @param encoders - Required encoders for both modes
  */
 export function createScoreSubmissionDefinition(
   txQueue: TxQueue,
   persistence: WorkflowPersistence,
-  encoder: ScoreContractEncoder,
   chainState: ScoreChainStateAdapter,
-  validatorEncoder?: ValidatorRegistrationEncoder
+  encoders: ScoreSubmissionEncoders
 ): WorkflowDefinition<ScoreSubmissionRecord> {
   const steps = new Map<string, StepExecutor<ScoreSubmissionRecord>>();
 
-  steps.set('COMMIT_SCORE', new CommitScoreStep(txQueue, persistence, encoder, chainState));
-  steps.set('AWAIT_COMMIT_CONFIRM', new AwaitCommitConfirmStep(txQueue, persistence));
-  steps.set('REVEAL_SCORE', new RevealScoreStep(txQueue, persistence, encoder, chainState));
-  steps.set('AWAIT_REVEAL_CONFIRM', new AwaitRevealConfirmStep(txQueue, persistence));
+  // Direct mode steps (default, MVP)
+  if (encoders.directEncoder) {
+    steps.set('SUBMIT_SCORE_DIRECT', new SubmitScoreDirectStep(
+      txQueue, persistence, encoders.directEncoder, chainState
+    ));
+    steps.set('AWAIT_SCORE_CONFIRM', new AwaitScoreConfirmStep(txQueue, persistence));
+  }
+
+  // Commit-reveal mode steps (legacy, available)
+  if (encoders.commitRevealEncoder) {
+    steps.set('COMMIT_SCORE', new CommitScoreStep(
+      txQueue, persistence, encoders.commitRevealEncoder, chainState
+    ));
+    steps.set('AWAIT_COMMIT_CONFIRM', new AwaitCommitConfirmStep(txQueue, persistence));
+    steps.set('REVEAL_SCORE', new RevealScoreStep(
+      txQueue, persistence, encoders.commitRevealEncoder, chainState
+    ));
+    steps.set('AWAIT_REVEAL_CONFIRM', new AwaitRevealConfirmStep(txQueue, persistence));
+  }
   
-  // Add validator registration steps if encoder is provided
-  if (validatorEncoder) {
+  // Validator registration steps (both modes)
+  if (encoders.validatorEncoder) {
     steps.set('REGISTER_VALIDATOR', new RegisterValidatorStep(
-      txQueue, persistence, validatorEncoder, chainState
+      txQueue, persistence, encoders.validatorEncoder, chainState
     ));
     steps.set('AWAIT_REGISTER_VALIDATOR_CONFIRM', new AwaitRegisterValidatorConfirmStep(
       txQueue, persistence
@@ -915,23 +1270,95 @@ export function createScoreSubmissionDefinition(
 
   return {
     type: 'ScoreSubmission',
-    initialStep: 'COMMIT_SCORE',
+    // Initial step determined per-workflow by createScoreSubmissionWorkflow
+    initialStep: 'SUBMIT_SCORE_DIRECT', // Default for definition (per-workflow start overrides)
     steps,
     stepOrder: [
+      // Direct mode steps
+      'SUBMIT_SCORE_DIRECT',
+      'AWAIT_SCORE_CONFIRM',
+      // Commit-reveal mode steps
       'COMMIT_SCORE',
       'AWAIT_COMMIT_CONFIRM',
       'REVEAL_SCORE',
       'AWAIT_REVEAL_CONFIRM',
+      // Shared steps (both modes)
       'REGISTER_VALIDATOR',
       'AWAIT_REGISTER_VALIDATOR_CONFIRM',
     ],
   };
 }
 
+/**
+ * Legacy factory function for commit-reveal only mode.
+ * @deprecated Use createScoreSubmissionDefinition with encoders instead.
+ */
+export function createCommitRevealScoreSubmissionDefinition(
+  txQueue: TxQueue,
+  persistence: WorkflowPersistence,
+  encoder: ScoreContractEncoder,
+  chainState: ScoreChainStateAdapter,
+  validatorEncoder?: ValidatorRegistrationEncoder
+): WorkflowDefinition<ScoreSubmissionRecord> {
+  return createScoreSubmissionDefinition(txQueue, persistence, chainState, {
+    commitRevealEncoder: encoder,
+    validatorEncoder,
+  });
+}
+
 // =============================================================================
-// DEFAULT ENCODER IMPLEMENTATION
+// DEFAULT ENCODER IMPLEMENTATIONS
 // =============================================================================
 
+/**
+ * Default encoder for direct scoring mode.
+ * Encodes calls to StudioProxy.submitScoreVectorForWorker
+ */
+export class DefaultDirectScoreContractEncoder implements DirectScoreContractEncoder {
+  private submitScoreSelector: string;
+
+  constructor() {
+    // submitScoreVectorForWorker(bytes32 dataHash, address worker, bytes scoreVector)
+    this.submitScoreSelector = ethers.id('submitScoreVectorForWorker(bytes32,address,bytes)').slice(0, 10);
+  }
+
+  encodeSubmitScoreVectorForWorker(
+    dataHash: string,
+    workerAddress: string,
+    scores: number[]
+  ): string {
+    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+    
+    // Encode score vector as 5 uint8s (0-100 range)
+    // Contract expects: abi.decode(scoreData, (uint8, uint8, uint8, uint8, uint8))
+    // scores are 0-10000 basis points, scale to 0-100
+    const scaledScores = scores.map(s => Math.floor(s / 100));
+    
+    // Ensure we have exactly 5 scores
+    while (scaledScores.length < 5) {
+      scaledScores.push(0);
+    }
+    
+    // Encode the score bytes: 5 uint8s packed
+    const scoreBytes = abiCoder.encode(
+      ['uint8', 'uint8', 'uint8', 'uint8', 'uint8'],
+      scaledScores.slice(0, 5)
+    );
+    
+    // Encode the full function call
+    const params = abiCoder.encode(
+      ['bytes32', 'address', 'bytes'],
+      [dataHash, workerAddress, scoreBytes]
+    );
+    
+    return this.submitScoreSelector + params.slice(2);
+  }
+}
+
+/**
+ * Default encoder for commit-reveal scoring mode.
+ * Encodes calls to StudioProxy.commitScore and revealScore
+ */
 export class DefaultScoreContractEncoder implements ScoreContractEncoder {
   private commitScoreSelector: string;
   private revealScoreSelector: string;
