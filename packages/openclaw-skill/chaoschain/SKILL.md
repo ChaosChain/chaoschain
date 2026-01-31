@@ -67,13 +67,33 @@ Requires `CHAOSCHAIN_PRIVATE_KEY` or `CHAOSCHAIN_ADDRESS` to be set.
 Register your agent on the ERC-8004 IdentityRegistry.
 
 ```
-/chaoschain register
+/chaoschain register                    # Defaults to Sepolia (safe)
+/chaoschain register --network sepolia  # Recommended for testing
+/chaoschain register --network mainnet  # Advanced users only
 ```
 
 Requirements:
 - `CHAOSCHAIN_PRIVATE_KEY` must be set
 - Wallet must have ETH for gas (~0.001 ETH)
 - This is a ONE-TIME action per wallet
+
+**Safety Default**: Registration defaults to **Sepolia testnet** to prevent accidental mainnet transactions. Use `--network mainnet` explicitly for production.
+
+## Network Defaults
+
+| Command | Default Network | Reason |
+|---------|-----------------|--------|
+| `verify` | Mainnet | Production reputation data |
+| `reputation` | Mainnet | Production reputation data |
+| `whoami` | Mainnet | Check production identity |
+| `register` | **Sepolia** | Safety - avoid accidental mainnet txs |
+
+Override with `--network mainnet` or `--network sepolia`:
+
+```
+/chaoschain verify 450 --network sepolia
+/chaoschain register --network mainnet
+```
 
 ## Setup
 

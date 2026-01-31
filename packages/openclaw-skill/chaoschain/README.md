@@ -42,12 +42,23 @@ cp -r chaoschain ~/your-workspace/skills/
 
 ## Commands
 
-| Command | Description | Requires Wallet? |
-|---------|-------------|------------------|
-| `/chaoschain verify <id>` | Check if agent is registered | No |
-| `/chaoschain reputation <id>` | View reputation scores | No |
-| `/chaoschain whoami` | Check your identity | Address only |
-| `/chaoschain register` | Register on ERC-8004 | Yes (on-chain tx) |
+| Command | Description | Requires Wallet? | Default Network |
+|---------|-------------|------------------|-----------------|
+| `/chaoschain verify <id>` | Check if agent is registered | No | Mainnet |
+| `/chaoschain reputation <id>` | View reputation scores | No | Mainnet |
+| `/chaoschain whoami` | Check your identity | Address only | Mainnet |
+| `/chaoschain register` | Register on ERC-8004 | Yes (on-chain tx) | **Sepolia** |
+
+### Network Flag
+
+All commands support `--network mainnet` or `--network sepolia`:
+
+```bash
+/chaoschain verify 450 --network sepolia
+/chaoschain register --network mainnet  # Advanced users only
+```
+
+**Safety Default**: Registration defaults to Sepolia to prevent accidental mainnet transactions.
 
 ## Usage Examples
 

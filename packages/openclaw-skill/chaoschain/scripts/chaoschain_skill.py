@@ -55,10 +55,25 @@ REPUTATION_ABI = [
 ]
 
 
-def get_network_config() -> Dict[str, Any]:
-    """Get network configuration from environment."""
-    network = os.environ.get("CHAOSCHAIN_NETWORK", "mainnet").lower()
-    if network not in CONTRACTS:
+def get_network_config(command: str = "read") -> Dict[str, Any]:
+    """
+    Get network configuration from environment.
+    
+    Network defaults:
+    - READ operations (verify, reputation, whoami): Mainnet
+    - WRITE operations (register): Sepolia (safety default)
+    
+    Users can override with CHAOSCHAIN_NETWORK or --network flag.
+    """
+    env_network = os.environ.get("CHAOSCHAIN_NETWORK", "").lower()
+    
+    if env_network and env_network in CONTRACTS:
+        network = env_network
+    elif command == "register":
+        # Safety default: registration goes to Sepolia to avoid accidents
+        network = "sepolia"
+    else:
+        # Read operations default to Mainnet (production data)
         network = "mainnet"
     
     config = CONTRACTS[network].copy()
@@ -72,8 +87,14 @@ def get_network_config() -> Dict[str, Any]:
     return config
 
 
-def get_web3():
-    """Initialize Web3 connection."""
+def get_web3(command: str = "read", network_override: Optional[str] = None):
+    """
+    Initialize Web3 connection.
+    
+    Args:
+        command: "read" or "register" - affects default network
+        network_override: Explicit network from --network flag
+    """
     try:
         from web3 import Web3
     except ImportError:
@@ -81,7 +102,11 @@ def get_web3():
         print("   Run: pip install web3")
         sys.exit(1)
     
-    config = get_network_config()
+    # Handle explicit --network flag
+    if network_override:
+        os.environ["CHAOSCHAIN_NETWORK"] = network_override
+    
+    config = get_network_config(command)
     w3 = Web3(Web3.HTTPProvider(config["rpc_url"]))
     
     if not w3.is_connected():
@@ -209,9 +234,9 @@ def trust_level(score: int) -> str:
 # COMMANDS
 # ============================================================================
 
-def cmd_verify(identifier: str):
+def cmd_verify(identifier: str, network: Optional[str] = None):
     """Verify an agent's on-chain identity."""
-    w3, config = get_web3()
+    w3, config = get_web3("read", network)
     
     print(f"⛓️ Verifying agent: {identifier}")
     print(f"   Network: {config['network'].upper()}")
@@ -260,9 +285,9 @@ def cmd_verify(identifier: str):
         print("This address owns agent(s) but specific ID not resolved.")
 
 
-def cmd_reputation(identifier: str):
+def cmd_reputation(identifier: str, network: Optional[str] = None):
     """View detailed reputation scores for an agent."""
-    w3, config = get_web3()
+    w3, config = get_web3("read", network)
     
     agent_id, owner = resolve_agent_id(w3, config, identifier)
     
@@ -300,9 +325,9 @@ def cmd_reputation(identifier: str):
     print(f"🔗 https://8004scan.io/agents/{config['network']}/{agent_id}")
 
 
-def cmd_whoami():
+def cmd_whoami(network: Optional[str] = None):
     """Check if your wallet has an on-chain identity."""
-    w3, config = get_web3()
+    w3, config = get_web3("read", network)
     
     # Get address from env
     address = os.environ.get("CHAOSCHAIN_ADDRESS")
@@ -354,10 +379,27 @@ def cmd_whoami():
         print(f"❌ Error checking identity: {e}")
 
 
-def cmd_register():
+def cmd_register(network: Optional[str] = None):
     """Register your agent on ERC-8004 (ON-CHAIN ACTION)."""
+    # Get config FIRST to show which network
+    w3, config = get_web3("register", network)
+    
     print("⚠️  WARNING: ON-CHAIN TRANSACTION")
     print("━" * 40)
+    
+    # Extra warning for mainnet
+    if config["network"] == "mainnet":
+        print("🔴 MAINNET TRANSACTION - REAL ETH REQUIRED")
+        print("")
+        print("You are about to register on Ethereum Mainnet.")
+        print("This costs real ETH and is permanent.")
+        print("")
+        print("For testing, use: /chaoschain register --network sepolia")
+        print("")
+    else:
+        print(f"Network: {config['network'].upper()} (testnet)")
+        print("")
+    
     print("This command will:")
     print("  1. Submit a transaction to Ethereum")
     print("  2. Cost gas (~0.001 ETH)")
@@ -375,14 +417,13 @@ def cmd_register():
         print('    "entries": {')
         print('      "chaoschain": {')
         print('        "env": {')
-        print('          "CHAOSCHAIN_PRIVATE_KEY": "0x..."')
+        print('          "CHAOSCHAIN_PRIVATE_KEY": "0x...",')
+        print(f'          "CHAOSCHAIN_NETWORK": "{config["network"]}"')
         print('        }')
         print('      }')
         print('    }')
         print('  }')
         return
-    
-    w3, config = get_web3()
     
     from eth_account import Account
     account = Account.from_key(private_key)
@@ -467,6 +508,34 @@ def cmd_register():
         print(f"❌ Registration failed: {e}")
 
 
+def parse_network_flag(args: list) -> Tuple[list, Optional[str]]:
+    """Parse --network flag from arguments."""
+    network = None
+    filtered_args = []
+    
+    i = 0
+    while i < len(args):
+        if args[i] == "--network" and i + 1 < len(args):
+            network = args[i + 1].lower()
+            if network not in CONTRACTS:
+                print(f"❌ Unknown network: {network}")
+                print("   Valid options: mainnet, sepolia")
+                sys.exit(1)
+            i += 2
+        elif args[i].startswith("--network="):
+            network = args[i].split("=")[1].lower()
+            if network not in CONTRACTS:
+                print(f"❌ Unknown network: {network}")
+                print("   Valid options: mainnet, sepolia")
+                sys.exit(1)
+            i += 1
+        else:
+            filtered_args.append(args[i])
+            i += 1
+    
+    return filtered_args, network
+
+
 def main():
     """Main entry point."""
     if len(sys.argv) < 2:
@@ -478,30 +547,46 @@ def main():
         print("  whoami                 - Check your identity")
         print("  register               - Register on ERC-8004")
         print("")
+        print("Options:")
+        print("  --network <network>    - mainnet or sepolia")
+        print("")
+        print("Network Defaults:")
+        print("  • Read operations (verify, reputation): Mainnet")
+        print("  • Write operations (register): Sepolia (safe default)")
+        print("")
         print("Examples:")
         print("  python chaoschain_skill.py verify 450")
-        print("  python chaoschain_skill.py reputation 550")
+        print("  python chaoschain_skill.py verify 450 --network sepolia")
+        print("  python chaoschain_skill.py register --network sepolia")
+        print("  python chaoschain_skill.py register --network mainnet  # advanced")
         return
     
-    command = sys.argv[1].lower()
+    # Parse --network flag
+    args, network = parse_network_flag(sys.argv[1:])
+    
+    if not args:
+        print("No command specified. Use: verify, reputation, whoami, or register")
+        return
+    
+    command = args[0].lower()
     
     if command == "verify":
-        if len(sys.argv) < 3:
-            print("Usage: verify <agent_id_or_address>")
+        if len(args) < 2:
+            print("Usage: verify <agent_id_or_address> [--network mainnet|sepolia]")
             return
-        cmd_verify(sys.argv[2])
+        cmd_verify(args[1], network)
     
     elif command == "reputation":
-        if len(sys.argv) < 3:
-            print("Usage: reputation <agent_id_or_address>")
+        if len(args) < 2:
+            print("Usage: reputation <agent_id_or_address> [--network mainnet|sepolia]")
             return
-        cmd_reputation(sys.argv[2])
+        cmd_reputation(args[1], network)
     
     elif command == "whoami":
-        cmd_whoami()
+        cmd_whoami(network)
     
     elif command == "register":
-        cmd_register()
+        cmd_register(network)
     
     else:
         print(f"Unknown command: {command}")
