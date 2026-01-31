@@ -50,7 +50,8 @@ IDENTITY_ABI = [
 ]
 
 REPUTATION_ABI = [
-    {"inputs": [{"name": "agentId", "type": "uint256"}, {"name": "clientAddresses", "type": "address[]"}, {"name": "tag1", "type": "string"}, {"name": "tag2", "type": "string"}], "name": "getSummary", "outputs": [{"name": "count", "type": "uint64"}, {"name": "averageScore", "type": "uint8"}], "stateMutability": "view", "type": "function"},
+    # Feb 2026 spec: returns (count, value, valueDecimals) instead of (count, averageScore)
+    {"inputs": [{"name": "agentId", "type": "uint256"}, {"name": "clientAddresses", "type": "address[]"}, {"name": "tag1", "type": "string"}, {"name": "tag2", "type": "string"}], "name": "getSummary", "outputs": [{"name": "count", "type": "uint64"}, {"name": "value", "type": "int128"}, {"name": "valueDecimals", "type": "uint8"}], "stateMutability": "view", "type": "function"},
     {"inputs": [{"name": "agentId", "type": "uint256"}], "name": "getClients", "outputs": [{"name": "", "type": "address[]"}], "stateMutability": "view", "type": "function"},
 ]
 
@@ -180,33 +181,60 @@ def fetch_reputation(w3, config: Dict, agent_id: int) -> Dict[str, Any]:
         abi=REPUTATION_ABI
     )
     
+    # First, get all clients who have given feedback
+    try:
+        clients = reputation.functions.getClients(agent_id).call()
+    except Exception:
+        clients = []
+    
+    if not clients:
+        # No feedback yet
+        return {
+            "Initiative": {"count": 0, "score": 0},
+            "Collaboration": {"count": 0, "score": 0},
+            "Reasoning": {"count": 0, "score": 0},
+            "Compliance": {"count": 0, "score": 0},
+            "Efficiency": {"count": 0, "score": 0},
+            "overall": {"count": 0, "score": 0}
+        }
+    
     # Proof of Agency dimensions
     dimensions = ["Initiative", "Collaboration", "Reasoning", "Compliance", "Efficiency"]
     results = {}
     
     for dim in dimensions:
         try:
-            count, avg_score = reputation.functions.getSummary(
+            # Feb 2026 spec: returns (count, value, valueDecimals)
+            # Must pass clientAddresses for Sybil resistance
+            count, value, value_decimals = reputation.functions.getSummary(
                 agent_id,
-                [],  # No client filter
-                dim,  # tag1
-                ""    # tag2
+                clients,  # Required: list of client addresses
+                dim,      # tag1
+                ""        # tag2
             ).call()
-            results[dim] = {"count": count, "score": avg_score}
-        except Exception:
+            # Convert value based on decimals (for now decimals=0 means raw score)
+            score = int(value) if value_decimals == 0 else int(value / (10 ** value_decimals))
+            # Clamp to 0-100 range
+            score = max(0, min(100, score))
+            results[dim] = {"count": count, "score": score}
+        except Exception as e:
             results[dim] = {"count": 0, "score": 0}
     
     # Overall summary
     try:
-        total_count, overall_score = reputation.functions.getSummary(
+        total_count, value, value_decimals = reputation.functions.getSummary(
             agent_id,
-            [],
+            clients,
             "",
             ""
         ).call()
-        results["overall"] = {"count": total_count, "score": overall_score}
+        score = int(value) if value_decimals == 0 else int(value / (10 ** value_decimals))
+        score = max(0, min(100, score))
+        results["overall"] = {"count": total_count, "score": score}
     except Exception:
         results["overall"] = {"count": 0, "score": 0}
+    
+    results["_clients"] = len(clients)  # For debugging
     
     return results
 
