@@ -1,25 +1,48 @@
 /**
  * Credit Service Types
  * 
- * Based on 4Mica x402 protocol specification
- * https://4mica.xyz/resources/technical-docs
+ * Types for:
+ * - 4Mica x402 protocol (credit guarantees)
+ * - Circle Gateway (instant cross-chain USDC)
+ * - ClawPay (private payments)
+ * - Credit Studio (policy engine)
+ * 
+ * NOTE: Execution state types are in execution-state.ts
  */
 
-// ═══════════════════════════════════════════════════════════════════════════
-// 4MICA TYPES
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// NETWORK TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Supported network identifiers (CAIP-2 format)
  */
 export type NetworkId = 
+  // Mainnet
   | 'eip155:1'        // Ethereum Mainnet
-  | 'eip155:11155111' // Sepolia
-  | 'eip155:80002'    // Polygon Amoy
+  | 'eip155:43114'    // Avalanche C-Chain
   | 'eip155:8453'     // Base
-  | 'eip155:84532'    // Base Sepolia
   | 'eip155:42161'    // Arbitrum One
-  | 'eip155:421614';  // Arbitrum Sepolia
+  | 'eip155:146'      // Sonic
+  | 'eip155:480'      // Worldchain
+  | 'eip155:1329'     // Sei
+  // Testnet
+  | 'eip155:11155111' // Sepolia
+  | 'eip155:43113'    // Avalanche Fuji
+  | 'eip155:84532'    // Base Sepolia
+  | 'eip155:421614'   // Arbitrum Sepolia
+  | 'eip155:57054'    // Sonic Testnet
+  | 'eip155:4801'     // Worldchain Sepolia
+  | 'eip155:1328'     // Sei Testnet
+  | 'eip155:998'      // Hyperliquid EVM Testnet
+  | 'eip155:1301'     // Arc Testnet
+  // Solana
+  | 'solana:mainnet'
+  | 'solana:devnet';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 4MICA TYPES (Credit Guarantees)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * 4Mica payment scheme
@@ -33,7 +56,7 @@ export interface TabRequest {
   userAddress: string;
   recipientAddress: string;
   network?: NetworkId;
-  erc20Token?: string | null; // null for native ETH
+  erc20Token?: string | null;
   ttlSeconds?: number;
 }
 
@@ -58,7 +81,7 @@ export interface PaymentClaims {
   recipient_address: string;
   tab_id: string;
   req_id: string;
-  amount: string; // hex encoded
+  amount: bigint;
   asset_address: string;
   timestamp: number;
   version: number;
@@ -84,8 +107,8 @@ export interface PaymentPayload {
 export interface PaymentRequirements {
   scheme: typeof FOUR_MICA_SCHEME;
   network: NetworkId;
-  maxAmountRequired?: string; // x402 v1
-  amount?: string;           // x402 v2
+  maxAmountRequired?: bigint;
+  amount?: bigint;
   payTo: string;
   asset: string;
   extra?: {
@@ -135,8 +158,8 @@ export interface SettleResponse {
  * BLS certificate for on-chain remuneration
  */
 export interface BLSCertificate {
-  claims: string; // hex
-  signature: string; // hex
+  claims: string;
+  signature: string;
 }
 
 /**
@@ -165,9 +188,9 @@ export interface SupportedResponse {
   signers: Record<string, unknown>;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// CREDIT STUDIO TYPES
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// CREDIT STUDIO TYPES (Policy Engine)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Credit decision from CreditStudioLogic contract
@@ -178,10 +201,22 @@ export interface CreditDecision {
   approvedAmount: bigint;
   interestRateBps: bigint;
   ttlSeconds: bigint;
-  destinationChain: string;
+  destinationChain: bigint;
   approved: boolean;
   rejectionReason: string;
   timestamp: bigint;
+}
+
+/**
+ * Credit policy parameters
+ */
+export interface CreditPolicy {
+  minReputationScore: bigint;
+  minFeedbackCount: bigint;
+  maxCreditAmount: bigint;
+  baseInterestRateBps: bigint;
+  maxTtlSeconds: bigint;
+  active: boolean;
 }
 
 /**
@@ -191,7 +226,7 @@ export interface CreditExecutionRequest {
   decision: CreditDecision;
   recipientAddress: string;
   sourceNetwork: NetworkId;
-  destinationNetwork?: NetworkId; // For cross-chain
+  destinationNetwork?: NetworkId;
 }
 
 /**
@@ -201,37 +236,13 @@ export interface CreditExecutionResult {
   requestId: string;
   success: boolean;
   certificate?: BLSCertificate;
-  txHash?: string;
+  gatewayTxHash?: string;
   error?: string;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// CIRCLE CCTP TYPES (for cross-chain)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * CCTP transfer request
- */
-export interface CCTPTransferRequest {
-  amount: bigint;
-  sourceNetwork: NetworkId;
-  destinationNetwork: NetworkId;
-  recipientAddress: string;
-}
-
-/**
- * CCTP transfer result
- */
-export interface CCTPTransferResult {
-  success: boolean;
-  sourceTxHash?: string;
-  destinationTxHash?: string;
-  error?: string;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CLAWPAY TYPES (for private payments)
-// ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// CLAWPAY TYPES (Private Payments)
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * ClawPay transfer request
@@ -247,6 +258,7 @@ export interface ClawPayTransferRequest {
  */
 export interface ClawPayTransferResult {
   transferId: string;
-  status: 'pending' | 'confirmed' | 'failed';
+  status: 'pending' | 'broadcasting' | 'confirmed' | 'failed';
+  txHash?: string;
   error?: string;
 }

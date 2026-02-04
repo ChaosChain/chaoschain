@@ -84,13 +84,9 @@ export interface CreditExecutorConfig {
   startBlock?: number;
   
   // Circle Gateway config
-  /** Circle Gateway: source provider URL (must be JsonRpcProvider) */
-  sourceProviderUrl?: string;
-  /** Circle Gateway: destination provider URL (for cross-chain) */
-  destinationProviderUrl?: string;
-  /** Circle Gateway: destination network */
-  destinationNetwork?: NetworkId;
-  /** Use Circle Gateway testnet */
+  /** Map of chainId -> Provider for Circle Gateway */
+  gatewayProviders?: Map<number, Provider>;
+  /** Use Circle Gateway testnet (default: true) */
   useGatewayTestnet?: boolean;
   
   // ClawPay config
@@ -180,16 +176,13 @@ export class CreditExecutor {
     this.fourMicaClient = new FourMicaClient(fourMicaConfig);
     
     // Initialize Circle Gateway client (for cross-chain transfers)
-    if (config.sourceProviderUrl && config.destinationProviderUrl && config.destinationNetwork) {
+    if (config.gatewayProviders && config.gatewayProviders.size > 0) {
       this.circleGatewayClient = createCircleGatewayClient(
         config.signer.privateKey,
-        config.sourceProviderUrl,
-        config.destinationProviderUrl,
-        config.defaultNetwork,
-        config.destinationNetwork,
-        config.useGatewayTestnet,
+        config.gatewayProviders,
+        config.useGatewayTestnet ?? true,
       );
-      console.log('Circle Gateway client initialized for cross-chain transfers');
+      console.log(`Circle Gateway client initialized with ${config.gatewayProviders.size} chain providers`);
     }
     
     // Initialize ClawPay client (for private payments)
@@ -588,12 +581,12 @@ export class CreditExecutor {
           record.requestId,
           ExecutionState.COMPLETED,
           {
-            transferTxHash: result.destinationTxHash,
+            transferTxHash: result.mintTxHash,
             transferCompletedAt: Date.now(),
           },
         );
         
-        console.log(`[State] ${record.requestId}: COMPLETED (tx: ${result.destinationTxHash})`);
+        console.log(`[State] ${record.requestId}: COMPLETED (tx: ${result.mintTxHash})`);
         
       } else {
         // Same-chain: Just mark as completed (certificate is the deliverable)
@@ -736,13 +729,13 @@ export class CreditExecutor {
       };
     }
     
-    console.log(`Circle Gateway transfer complete in <500ms! Tx: ${transferResult.destinationTxHash}`);
+    console.log(`Circle Gateway transfer complete in <500ms! Tx: ${transferResult.mintTxHash}`);
     
     return {
       requestId: request.decision.requestId,
       success: true,
       certificate,
-      txHash: transferResult.destinationTxHash,
+      gatewayTxHash: transferResult.mintTxHash,
     };
   }
   
@@ -974,10 +967,8 @@ export function createCreditExecutor(
     pollIntervalMs: options?.pollIntervalMs,
     startBlock: options?.startBlock,
     
-    // Circle Gateway config (need source URL for Gateway client)
-    sourceProviderUrl: providerUrl,
-    destinationProviderUrl: options?.destinationProviderUrl,
-    destinationNetwork: options?.destinationNetwork,
+    // Circle Gateway config
+    gatewayProviders: options?.gatewayProviders,
     useGatewayTestnet: options?.useGatewayTestnet ?? true,
     
     // ClawPay config

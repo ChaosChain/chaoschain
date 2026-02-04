@@ -206,7 +206,7 @@ export class FourMicaClient {
       recipient_address: recipientAddress,
       tab_id: tab.tabId,
       req_id: tab.nextReqId,
-      amount: '0x' + amount.toString(16),
+      amount: amount,
       asset_address: this.config.defaultAsset,
       timestamp,
       version: 1,
@@ -231,7 +231,7 @@ export class FourMicaClient {
     const paymentRequirements: PaymentRequirements = {
       scheme: FOUR_MICA_SCHEME,
       network: targetNetwork,
-      maxAmountRequired: '0x' + amount.toString(16),
+      maxAmountRequired: amount,
       payTo: recipientAddress,
       asset: this.config.defaultAsset,
       extra: {
@@ -281,7 +281,7 @@ export class FourMicaClient {
       recipient_address: claims.recipient_address,
       tab_id: claims.tab_id,
       req_id: claims.req_id,
-      amount: BigInt(claims.amount),
+      amount: claims.amount,
       asset_address: claims.asset_address,
       timestamp: claims.timestamp,
       version: claims.version,
@@ -346,22 +346,24 @@ export function createFourMicaConfig(
   network: NetworkId = 'eip155:11155111', // Sepolia default
   facilitatorUrl = 'https://x402.4mica.xyz',
 ): FourMicaClientConfig {
-  // USDC addresses by network
-  const USDC_ADDRESSES: Record<NetworkId, string> = {
+  // USDC addresses by network (using partial record since not all networks may be configured)
+  const USDC_ADDRESSES: Partial<Record<NetworkId, string>> = {
     'eip155:1': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',        // Mainnet
     'eip155:11155111': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238', // Sepolia
-    'eip155:80002': '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',    // Polygon Amoy
     'eip155:8453': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',     // Base
     'eip155:84532': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',    // Base Sepolia
     'eip155:42161': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',    // Arbitrum
     'eip155:421614': '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',   // Arbitrum Sepolia
   };
   
+  // Sepolia USDC as fallback (we know this key exists)
+  const sepoliaUsdc = USDC_ADDRESSES['eip155:11155111']!;
+  
   return {
     facilitatorUrl,
     signer,
     defaultNetwork: network,
-    defaultAsset: USDC_ADDRESSES[network] || USDC_ADDRESSES['eip155:11155111'],
+    defaultAsset: USDC_ADDRESSES[network] ?? sepoliaUsdc,
     timeoutMs: 30000,
   };
 }

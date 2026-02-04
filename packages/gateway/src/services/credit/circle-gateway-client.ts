@@ -1,140 +1,184 @@
 /**
  * Circle Gateway Client
  * 
- * Unified crosschain USDC balance with instant (<500ms) transfers.
- * https://developers.circle.com/gateway
+ * Provides instant (<500ms) crosschain USDC transfers via unified balance model.
  * 
- * This is DIFFERENT from Circle CCTP:
- * - CCTP: Point-to-point burn/mint transfers (8-20 seconds)
- * - Gateway: Unified balance, instant transfers (<500ms)
+ * Architecture:
+ * 1. Deposit USDC to Gateway Wallet (one-time setup per chain)
+ * 2. Create & sign burn intents for transfer
+ * 3. Submit to Gateway API for attestation
+ * 4. Call gatewayMint() on destination chain
  * 
- * For the Credit Studio flow, Gateway is preferred because:
- * 1. Instant execution (<500ms vs 8-20s)
- * 2. Unified balance model works with 4Mica guarantees
- * 3. Direct API integration (no on-chain burn ceremony)
- * 
- * Flow:
- * 1. Deposit USDC to Gateway Wallet contract (one-time setup)
- * 2. Create burn intent with signature
- * 3. Call Gateway API for attestation
- * 4. Mint on destination chain instantly
+ * Reference: https://developers.circle.com/gateway
  */
 
-import { 
-  Wallet, 
-  Contract, 
-  JsonRpcProvider, 
-  hexlify, 
-  randomBytes, 
+import { randomBytes } from 'node:crypto';
+import {
+  Wallet,
+  Contract,
   zeroPadValue,
+  getAddress,
+  formatUnits,
+  parseUnits,
+  MaxUint256,
   ZeroAddress,
-  Provider,
+  type Provider,
 } from 'ethers';
-import { NetworkId } from './types.js';
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONSTANTS - Same across ALL EVM chains
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Circle Gateway API endpoints
+ * Gateway Wallet address (same on all EVM chains)
+ * Used for depositing USDC to create unified balance
  */
-const GATEWAY_API = {
+export const GATEWAY_WALLET_ADDRESS = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9';
+
+/**
+ * Gateway Minter address (same on all EVM chains)
+ * Used for minting USDC on destination chain
+ */
+export const GATEWAY_MINTER_ADDRESS = '0x0022222ABE238Cc2C7Bb1f21003F0a260052475B';
+
+/**
+ * Gateway API endpoints
+ */
+export const GATEWAY_API = {
   testnet: 'https://gateway-api-testnet.circle.com/v1',
-  mainnet: 'https://gateway-api.circle.com/v1', // Production
-};
+  mainnet: 'https://gateway-api.circle.com/v1',
+} as const;
 
 /**
- * Gateway Wallet contract addresses (where you deposit USDC)
+ * Domain IDs for Circle Gateway (official from docs)
  */
-const GATEWAY_WALLET_ADDRESSES: Record<NetworkId, string> = {
-  'eip155:1': '0x...', // Mainnet - TBD
-  'eip155:11155111': '0x...', // Sepolia
-  'eip155:8453': '0x...', // Base
-  'eip155:84532': '0x...', // Base Sepolia
-  'eip155:42161': '0x...', // Arbitrum One
-  'eip155:421614': '0x...', // Arbitrum Sepolia
-  'eip155:80002': '0x...', // Polygon Amoy (if supported)
-};
-
-/**
- * Gateway Minter contract addresses (for minting on destination)
- */
-const GATEWAY_MINTER_ADDRESSES: Record<NetworkId, string> = {
-  'eip155:1': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-  'eip155:11155111': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-  'eip155:8453': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-  'eip155:84532': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-  'eip155:42161': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-  'eip155:421614': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-  'eip155:80002': '0x3c4cd5C8d8d36549714E00A55f6C48C5d2a6470D',
-};
+export const GATEWAY_DOMAINS = {
+  // EVM chains
+  'eip155:1': 0,          // Ethereum Mainnet
+  'eip155:11155111': 0,   // Ethereum Sepolia (same domain as mainnet)
+  'eip155:43114': 1,      // Avalanche C-Chain
+  'eip155:43113': 1,      // Avalanche Fuji
+  'eip155:8453': 6,       // Base Mainnet
+  'eip155:84532': 6,      // Base Sepolia
+  'eip155:146': 13,       // Sonic Mainnet
+  'eip155:57054': 13,     // Sonic Testnet
+  'eip155:480': 14,       // Worldchain Mainnet
+  'eip155:4801': 14,      // Worldchain Sepolia
+  'eip155:1329': 16,      // Sei Mainnet
+  'eip155:1328': 16,      // Sei Testnet
+  'eip155:998': 19,       // Hyperliquid EVM
+  'eip155:1301': 26,      // Arc Testnet
+  'eip155:42161': 3,      // Arbitrum One
+  'eip155:421614': 3,     // Arbitrum Sepolia
+  // Solana
+  'solana:mainnet': 5,
+  'solana:devnet': 5,
+} as const;
 
 /**
  * USDC addresses by network
  */
-const USDC_ADDRESSES: Record<NetworkId, string> = {
+export const USDC_ADDRESSES: Record<string, string> = {
+  // Mainnet
   'eip155:1': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-  'eip155:11155111': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+  'eip155:43114': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E',
   'eip155:8453': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  'eip155:84532': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
   'eip155:42161': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+  // Testnet
+  'eip155:11155111': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+  'eip155:43113': '0x5425890298aed601595a70ab815c96711a31bc65',
+  'eip155:84532': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
   'eip155:421614': '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
-  'eip155:80002': '0x41E94Eb019C0762f9Bfcf9Fb1E58725BfB0e7582',
+  'eip155:1328': '0x4fCF1784B31630811181f670Aea7A7bEF803eaED',
+  'eip155:57054': '0x0BA304580ee7c9a980CF72e55f5Ed2E9fd30Bc51',
+  'eip155:4801': '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88',
+  'eip155:998': '0x2B3370eE501B4a559b57D449569354196457D8Ab',
+  'eip155:1301': '0x3600000000000000000000000000000000000000',
 };
 
 /**
- * Domain IDs for Gateway (different from CCTP domains)
+ * Chain ID to network ID mapping
  */
-const GATEWAY_DOMAINS: Record<NetworkId, number> = {
-  'eip155:1': 0,          // Ethereum Mainnet
-  'eip155:11155111': 0,   // Sepolia
-  'eip155:8453': 6,       // Base
-  'eip155:84532': 6,      // Base Sepolia
-  'eip155:42161': 3,      // Arbitrum One
-  'eip155:421614': 3,     // Arbitrum Sepolia
-  'eip155:80002': 7,      // Polygon Amoy
+export const CHAIN_ID_TO_NETWORK: Record<number, string> = {
+  1: 'eip155:1',
+  11155111: 'eip155:11155111',
+  43114: 'eip155:43114',
+  43113: 'eip155:43113',
+  8453: 'eip155:8453',
+  84532: 'eip155:84532',
+  42161: 'eip155:42161',
+  421614: 'eip155:421614',
+  1329: 'eip155:1329',
+  1328: 'eip155:1328',
+  146: 'eip155:146',
+  57054: 'eip155:57054',
+  480: 'eip155:480',
+  4801: 'eip155:4801',
+  998: 'eip155:998',
+  1301: 'eip155:1301',
 };
 
-/**
- * Gateway Minter ABI
- */
-const GATEWAY_MINTER_ABI = [
-  'function gatewayMint(bytes attestation, bytes signature) returns (bool)',
-  'function getBalance(address depositor) view returns (uint256)',
-];
+// ═══════════════════════════════════════════════════════════════════════════════
+// ABIs
+// ═══════════════════════════════════════════════════════════════════════════════
 
-/**
- * Gateway Wallet ABI (for deposits)
- */
 const GATEWAY_WALLET_ABI = [
-  'function deposit(uint256 amount) returns (bool)',
-  'function depositWithPermit(uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) returns (bool)',
-  'function withdraw(uint256 amount) returns (bool)',
-  'function balanceOf(address depositor) view returns (uint256)',
+  'function deposit(address token, uint256 value) external',
+  'function depositWithPermit(address token, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external',
+  'event Deposit(address indexed depositor, address indexed token, uint256 amount)',
 ];
 
-/**
- * EIP-712 types for burn intent
- */
-const BURN_INTENT_TYPES = {
-  BurnIntent: [
-    { name: 'sourceDomain', type: 'uint32' },
-    { name: 'destinationDomain', type: 'uint32' },
-    { name: 'sourceContract', type: 'bytes32' },
-    { name: 'destinationContract', type: 'bytes32' },
-    { name: 'sourceToken', type: 'bytes32' },
-    { name: 'destinationToken', type: 'bytes32' },
-    { name: 'sourceDepositor', type: 'bytes32' },
-    { name: 'destinationRecipient', type: 'bytes32' },
-    { name: 'sourceSigner', type: 'bytes32' },
-    { name: 'destinationCaller', type: 'bytes32' },
-    { name: 'value', type: 'uint256' },
-    { name: 'salt', type: 'bytes32' },
-    { name: 'hookData', type: 'bytes' },
-  ],
+const GATEWAY_MINTER_ABI = [
+  'function gatewayMint(bytes calldata attestationPayload, bytes calldata signature) external',
+  'event GatewayMint(address indexed recipient, address indexed token, uint256 amount)',
+];
+
+const ERC20_ABI = [
+  'function approve(address spender, uint256 amount) external returns (bool)',
+  'function balanceOf(address account) external view returns (uint256)',
+  'function allowance(address owner, address spender) external view returns (uint256)',
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EIP-712 Types for Burn Intent
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const EIP712_DOMAIN = {
+  name: 'GatewayWallet',
+  version: '1',
 };
 
-/**
- * Burn Intent structure
- */
-export interface BurnIntent {
+const TRANSFER_SPEC_TYPE = [
+  { name: 'version', type: 'uint32' },
+  { name: 'sourceDomain', type: 'uint32' },
+  { name: 'destinationDomain', type: 'uint32' },
+  { name: 'sourceContract', type: 'bytes32' },
+  { name: 'destinationContract', type: 'bytes32' },
+  { name: 'sourceToken', type: 'bytes32' },
+  { name: 'destinationToken', type: 'bytes32' },
+  { name: 'sourceDepositor', type: 'bytes32' },
+  { name: 'destinationRecipient', type: 'bytes32' },
+  { name: 'sourceSigner', type: 'bytes32' },
+  { name: 'destinationCaller', type: 'bytes32' },
+  { name: 'value', type: 'uint256' },
+  { name: 'salt', type: 'bytes32' },
+  { name: 'hookData', type: 'bytes' },
+];
+
+const BURN_INTENT_TYPE = [
+  { name: 'maxBlockHeight', type: 'uint256' },
+  { name: 'maxFee', type: 'uint256' },
+  { name: 'spec', type: 'TransferSpec' },
+];
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Types
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export type NetworkId = keyof typeof GATEWAY_DOMAINS;
+
+export interface TransferSpec {
+  version: number;
   sourceDomain: number;
   destinationDomain: number;
   sourceContract: string;
@@ -150,116 +194,265 @@ export interface BurnIntent {
   hookData: string;
 }
 
-/**
- * Transfer request
- */
+export interface BurnIntent {
+  maxBlockHeight: bigint;
+  maxFee: bigint;
+  spec: TransferSpec;
+}
+
 export interface GatewayTransferRequest {
+  /** Amount in USDC (6 decimals) */
   amount: bigint;
-  sourceNetwork: NetworkId;
-  destinationNetwork: NetworkId;
-  recipientAddress: string;
-}
-
-/**
- * Transfer result
- */
-export interface GatewayTransferResult {
-  success: boolean;
-  sourceTxHash?: string;
-  destinationTxHash?: string;
-  error?: string;
-  attestation?: string;
-}
-
-/**
- * Configuration for Circle Gateway Client
- */
-export interface CircleGatewayClientConfig {
-  /** Signer wallet */
-  signer: Wallet;
-  /** Source chain provider */
-  sourceProvider: Provider;
-  /** Destination chain provider */
-  destinationProvider: Provider;
-  /** Source network */
+  /** Source network (e.g., 'eip155:11155111') */
   sourceNetwork: NetworkId;
   /** Destination network */
   destinationNetwork: NetworkId;
-  /** Use testnet API (default: true) */
-  useTestnet?: boolean;
+  /** Recipient address on destination chain */
+  recipientAddress: string;
+  /** Max fee willing to pay (default: 2.01 USDC) */
+  maxFee?: bigint;
 }
+
+export interface GatewayTransferResult {
+  success: boolean;
+  /** Transaction hash on destination chain */
+  mintTxHash?: string;
+  /** Amount minted (may be less than requested due to fees) */
+  amountMinted?: bigint;
+  /** Error message if failed */
+  error?: string;
+  /** Attestation from Gateway API */
+  attestation?: string;
+}
+
+export interface GatewayDepositResult {
+  success: boolean;
+  txHash?: string;
+  amount?: bigint;
+  error?: string;
+}
+
+export interface GatewayBalance {
+  domain: number;
+  balance: string;
+}
+
+export interface CircleGatewayConfig {
+  /** Signer wallet with funded USDC */
+  signer: Wallet;
+  /** Use testnet (default: true) */
+  useTestnet?: boolean;
+  /** Request timeout in ms */
+  timeoutMs?: number;
+  /** Providers for each network (chainId -> provider) */
+  providers: Map<number, Provider>;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Circle Gateway Client
+// ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * Circle Gateway Client
  * 
- * Provides instant (<500ms) crosschain USDC transfers
- * via unified balance model.
+ * Production-ready client for instant crosschain USDC transfers.
+ * 
+ * Usage:
+ * ```typescript
+ * const client = new CircleGatewayClient({
+ *   signer: wallet,
+ *   providers: new Map([
+ *     [11155111, sepoliaProvider],
+ *     [84532, baseSepoliaProvider],
+ *   ]),
+ * });
+ * 
+ * // One-time: Deposit to create unified balance
+ * await client.deposit('eip155:11155111', 1000_000000n); // 1000 USDC
+ * 
+ * // Instant transfer to any chain
+ * const result = await client.transfer({
+ *   amount: 100_000000n,
+ *   sourceNetwork: 'eip155:11155111',
+ *   destinationNetwork: 'eip155:84532',
+ *   recipientAddress: '0x...',
+ * });
+ * ```
  */
 export class CircleGatewayClient {
-  private config: CircleGatewayClientConfig;
+  private config: Required<CircleGatewayConfig>;
   private apiUrl: string;
-  private gatewayMinter: Contract;
   
-  constructor(config: CircleGatewayClientConfig) {
+  constructor(config: CircleGatewayConfig) {
     this.config = {
       useTestnet: true,
+      timeoutMs: 30000,
       ...config,
     };
     
     this.apiUrl = config.useTestnet 
       ? GATEWAY_API.testnet 
       : GATEWAY_API.mainnet;
-    
-    // Initialize minter contract on destination chain
-    const destSigner = config.signer.connect(config.destinationProvider);
-    const minterAddress = GATEWAY_MINTER_ADDRESSES[config.destinationNetwork];
-    
-    this.gatewayMinter = new Contract(
-      minterAddress,
-      GATEWAY_MINTER_ABI,
-      destSigner,
-    );
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
-  // TRANSFER (INSTANT)
+  // DEPOSIT - One-time setup to create unified balance
   // ═══════════════════════════════════════════════════════════════════════════
   
   /**
-   * Transfer USDC instantly across chains
+   * Deposit USDC to Gateway Wallet to create/add to unified balance
    * 
-   * This is the main function for Credit Studio:
-   * 1. Creates burn intent from Gateway balance
-   * 2. Signs it
-   * 3. Calls Gateway API for attestation
-   * 4. Mints on destination chain (<500ms)
+   * This is a one-time setup step. After depositing, you can transfer
+   * from this balance instantly to any supported chain.
+   * 
+   * @param network Source network to deposit from
+   * @param amount Amount in USDC (6 decimals)
    */
-  async transfer(request: GatewayTransferRequest): Promise<GatewayTransferResult> {
+  async deposit(network: NetworkId, amount: bigint): Promise<GatewayDepositResult> {
     try {
-      // Step 1: Create burn intent
-      const burnIntent = this.createBurnIntent(request);
+      const chainId = this.networkToChainId(network);
+      const provider = this.config.providers.get(chainId);
       
-      // Step 2: Sign the burn intent
-      const signature = await this.signBurnIntent(burnIntent);
+      if (!provider) {
+        throw new Error(`No provider configured for chain ${chainId}`);
+      }
       
-      // Step 3: Get attestation from Gateway API
-      console.log('Requesting Gateway attestation...');
-      const attestation = await this.getAttestation(burnIntent, signature);
+      const signer = this.config.signer.connect(provider);
+      const usdcAddress = USDC_ADDRESSES[network];
       
-      // Step 4: Mint on destination chain (instant!)
-      console.log(`Minting on ${this.config.destinationNetwork}...`);
-      const mintTx = await this.gatewayMinter.gatewayMint(
-        attestation.attestation,
-        attestation.signature,
-      );
-      const mintReceipt = await mintTx.wait();
+      if (!usdcAddress) {
+        throw new Error(`USDC not supported on ${network}`);
+      }
       
-      console.log(`Transfer complete in <500ms! Tx: ${mintReceipt.transactionHash}`);
+      // Get contracts
+      const usdc = new Contract(usdcAddress, ERC20_ABI, signer);
+      const gatewayWallet = new Contract(GATEWAY_WALLET_ADDRESS, GATEWAY_WALLET_ABI, signer);
+      
+      // Check balance
+      const balance = await usdc.balanceOf(signer.address);
+      if (balance < amount) {
+        throw new Error(`Insufficient USDC balance: have ${formatUnits(balance, 6)}, need ${formatUnits(amount, 6)}`);
+      }
+      
+      // Check allowance and approve if needed
+      const allowance = await usdc.allowance(signer.address, GATEWAY_WALLET_ADDRESS);
+      if (allowance < amount) {
+        console.log(`Approving Gateway Wallet to spend ${formatUnits(amount, 6)} USDC...`);
+        const approveTx = await usdc.approve(GATEWAY_WALLET_ADDRESS, amount);
+        await approveTx.wait();
+        console.log(`Approved: ${approveTx.hash}`);
+      }
+      
+      // Deposit
+      console.log(`Depositing ${formatUnits(amount, 6)} USDC to Gateway Wallet...`);
+      const depositTx = await gatewayWallet.deposit(usdcAddress, amount);
+      const receipt = await depositTx.wait();
+      
+      console.log(`Deposited: ${receipt.hash}`);
       
       return {
         success: true,
-        destinationTxHash: mintReceipt.transactionHash,
-        attestation: attestation.attestation,
+        txHash: receipt.hash,
+        amount,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TRANSFER - Instant crosschain transfer
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  /**
+   * Transfer USDC instantly from unified balance to destination chain
+   * 
+   * @param request Transfer request details
+   */
+  async transfer(request: GatewayTransferRequest): Promise<GatewayTransferResult> {
+    try {
+      const {
+        amount,
+        sourceNetwork,
+        destinationNetwork,
+        recipientAddress,
+        maxFee = 2_010000n, // 2.01 USDC default max fee
+      } = request;
+      
+      // Validate networks
+      const sourceDomain = GATEWAY_DOMAINS[sourceNetwork];
+      const destDomain = GATEWAY_DOMAINS[destinationNetwork];
+      
+      if (sourceDomain === undefined) {
+        throw new Error(`Unsupported source network: ${sourceNetwork}`);
+      }
+      if (destDomain === undefined) {
+        throw new Error(`Unsupported destination network: ${destinationNetwork}`);
+      }
+      
+      // Get USDC addresses
+      const sourceUsdc = USDC_ADDRESSES[sourceNetwork];
+      const destUsdc = USDC_ADDRESSES[destinationNetwork];
+      
+      if (!sourceUsdc || !destUsdc) {
+        throw new Error(`USDC not configured for ${sourceNetwork} or ${destinationNetwork}`);
+      }
+      
+      // Create burn intent
+      const burnIntent = this.createBurnIntent({
+        sourceDomain,
+        destinationDomain: destDomain,
+        sourceToken: sourceUsdc,
+        destinationToken: destUsdc,
+        recipientAddress,
+        amount,
+        maxFee,
+      });
+      
+      // Sign burn intent (EIP-712)
+      const signature = await this.signBurnIntent(burnIntent);
+      
+      // Format for API
+      const apiRequest = this.formatBurnIntentForApi(burnIntent, signature);
+      
+      // Submit to Gateway API
+      console.log(`Submitting burn intent to Gateway API...`);
+      const apiResponse = await this.callGatewayApi('/transfer', [apiRequest]);
+      
+      if (!apiResponse.attestation || !apiResponse.signature) {
+        throw new Error('Missing attestation or signature from Gateway API');
+      }
+      
+      console.log(`Received attestation from Gateway API`);
+      
+      // Mint on destination chain
+      const destChainId = this.networkToChainId(destinationNetwork);
+      const destProvider = this.config.providers.get(destChainId);
+      
+      if (!destProvider) {
+        throw new Error(`No provider configured for destination chain ${destChainId}`);
+      }
+      
+      const destSigner = this.config.signer.connect(destProvider);
+      const gatewayMinter = new Contract(GATEWAY_MINTER_ADDRESS, GATEWAY_MINTER_ABI, destSigner);
+      
+      console.log(`Minting on ${destinationNetwork}...`);
+      const mintTx = await gatewayMinter.gatewayMint(
+        apiResponse.attestation,
+        apiResponse.signature,
+      );
+      const mintReceipt = await mintTx.wait();
+      
+      console.log(`Minted! Tx: ${mintReceipt.hash}`);
+      
+      return {
+        success: true,
+        mintTxHash: mintReceipt.hash,
+        amountMinted: amount, // May be less after fees
+        attestation: apiResponse.attestation,
       };
     } catch (error) {
       return {
@@ -270,201 +463,303 @@ export class CircleGatewayClient {
   }
   
   /**
-   * Create burn intent for Gateway
+   * Transfer from multiple source chains to one destination
+   * 
+   * Useful for aggregating balances from multiple chains.
    */
-  private createBurnIntent(request: GatewayTransferRequest): BurnIntent {
-    const sourceDomain = GATEWAY_DOMAINS[request.sourceNetwork];
-    const destDomain = GATEWAY_DOMAINS[request.destinationNetwork];
-    
-    // Generate random salt (ethers v6)
-    const salt = hexlify(randomBytes(32));
-    
-    return {
-      sourceDomain,
-      destinationDomain: destDomain,
-      sourceContract: this.addressToBytes32(GATEWAY_WALLET_ADDRESSES[request.sourceNetwork]),
-      destinationContract: this.addressToBytes32(GATEWAY_MINTER_ADDRESSES[request.destinationNetwork]),
-      sourceToken: this.addressToBytes32(USDC_ADDRESSES[request.sourceNetwork]),
-      destinationToken: this.addressToBytes32(USDC_ADDRESSES[request.destinationNetwork]),
-      sourceDepositor: this.addressToBytes32(this.config.signer.address),
-      destinationRecipient: this.addressToBytes32(request.recipientAddress),
-      sourceSigner: this.addressToBytes32(this.config.signer.address),
-      destinationCaller: this.addressToBytes32(ZeroAddress), // Anyone can call
-      value: request.amount,
-      salt,
-      hookData: '0x', // No hook data for simple transfers
-    };
+  async transferMultiSource(
+    sources: Array<{ network: NetworkId; amount: bigint }>,
+    destinationNetwork: NetworkId,
+    recipientAddress: string,
+    maxFeePerSource = 2_010000n,
+  ): Promise<GatewayTransferResult> {
+    try {
+      const requests: Array<{ burnIntent: unknown; signature: string }> = [];
+      
+      const destDomain = GATEWAY_DOMAINS[destinationNetwork];
+      const destUsdc = USDC_ADDRESSES[destinationNetwork];
+      
+      if (destDomain === undefined || !destUsdc) {
+        throw new Error(`Invalid destination network: ${destinationNetwork}`);
+      }
+      
+      // Create and sign burn intents for each source
+      for (const source of sources) {
+        const sourceDomain = GATEWAY_DOMAINS[source.network];
+        const sourceUsdc = USDC_ADDRESSES[source.network];
+        
+        if (sourceDomain === undefined || !sourceUsdc) {
+          throw new Error(`Invalid source network: ${source.network}`);
+        }
+        
+        const burnIntent = this.createBurnIntent({
+          sourceDomain,
+          destinationDomain: destDomain,
+          sourceToken: sourceUsdc,
+          destinationToken: destUsdc,
+          recipientAddress,
+          amount: source.amount,
+          maxFee: maxFeePerSource,
+        });
+        
+        const signature = await this.signBurnIntent(burnIntent);
+        requests.push(this.formatBurnIntentForApi(burnIntent, signature));
+      }
+      
+      // Submit all to Gateway API
+      console.log(`Submitting ${requests.length} burn intents to Gateway API...`);
+      const apiResponse = await this.callGatewayApi('/transfer', requests);
+      
+      if (!apiResponse.attestation || !apiResponse.signature) {
+        throw new Error('Missing attestation or signature from Gateway API');
+      }
+      
+      // Mint on destination chain (single tx for all sources!)
+      const destChainId = this.networkToChainId(destinationNetwork);
+      const destProvider = this.config.providers.get(destChainId);
+      
+      if (!destProvider) {
+        throw new Error(`No provider for destination chain ${destChainId}`);
+      }
+      
+      const destSigner = this.config.signer.connect(destProvider);
+      const gatewayMinter = new Contract(GATEWAY_MINTER_ADDRESS, GATEWAY_MINTER_ABI, destSigner);
+      
+      console.log(`Minting aggregated amount on ${destinationNetwork}...`);
+      const mintTx = await gatewayMinter.gatewayMint(
+        apiResponse.attestation,
+        apiResponse.signature,
+      );
+      const mintReceipt = await mintTx.wait();
+      
+      const totalAmount = sources.reduce((sum, s) => sum + s.amount, 0n);
+      
+      return {
+        success: true,
+        mintTxHash: mintReceipt.hash,
+        amountMinted: totalAmount,
+        attestation: apiResponse.attestation,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
   }
   
-  /**
-   * Sign burn intent using EIP-712
-   */
-  private async signBurnIntent(intent: BurnIntent): Promise<string> {
-    // Get chain ID from provider (ethers v6)
-    const network = await this.config.sourceProvider.getNetwork();
-    
-    const domain = {
-      name: 'CircleGateway',
-      version: '1',
-      chainId: Number(network.chainId),
-    };
-    
-    const value = {
-      ...intent,
-      value: intent.value, // ethers v6 handles bigint natively
-    };
-    
-    // ethers v6 uses signTypedData (not _signTypedData)
-    return await this.config.signer.signTypedData(
-      domain,
-      BURN_INTENT_TYPES,
-      value,
-    );
-  }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BALANCE - Check unified balance
+  // ═══════════════════════════════════════════════════════════════════════════
   
   /**
-   * Get attestation from Circle Gateway API
+   * Get unified balance across all chains
    */
-  private async getAttestation(
-    intent: BurnIntent,
-    signature: string,
-  ): Promise<{ attestation: string; signature: string }> {
-    const response = await fetch(`${this.apiUrl}/transfer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([{
-        burnIntent: this.serializeBurnIntent(intent),
-        signature,
-      }]),
+  async getBalances(networks: NetworkId[]): Promise<GatewayBalance[]> {
+    const sources = networks.map(network => ({
+      domain: GATEWAY_DOMAINS[network],
+      depositor: this.config.signer.address,
+    }));
+    
+    const response = await this.callGatewayApi('/balances', {
+      token: 'USDC',
+      sources,
     });
     
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Gateway API error: ${response.status} ${text}`);
-    }
-    
-    const json = await response.json() as { attestation?: string; signature?: string };
-    
-    if (!json.attestation || !json.signature) {
-      throw new Error('Missing attestation or signature in Gateway response');
-    }
+    return response.balances || [];
+  }
+  
+  /**
+   * Get total unified balance
+   */
+  async getTotalBalance(networks: NetworkId[]): Promise<bigint> {
+    const balances = await this.getBalances(networks);
+    return balances.reduce(
+      (sum, b) => sum + parseUnits(b.balance, 6),
+      0n,
+    );
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PRIVATE METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  private createBurnIntent(params: {
+    sourceDomain: number;
+    destinationDomain: number;
+    sourceToken: string;
+    destinationToken: string;
+    recipientAddress: string;
+    amount: bigint;
+    maxFee: bigint;
+  }): BurnIntent {
+    const salt = '0x' + randomBytes(32).toString('hex');
     
     return {
-      attestation: json.attestation,
-      signature: json.signature,
+      maxBlockHeight: MaxUint256,
+      maxFee: params.maxFee,
+      spec: {
+        version: 1,
+        sourceDomain: params.sourceDomain,
+        destinationDomain: params.destinationDomain,
+        sourceContract: this.addressToBytes32(GATEWAY_WALLET_ADDRESS),
+        destinationContract: this.addressToBytes32(GATEWAY_MINTER_ADDRESS),
+        sourceToken: this.addressToBytes32(params.sourceToken),
+        destinationToken: this.addressToBytes32(params.destinationToken),
+        sourceDepositor: this.addressToBytes32(this.config.signer.address),
+        destinationRecipient: this.addressToBytes32(params.recipientAddress),
+        sourceSigner: this.addressToBytes32(this.config.signer.address),
+        destinationCaller: this.addressToBytes32(ZeroAddress),
+        value: params.amount,
+        salt,
+        hookData: '0x',
+      },
     };
   }
   
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DEPOSIT (One-time setup)
-  // ═══════════════════════════════════════════════════════════════════════════
-  
-  /**
-   * Deposit USDC to Gateway Wallet
-   * 
-   * This is a one-time setup step - deposit USDC to establish
-   * your unified crosschain balance. After this, transfers are instant.
-   */
-  async deposit(
-    amount: bigint,
-    network: NetworkId,
-    provider: Provider,
-  ): Promise<string> {
-    const signer = this.config.signer.connect(provider);
+  private async signBurnIntent(burnIntent: BurnIntent): Promise<string> {
+    const types = {
+      TransferSpec: TRANSFER_SPEC_TYPE,
+      BurnIntent: BURN_INTENT_TYPE,
+    };
     
-    // First approve USDC
-    const usdc = new Contract(
-      USDC_ADDRESSES[network],
-      ['function approve(address, uint256) returns (bool)'],
-      signer,
-    );
+    // Format message with proper bytes32 padding
+    const message = {
+      maxBlockHeight: burnIntent.maxBlockHeight,
+      maxFee: burnIntent.maxFee,
+      spec: {
+        version: burnIntent.spec.version,
+        sourceDomain: burnIntent.spec.sourceDomain,
+        destinationDomain: burnIntent.spec.destinationDomain,
+        sourceContract: burnIntent.spec.sourceContract,
+        destinationContract: burnIntent.spec.destinationContract,
+        sourceToken: burnIntent.spec.sourceToken,
+        destinationToken: burnIntent.spec.destinationToken,
+        sourceDepositor: burnIntent.spec.sourceDepositor,
+        destinationRecipient: burnIntent.spec.destinationRecipient,
+        sourceSigner: burnIntent.spec.sourceSigner,
+        destinationCaller: burnIntent.spec.destinationCaller,
+        value: burnIntent.spec.value,
+        salt: burnIntent.spec.salt,
+        hookData: burnIntent.spec.hookData,
+      },
+    };
     
-    const walletAddress = GATEWAY_WALLET_ADDRESSES[network];
-    const approveTx = await usdc.approve(walletAddress, amount);
-    await approveTx.wait();
-    
-    // Then deposit
-    const wallet = new Contract(
-      walletAddress,
-      GATEWAY_WALLET_ABI,
-      signer,
-    );
-    
-    const depositTx = await wallet.deposit(amount);
-    const receipt = await depositTx.wait();
-    
-    return receipt?.hash || '';
+    return await this.config.signer.signTypedData(EIP712_DOMAIN, types, message);
   }
   
-  /**
-   * Get Gateway balance
-   */
-  async getBalance(network: NetworkId, provider: Provider): Promise<bigint> {
-    const wallet = new Contract(
-      GATEWAY_WALLET_ADDRESSES[network],
-      GATEWAY_WALLET_ABI,
-      provider,
-    );
-    
-    const balance = await wallet.balanceOf(this.config.signer.address);
-    return BigInt(balance);
+  private formatBurnIntentForApi(burnIntent: BurnIntent, signature: string): { burnIntent: unknown; signature: string } {
+    // Convert BigInt to string for JSON serialization
+    return {
+      burnIntent: {
+        maxBlockHeight: burnIntent.maxBlockHeight.toString(),
+        maxFee: burnIntent.maxFee.toString(),
+        spec: {
+          ...burnIntent.spec,
+          value: burnIntent.spec.value.toString(),
+        },
+      },
+      signature,
+    };
   }
   
-  // ═══════════════════════════════════════════════════════════════════════════
-  // UTILITIES
-  // ═══════════════════════════════════════════════════════════════════════════
+  private async callGatewayApi(endpoint: string, body: unknown): Promise<any> {
+    const url = `${this.apiUrl}${endpoint}`;
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gateway API error ${response.status}: ${errorText}`);
+      }
+      
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
   
-  /**
-   * Convert address to bytes32
-   */
   private addressToBytes32(address: string): string {
-    return zeroPadValue(address.toLowerCase(), 32);
+    return zeroPadValue(getAddress(address), 32);
   }
   
-  /**
-   * Serialize burn intent for API
-   */
-  private serializeBurnIntent(intent: BurnIntent): Record<string, unknown> {
-    return {
-      ...intent,
-      value: intent.value.toString(),
-    };
+  private networkToChainId(network: NetworkId): number {
+    const match = network.match(/eip155:(\d+)/);
+    if (!match) {
+      throw new Error(`Invalid EVM network ID: ${network}`);
+    }
+    return parseInt(match[1], 10);
   }
   
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STATIC HELPERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  
   /**
-   * Check if Gateway is supported for a network pair
+   * Check if a network pair is supported by Gateway
    */
   static isSupported(source: NetworkId, destination: NetworkId): boolean {
-    return !!(
+    return (
       GATEWAY_DOMAINS[source] !== undefined &&
       GATEWAY_DOMAINS[destination] !== undefined &&
-      GATEWAY_WALLET_ADDRESSES[source] &&
-      GATEWAY_MINTER_ADDRESSES[destination]
+      USDC_ADDRESSES[source] !== undefined &&
+      USDC_ADDRESSES[destination] !== undefined
     );
+  }
+  
+  /**
+   * Get domain ID for a network
+   */
+  static getDomainId(network: NetworkId): number | undefined {
+    return GATEWAY_DOMAINS[network];
+  }
+  
+  /**
+   * Get USDC address for a network
+   */
+  static getUsdcAddress(network: NetworkId): string | undefined {
+    return USDC_ADDRESSES[network];
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// FACTORY FUNCTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
 /**
- * Create Circle Gateway client
+ * Create a Circle Gateway client
+ * 
+ * @example
+ * ```typescript
+ * const client = createCircleGatewayClient(
+ *   privateKey,
+ *   new Map([
+ *     [11155111, new JsonRpcProvider('https://sepolia.infura.io/...')],
+ *     [84532, new JsonRpcProvider('https://base-sepolia.infura.io/...')],
+ *   ]),
+ *   true, // testnet
+ * );
+ * ```
  */
 export function createCircleGatewayClient(
   privateKey: string,
-  sourceProviderUrl: string,
-  destinationProviderUrl: string,
-  sourceNetwork: NetworkId,
-  destinationNetwork: NetworkId,
+  providers: Map<number, Provider>,
   useTestnet = true,
 ): CircleGatewayClient {
-  const sourceProvider = new JsonRpcProvider(sourceProviderUrl);
-  const destinationProvider = new JsonRpcProvider(destinationProviderUrl);
   const signer = new Wallet(privateKey);
   
   return new CircleGatewayClient({
     signer,
-    sourceProvider,
-    destinationProvider,
-    sourceNetwork,
-    destinationNetwork,
+    providers,
     useTestnet,
   });
 }

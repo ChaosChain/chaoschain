@@ -32,10 +32,77 @@
  * - Persistence: Durable storage for certificates and records
  */
 
+// 4Mica client
 export * from './four-mica-client.js';
-export * from './credit-executor.js';
-export * from './circle-gateway-client.js';
+
+// Circle Gateway client (correct addresses)
+export {
+  CircleGatewayClient,
+  createCircleGatewayClient,
+  GATEWAY_WALLET_ADDRESS,
+  GATEWAY_MINTER_ADDRESS,
+  GATEWAY_API,
+  GATEWAY_DOMAINS,
+  USDC_ADDRESSES,
+  CHAIN_ID_TO_NETWORK,
+  type NetworkId as GatewayNetworkId,
+  type TransferSpec,
+  type BurnIntent,
+  type GatewayTransferRequest,
+  type GatewayTransferResult,
+  type GatewayDepositResult,
+  type GatewayBalance,
+  type CircleGatewayConfig,
+} from './circle-gateway-client.js';
+
+// ClawPay client
 export * from './clawpay-client.js';
-export * from './execution-state.js';
+
+// Execution state machine
+export {
+  ExecutionState,
+  type CreditIntent as ExecutionCreditIntent,
+  type ExecutionRecord,
+  type CreditSettledEvent,
+  type CreditDefaultedEvent,
+  type RetryConfig as ExecutionRetryConfig,
+  DEFAULT_RETRY_CONFIG,
+  calculateRetryDelay,
+  isRetryableError,
+  VALID_TRANSITIONS,
+  isValidTransition,
+  isTerminalState,
+  hasExpired,
+} from './execution-state.js';
+
+// Persistence
 export * from './persistence.js';
-export * from './types.js';
+
+// Types (main type definitions)
+export {
+  type NetworkId,
+  FOUR_MICA_SCHEME,
+  type TabRequest,
+  type TabResponse,
+  type PaymentClaims,
+  type PaymentPayload,
+  type PaymentRequirements,
+  type VerifyRequest,
+  type VerifyResponse,
+  type SettleRequest,
+  type SettleResponse,
+  type BLSCertificate,
+  type HealthResponse,
+  type SupportedKind,
+  type SupportedResponse,
+  type CreditDecision,
+  type CreditPolicy,
+  type CreditExecutionRequest,
+  type CreditExecutionResult,
+  type ClawPayTransferRequest,
+  type ClawPayTransferResult,
+} from './types.js';
+
+// Credit executor (main orchestrator)
+// Note: Import after types to ensure correct resolution
+export * from './credit-executor.js';
