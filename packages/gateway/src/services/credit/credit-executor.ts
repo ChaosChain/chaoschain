@@ -1,17 +1,24 @@
 /**
  * Credit Executor
  * 
- * Listens for CreditApproved events from CreditStudioLogic contract
- * and executes credit via 4Mica + Circle.
+ * Production-ready credit execution service with:
+ * - State machine for idempotent execution
+ * - BLS certificate persistence (DB + Arweave)
+ * - Retry logic with exponential backoff
+ * - Settlement and default event emission
  * 
  * Architecture:
  * 1. Watches CreditStudioLogic for CreditApproved events
- * 2. For each approval, calls 4Mica to get BLS certificate
- * 3. If cross-chain, uses Circle CCTP for USDC transfer
- * 4. Marks request as completed in CreditStudioLogic
+ * 2. For each approval:
+ *    a. Create execution record (APPROVED state)
+ *    b. Get BLS certificate from 4Mica (CERT_ISSUED state)
+ *    c. Persist certificate to DB + Arweave
+ *    d. Execute Circle Gateway transfer (TRANSFER_PENDING → COMPLETED)
+ *    e. On failure: retry with backoff until TTL expires
+ * 3. Monitor for settlement or default
  */
 
-import { Contract, Wallet, JsonRpcProvider, Provider, EventLog } from 'ethers';
+import { Contract, Wallet, JsonRpcProvider, Provider, EventLog, keccak256, toUtf8Bytes } from 'ethers';
 import { FourMicaClient, createFourMicaConfig } from './four-mica-client.js';
 import { CircleGatewayClient, createCircleGatewayClient } from './circle-gateway-client.js';
 import { ClawPayClient, createClawPayClient } from './clawpay-client.js';
@@ -20,6 +27,23 @@ import {
   CreditExecutionResult,
   NetworkId,
 } from './types.js';
+import {
+  ExecutionState,
+  ExecutionRecord,
+  CreditIntent,
+  RetryConfig,
+  DEFAULT_RETRY_CONFIG,
+  calculateRetryDelay,
+  isRetryableError,
+  hasExpired,
+} from './execution-state.js';
+import {
+  ExecutionPersistence,
+  CertificateBackup,
+  CreditEventEmitter,
+  createPersistence,
+  PersistenceConfig,
+} from './persistence.js';
 
 /**
  * CreditStudioLogic ABI (minimal for events)
@@ -74,15 +98,22 @@ export interface CreditExecutorConfig {
   enableClawPay?: boolean;
   /** ClawPay API base URL */
   clawPayApiUrl?: string;
+  
+  // Persistence config
+  /** Persistence configuration */
+  persistence?: PersistenceConfig;
+  /** Retry configuration */
+  retryConfig?: RetryConfig;
 }
 
 /**
  * Credit Executor
  * 
- * Main service for executing approved credits via:
- * - 4Mica (BLS certificates for fair-exchange guarantees)
- * - Circle Gateway (instant cross-chain USDC transfers)
- * - ClawPay (private payments via Railgun)
+ * Production-ready execution service with:
+ * - State machine for idempotent execution
+ * - BLS certificate persistence
+ * - Retry logic with exponential backoff
+ * - Settlement/default event emission
  */
 export class CreditExecutor {
   private config: CreditExecutorConfig;
@@ -91,8 +122,23 @@ export class CreditExecutor {
   private fourMicaClient: FourMicaClient;
   private circleGatewayClient: CircleGatewayClient | null = null;
   private clawPayClient: ClawPayClient | null = null;
+  
+  // Persistence layer
+  private persistence: ExecutionPersistence;
+  private certificateBackup: CertificateBackup;
+  private eventEmitter: CreditEventEmitter;
+  private retryConfig: RetryConfig;
+  
+  // State
   private isRunning = false;
   private lastProcessedBlock = 0;
+  private retryLoopRunning = false;
+  private expirationLoopRunning = false;
+  
+  // In-flight processing lock to prevent races on concurrent events
+  // This is critical for idempotency when the same requestId arrives
+  // before the first processing completes and persists
+  private processingLock: Set<string> = new Set();
   
   constructor(config: CreditExecutorConfig) {
     this.config = {
@@ -102,6 +148,15 @@ export class CreditExecutor {
       enableClawPay: false,
       ...config,
     };
+    
+    // Initialize persistence
+    const { execution, certificateBackup, eventEmitter } = createPersistence(
+      config.persistence || {}
+    );
+    this.persistence = execution;
+    this.certificateBackup = certificateBackup;
+    this.eventEmitter = eventEmitter;
+    this.retryConfig = config.retryConfig || DEFAULT_RETRY_CONFIG;
     
     // Initialize contracts
     this.creditStudio = new Contract(
@@ -155,6 +210,11 @@ export class CreditExecutor {
   
   /**
    * Start the executor
+   * 
+   * Starts three concurrent loops:
+   * 1. Event polling (new CreditApproved events)
+   * 2. Retry loop (failed transfers that can be retried)
+   * 3. Expiration loop (check for expired credits)
    */
   async start(): Promise<void> {
     if (this.isRunning) {
@@ -164,14 +224,22 @@ export class CreditExecutor {
     
     this.isRunning = true;
     console.log('Credit Executor starting...');
+    console.log('  - Persistence: enabled');
+    console.log('  - Certificate backup: enabled');
+    console.log('  - Retry config:', JSON.stringify(this.retryConfig));
     
     // Get current block if no start block specified
     if (this.lastProcessedBlock === 0) {
       this.lastProcessedBlock = await this.config.provider.getBlockNumber();
     }
     
-    // Start polling loop
+    // Recover any in-progress executions
+    await this.recoverInProgress();
+    
+    // Start all loops
     this.pollLoop();
+    this.retryLoop();
+    this.expirationLoop();
   }
   
   /**
@@ -179,11 +247,39 @@ export class CreditExecutor {
    */
   stop(): void {
     this.isRunning = false;
+    this.retryLoopRunning = false;
+    this.expirationLoopRunning = false;
     console.log('Credit Executor stopped');
   }
   
   /**
-   * Main polling loop
+   * Recover in-progress executions after restart
+   */
+  private async recoverInProgress(): Promise<void> {
+    console.log('Recovering in-progress executions...');
+    
+    // Get records that were mid-execution
+    const certIssued = await this.persistence.getByState(ExecutionState.CERT_ISSUED);
+    const transferPending = await this.persistence.getByState(ExecutionState.TRANSFER_PENDING);
+    
+    console.log(`  Found ${certIssued.length} in CERT_ISSUED state`);
+    console.log(`  Found ${transferPending.length} in TRANSFER_PENDING state`);
+    
+    // Resume execution for CERT_ISSUED (need to do transfer)
+    for (const record of certIssued) {
+      if (!hasExpired(record)) {
+        console.log(`  Resuming transfer for ${record.requestId}`);
+        // Will be picked up by retry loop
+        await this.persistence.transitionState(
+          record.requestId,
+          ExecutionState.TRANSFER_PENDING,
+        );
+      }
+    }
+  }
+  
+  /**
+   * Main polling loop for new events
    */
   private async pollLoop(): Promise<void> {
     while (this.isRunning) {
@@ -197,6 +293,85 @@ export class CreditExecutor {
         setTimeout(resolve, this.config.pollIntervalMs)
       );
     }
+  }
+  
+  /**
+   * Retry loop for failed transfers
+   */
+  private async retryLoop(): Promise<void> {
+    if (this.retryLoopRunning) return;
+    this.retryLoopRunning = true;
+    
+    while (this.isRunning) {
+      try {
+        const pendingRetries = await this.persistence.getPendingRetries();
+        
+        for (const record of pendingRetries) {
+          if (record.transferAttempts >= this.retryConfig.maxAttempts) {
+            console.log(`[Retry] Max attempts reached for ${record.requestId}`);
+            continue;
+          }
+          
+          // Calculate delay
+          const delay = calculateRetryDelay(record.transferAttempts + 1, this.retryConfig);
+          const timeSinceLastAttempt = Date.now() - (record.lastTransferAttempt || 0);
+          
+          if (timeSinceLastAttempt < delay) {
+            continue; // Not time yet
+          }
+          
+          console.log(`[Retry] Retrying transfer for ${record.requestId} (attempt ${record.transferAttempts + 1})`);
+          await this.executeTransfer(record);
+        }
+      } catch (error) {
+        console.error('Error in retry loop:', error);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 30000)); // Check every 30s
+    }
+    
+    this.retryLoopRunning = false;
+  }
+  
+  /**
+   * Expiration loop for defaulted credits
+   */
+  private async expirationLoop(): Promise<void> {
+    if (this.expirationLoopRunning) return;
+    this.expirationLoopRunning = true;
+    
+    while (this.isRunning) {
+      try {
+        const expired = await this.persistence.getExpired();
+        
+        for (const record of expired) {
+          console.log(`[Expiration] Credit ${record.requestId} has defaulted`);
+          
+          await this.persistence.transitionState(
+            record.requestId,
+            ExecutionState.DEFAULTED,
+            { defaultedAt: Date.now() },
+          );
+          
+          // Emit default event
+          await this.eventEmitter.emitDefaulted({
+            requestId: record.requestId,
+            agentId: record.intent.agentId,
+            amount: record.approvedAmount,
+            certificateClaims: record.certificate?.claims || '',
+            certificateSignature: record.certificate?.signature || '',
+            defaultedAt: Date.now(),
+            remediationRequired: true,
+          });
+        }
+      } catch (error) {
+        console.error('Error in expiration loop:', error);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 60000)); // Check every minute
+    }
+    
+    this.expirationLoopRunning = false;
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
@@ -238,7 +413,18 @@ export class CreditExecutor {
   }
   
   /**
-   * Handle a CreditApproved event
+   * Handle a CreditApproved event (IDEMPOTENT)
+   * 
+   * This method is safe to call multiple times for the same event.
+   * It uses a two-level idempotency check:
+   * 1. Persistence check (already processed and saved)
+   * 2. In-flight lock (currently being processed)
+   * 
+   * Intent Binding: The full CreditIntent is stored with every ExecutionRecord,
+   * providing complete audit trail for:
+   * - Policy disputes
+   * - Reputation attribution  
+   * - Auditing agent behavior
    */
   private async handleCreditApproved(event: EventLog): Promise<void> {
     const args = event.args;
@@ -248,7 +434,30 @@ export class CreditExecutor {
     const interestRateBps = args[3] as bigint;
     const ttlSeconds = args[4] as bigint;
     
-    console.log(`Processing CreditApproved: requestId=${requestId}, agentId=${agentId}, amount=${approvedAmount}`);
+    // IDEMPOTENCY CHECK 1: Skip if already processed and persisted
+    if (await this.persistence.exists(requestId)) {
+      const existing = await this.persistence.get(requestId);
+      console.log(`[Idempotent] Request ${requestId} already exists in state: ${existing?.state}`);
+      return;
+    }
+    
+    // IDEMPOTENCY CHECK 2: Skip if currently being processed (in-flight lock)
+    if (this.processingLock.has(requestId)) {
+      console.log(`[Idempotent] Request ${requestId} already being processed`);
+      return;
+    }
+    
+    // Acquire processing lock
+    this.processingLock.add(requestId);
+    
+    try {
+      // Double-check after acquiring lock (another concurrent call might have persisted)
+      if (await this.persistence.exists(requestId)) {
+        console.log(`[Idempotent] Request ${requestId} already exists (after lock)`);
+        return;
+      }
+    
+      console.log(`Processing CreditApproved: requestId=${requestId}, agentId=${agentId}, amount=${approvedAmount}`);
     
     // Get full decision from contract
     const decision = await this.creditStudio.getDecision(requestId);
@@ -256,34 +465,168 @@ export class CreditExecutor {
     // Get agent address from IdentityRegistry
     const agentAddress = await this.identityRegistry.ownerOf(agentId);
     
-    // Execute credit via 4Mica
-    const result = await this.executeCredit({
-      decision: {
-        requestId,
-        agentId,
-        approvedAmount,
-        interestRateBps,
-        ttlSeconds,
-        destinationChain: decision.destinationChain,
-        approved: true,
-        rejectionReason: '',
-        timestamp: decision.timestamp,
-      },
-      recipientAddress: agentAddress,
-      sourceNetwork: this.config.defaultNetwork,
-      // TODO: Map destinationChain to NetworkId for cross-chain
-    });
+    // Create formalized intent
+    const now = Date.now();
+    const expiresAt = now + Number(ttlSeconds) * 1000;
+    const purpose = 'Credit request'; // Would come from contract in full impl
     
-    if (result.success) {
-      console.log(`Credit executed successfully: requestId=${requestId}, certificate=${result.certificate?.claims.substring(0, 20)}...`);
+    const intent: CreditIntent = {
+      intentHash: keccak256(toUtf8Bytes(`${requestId}-${agentId}-${approvedAmount}`)),
+      agentId,
+      amount: approvedAmount,
+      sourceChain: this.config.defaultNetwork,
+      destinationChain: (decision.destinationChain || this.config.defaultNetwork) as NetworkId,
+      ttlSeconds: Number(ttlSeconds),
+      purpose,
+      purposeHash: keccak256(toUtf8Bytes(purpose)),
+      recipientAddress: agentAddress,
+      createdAt: Math.floor(now / 1000),
+      expiresAt: Math.floor(expiresAt / 1000),
+    };
+    
+    // Create execution record
+    const record: ExecutionRecord = {
+      requestId,
+      intent,
+      state: ExecutionState.APPROVED,
+      approvedAmount,
+      interestRateBps: Number(interestRateBps),
+      approvedAt: now,
+      transferAttempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    
+      // Persist initial record (IMPORTANT: Full intent is bound to record for audit trail)
+      await this.persistence.save(record);
+      console.log(`[State] ${requestId}: APPROVED`);
       
-      // Mark request as completed
-      const tx = await this.creditStudio.markCompleted(requestId);
+      // Execute the credit flow
+      await this.executeCreditFlow(record);
+    } finally {
+      // Always release the processing lock
+      this.processingLock.delete(requestId);
+    }
+  }
+  
+  /**
+   * Execute the full credit flow with state transitions
+   */
+  private async executeCreditFlow(record: ExecutionRecord): Promise<void> {
+    try {
+      // Step 1: Get BLS certificate from 4Mica
+      console.log(`[4Mica] Requesting certificate for ${record.requestId}`);
+      
+      const certificate = await this.fourMicaClient.requestCreditGuarantee(
+        record.intent.recipientAddress,
+        record.approvedAmount,
+        record.intent.sourceChain,
+      );
+      
+      // Persist certificate immediately (CRITICAL!)
+      const arweaveId = await this.certificateBackup.backup(record.requestId, certificate);
+      
+      await this.persistence.transitionState(
+        record.requestId,
+        ExecutionState.CERT_ISSUED,
+        {
+          certificate,
+          certificateIssuedAt: Date.now(),
+          certificateArweaveId: arweaveId,
+        },
+      );
+      
+      console.log(`[State] ${record.requestId}: CERT_ISSUED (backed up: ${arweaveId})`);
+      
+      // Get updated record
+      const updatedRecord = await this.persistence.get(record.requestId);
+      if (!updatedRecord) throw new Error('Record disappeared');
+      
+      // Step 2: Execute transfer
+      await this.executeTransfer(updatedRecord);
+      
+    } catch (error) {
+      console.error(`[Error] Credit flow failed for ${record.requestId}:`, error);
+      // Record stays in current state - will be retried or expired
+    }
+  }
+  
+  /**
+   * Execute the transfer step (with retry support)
+   */
+  private async executeTransfer(record: ExecutionRecord): Promise<void> {
+    // Transition to TRANSFER_PENDING
+    await this.persistence.transitionState(
+      record.requestId,
+      ExecutionState.TRANSFER_PENDING,
+      {
+        transferAttempts: record.transferAttempts + 1,
+        lastTransferAttempt: Date.now(),
+      },
+    );
+    
+    const isCrossChain = record.intent.destinationChain !== record.intent.sourceChain;
+    
+    try {
+      if (isCrossChain && this.circleGatewayClient) {
+        // Cross-chain transfer via Circle Gateway
+        console.log(`[Gateway] Executing cross-chain transfer for ${record.requestId}`);
+        
+        const result = await this.circleGatewayClient.transfer({
+          amount: record.approvedAmount,
+          sourceNetwork: record.intent.sourceChain,
+          destinationNetwork: record.intent.destinationChain,
+          recipientAddress: record.intent.recipientAddress,
+        });
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Transfer failed');
+        }
+        
+        // Success!
+        await this.persistence.transitionState(
+          record.requestId,
+          ExecutionState.COMPLETED,
+          {
+            transferTxHash: result.destinationTxHash,
+            transferCompletedAt: Date.now(),
+          },
+        );
+        
+        console.log(`[State] ${record.requestId}: COMPLETED (tx: ${result.destinationTxHash})`);
+        
+      } else {
+        // Same-chain: Just mark as completed (certificate is the deliverable)
+        await this.persistence.transitionState(
+          record.requestId,
+          ExecutionState.COMPLETED,
+          { transferCompletedAt: Date.now() },
+        );
+        
+        console.log(`[State] ${record.requestId}: COMPLETED (same-chain, cert only)`);
+      }
+      
+      // Mark on-chain as completed
+      const tx = await this.creditStudio.markCompleted(record.requestId);
       await tx.wait();
+      console.log(`[Contract] ${record.requestId} marked completed on-chain`);
       
-      console.log(`Request marked as completed: ${requestId}`);
-    } else {
-      console.error(`Credit execution failed: requestId=${requestId}, error=${result.error}`);
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      
+      // Check if retryable
+      if (isRetryableError(err) && record.transferAttempts < this.retryConfig.maxAttempts) {
+        console.log(`[Retry] Transfer failed for ${record.requestId}: ${err.message} (will retry)`);
+        
+        await this.persistence.transitionState(
+          record.requestId,
+          ExecutionState.TRANSFER_FAILED,
+          { lastTransferError: err.message },
+        );
+      } else {
+        console.error(`[Error] Transfer failed permanently for ${record.requestId}: ${err.message}`);
+        // Will eventually be marked as defaulted by expiration loop
+      }
     }
   }
   
@@ -468,6 +811,67 @@ export class CreditExecutor {
     }
     const balance = await this.clawPayClient.getBalance(token);
     return balance.shieldedBalance;
+  }
+  
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SETTLEMENT
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  /**
+   * Mark a credit as settled (agent repaid)
+   * 
+   * This should be called when payment is received, either:
+   * - On-chain settlement detected
+   * - Off-chain confirmation received
+   */
+  async markSettled(
+    requestId: string,
+    settlementTxHash: string,
+    interestPaid: bigint,
+  ): Promise<void> {
+    const record = await this.persistence.get(requestId);
+    if (!record) {
+      throw new Error(`Record not found: ${requestId}`);
+    }
+    
+    if (record.state !== ExecutionState.COMPLETED) {
+      throw new Error(`Cannot settle from state: ${record.state}`);
+    }
+    
+    await this.persistence.transitionState(
+      requestId,
+      ExecutionState.SETTLED,
+      {
+        settlementTxHash,
+        settledAt: Date.now(),
+      },
+    );
+    
+    // Emit settlement event
+    await this.eventEmitter.emitSettled({
+      requestId,
+      agentId: record.intent.agentId,
+      amount: record.approvedAmount,
+      interestPaid,
+      settlementTxHash,
+      timestamp: Date.now(),
+    });
+    
+    console.log(`[Settlement] ${requestId} settled (tx: ${settlementTxHash})`);
+  }
+  
+  /**
+   * Get execution record for a request
+   */
+  async getExecutionRecord(requestId: string): Promise<ExecutionRecord | null> {
+    return this.persistence.get(requestId);
+  }
+  
+  /**
+   * Get all records in a given state
+   */
+  async getRecordsByState(state: ExecutionState): Promise<ExecutionRecord[]> {
+    return this.persistence.getByState(state);
   }
   
   // ═══════════════════════════════════════════════════════════════════════════
