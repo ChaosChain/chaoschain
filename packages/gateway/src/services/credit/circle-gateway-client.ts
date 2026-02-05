@@ -570,12 +570,26 @@ export class CircleGatewayClient {
   }
   
   /**
-   * Get total unified balance
+   * Get total unified balance in USDC (as a number)
+   * 
+   * Note: API returns balance as string in USDC format (e.g., "10.200000")
    */
-  async getTotalBalance(networks: NetworkId[]): Promise<bigint> {
+  async getTotalBalance(networks: NetworkId[]): Promise<number> {
     const balances = await this.getBalances(networks);
     return balances.reduce(
-      (sum, b) => sum + parseUnits(b.balance, 6),
+      (sum, b) => sum + parseFloat(b.balance),
+      0,
+    );
+  }
+  
+  /**
+   * Get total unified balance in micro-USDC (as bigint, 6 decimals)
+   */
+  async getTotalBalanceRaw(networks: NetworkId[]): Promise<bigint> {
+    const balances = await this.getBalances(networks);
+    // Convert USDC string to micro-USDC bigint
+    return balances.reduce(
+      (sum, b) => sum + BigInt(Math.floor(parseFloat(b.balance) * 1e6)),
       0n,
     );
   }

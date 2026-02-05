@@ -78,6 +78,19 @@ function networkToChainId(network: NetworkId): number {
 }
 
 /**
+ * Serialize object with BigInt values as hex strings
+ * JSON.stringify doesn't support BigInt, so we convert them
+ */
+function serializeWithBigInt(obj: unknown): string {
+  return JSON.stringify(obj, (_key, value) => {
+    if (typeof value === 'bigint') {
+      return '0x' + value.toString(16);
+    }
+    return value;
+  });
+}
+
+/**
  * 4Mica Facilitator Client
  */
 export class FourMicaClient {
@@ -163,9 +176,10 @@ export class FourMicaClient {
    * 2. Issues a BLS certificate for on-chain remuneration
    */
   async settle(request: SettleRequest): Promise<SettleResponse> {
+    // Use custom serializer to handle BigInt values
     const response = await this.fetch('/settle', {
       method: 'POST',
-      body: JSON.stringify(request),
+      body: serializeWithBigInt(request),
     });
     return response as SettleResponse;
   }

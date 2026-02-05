@@ -137,8 +137,8 @@ export interface MockCircleGatewayConfig {
 
 export interface MockTransferResult {
   success: boolean;
-  sourceTxHash?: string;
-  destinationTxHash?: string;
+  mintTxHash?: string;
+  amountMinted?: bigint;
   error?: string;
   attestation?: string;
 }
@@ -188,7 +188,8 @@ export class MockCircleGatewayClient {
     const txHash = `0xtx_${Date.now()}_${this.callCount}`;
     const result: MockTransferResult = {
       success: true,
-      destinationTxHash: txHash,
+      mintTxHash: txHash,
+      amountMinted: request.amount,
       attestation: `0xattestation_${txHash}`,
     };
     

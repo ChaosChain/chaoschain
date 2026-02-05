@@ -219,7 +219,7 @@ class TestableExecutor {
         record.requestId,
         ExecutionState.COMPLETED,
         {
-          transferTxHash: result.destinationTxHash,
+          transferTxHash: result.mintTxHash,
           transferCompletedAt: Date.now(),
         },
       );

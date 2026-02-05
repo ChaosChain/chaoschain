@@ -2,7 +2,7 @@
  * 4Mica Client Tests
  */
 
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { Wallet } from 'ethers';
 import {
   FourMicaClient,
@@ -16,6 +16,11 @@ global.fetch = mockFetch as unknown as typeof fetch;
 describe('FourMicaClient', () => {
   let client: FourMicaClient;
   let testWallet: Wallet;
+  
+  beforeEach(() => {
+    // Reset mock between tests to prevent leakage
+    mockFetch.mockReset();
+  });
   
   beforeAll(() => {
     // Create test wallet
@@ -216,17 +221,20 @@ describe('FourMicaClient', () => {
       const recipientAddress = Wallet.createRandom().address;
       const amount = BigInt(1000 * 1e6); // 1000 USDC
       
-      // Mock openTab
+      // Mock openTab - tab_id and req_id must be bytes32 for EIP-712
+      const tabId = '0x0000000000000000000000000000000000000000000000000000000000000042';
+      const reqId = '0x0000000000000000000000000000000000000000000000000000000000000001';
+      
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          tabId: '0x42',
+          tabId,
           userAddress: testWallet.address,
           recipientAddress,
           assetAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
           startTimestamp: Math.floor(Date.now() / 1000),
           ttlSeconds: 86400,
-          nextReqId: '0x0001',
+          nextReqId: reqId,
         }),
       });
       
