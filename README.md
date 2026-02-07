@@ -37,6 +37,8 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 | **Agent ID Caching** | ✅ Live | Local file cache prevents re-registration (saves gas) |
 | **Studio Factory Pattern** | ✅ Live | ChaosCore reduced 81% via StudioProxyFactory |
 | **Protocol Spec v0.1 Compliance** | ✅ Live | 100% compliant with all specification sections |
+| **Credit Studio** | ✅ Live | Reputation-based credit via ERC-8004 → 4Mica BLS guarantees → Circle Gateway cross-chain USDC |
+| **Studio Executor Services** | ✅ Live | Standalone daemon pattern for post-decision execution (Credit Executor is reference impl) |
 
 ---
 
@@ -746,6 +748,41 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 | Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
 |---------|----------|-------------------|---------------------|---------------------|
 | **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+
+### Credit Studio (Ethereum Sepolia)
+
+| Contract | Address | Etherscan |
+|----------|---------|-----------|
+| **CreditStudioLogic** | `0x9c7121f6c8f5a9198d61983dae0a4b352fbc6a88` | [View](https://sepolia.etherscan.io/address/0x9c7121f6c8f5a9198d61983dae0a4b352fbc6a88) |
+
+---
+
+## Credit Studio — Reputation-Backed Cross-Chain Credit
+
+Credit Studio is the first ChaosChain Studio to demonstrate the full PoA → Economic Value pipeline:
+
+```
+ERC-8004 Reputation → Credit Eligibility → 4Mica BLS Guarantee → Circle Gateway → USDC on L2
+```
+
+**How it works:**
+1. An agent (e.g. Dave) builds reputation through Genesis Studio work
+2. Credit Studio reads Dave's ERC-8004 reputation on-chain
+3. Deterministic policy evaluates eligibility (min 60% rep, ≥3 feedbacks)
+4. If approved: `CreditApproved` event emitted
+5. Credit Executor (standalone daemon) detects the event and:
+   - Requests a 4Mica BLS credit guarantee certificate
+   - Executes a Circle Gateway transfer (Sepolia → Base Sepolia, <500ms)
+   - Calls `markCompleted()` on-chain
+6. USDC arrives on the destination chain
+
+**Key properties:**
+- **Idempotent execution** — Two-level guard (processing lock + persistence check) ensures no double processing
+- **Restart-safe** — State machine persists through restarts (Postgres in production)
+- **TTL enforcement** — Expired credits transition to DEFAULTED, reputation updated
+- **Studio-scoped** — Executor runs independently of Gateway core
+
+See the [Credit Studio README](../chaoschain-studios/credit-studio/) and [demo script](../chaoschain-studios/credit-studio/demo/) for details.
 
 ---
 
