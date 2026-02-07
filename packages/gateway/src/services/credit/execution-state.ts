@@ -264,7 +264,7 @@ export function isRetryableError(error: Error): boolean {
  */
 export const VALID_TRANSITIONS: Record<ExecutionState, ExecutionState[]> = {
   [ExecutionState.PENDING]: [ExecutionState.APPROVED, ExecutionState.REJECTED],
-  [ExecutionState.APPROVED]: [ExecutionState.CERT_ISSUED],
+  [ExecutionState.APPROVED]: [ExecutionState.CERT_ISSUED, ExecutionState.TRANSFER_PENDING],
   [ExecutionState.CERT_ISSUED]: [ExecutionState.TRANSFER_PENDING, ExecutionState.COMPLETED],
   [ExecutionState.TRANSFER_PENDING]: [ExecutionState.COMPLETED, ExecutionState.TRANSFER_FAILED],
   [ExecutionState.TRANSFER_FAILED]: [ExecutionState.TRANSFER_PENDING, ExecutionState.DEFAULTED],

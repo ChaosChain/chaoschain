@@ -78,6 +78,20 @@ function networkToChainId(network: NetworkId): number {
 }
 
 /**
+ * Pad a value to a proper bytes32 hex string (0x + 64 hex chars).
+ *
+ * The 4Mica API returns tabId/nextReqId as short hex like "0x0" or "0x1",
+ * but ethers EIP-712 requires exactly 32 bytes for bytes32 fields.
+ */
+function toBytes32(value: string | number | bigint): string {
+  if (typeof value === 'number' || typeof value === 'bigint') {
+    return '0x' + value.toString(16).padStart(64, '0');
+  }
+  const hex = value.startsWith('0x') ? value.slice(2) : value;
+  return '0x' + hex.padStart(64, '0');
+}
+
+/**
  * Serialize object with BigInt values as hex strings
  * JSON.stringify doesn't support BigInt, so we convert them
  */
@@ -218,8 +232,8 @@ export class FourMicaClient {
     const claims: PaymentClaims = {
       user_address: userAddress,
       recipient_address: recipientAddress,
-      tab_id: tab.tabId,
-      req_id: tab.nextReqId,
+      tab_id: toBytes32(tab.tabId),
+      req_id: toBytes32(tab.nextReqId),
       amount: amount,
       asset_address: this.config.defaultAsset,
       timestamp,

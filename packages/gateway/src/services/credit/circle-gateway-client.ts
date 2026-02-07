@@ -379,7 +379,7 @@ export class CircleGatewayClient {
         sourceNetwork,
         destinationNetwork,
         recipientAddress,
-        maxFee = 2_010000n, // 2.01 USDC default max fee
+        maxFee = 2_010_000n, // 2.01 USDC max fee (Gateway minimum ~2.00005, actual fee ~0.00005)
       } = request;
       
       // Validate networks

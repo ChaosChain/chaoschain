@@ -51,7 +51,7 @@ import {
 const CREDIT_STUDIO_ABI = [
   'event CreditApproved(bytes32 indexed requestId, uint256 indexed agentId, uint256 approvedAmount, uint256 interestRateBps, uint256 ttlSeconds)',
   'event CreditRejected(bytes32 indexed requestId, uint256 indexed agentId, string reason)',
-  'function getDecision(bytes32 requestId) view returns (tuple(bytes32 requestId, uint256 agentId, uint256 approvedAmount, uint256 interestRateBps, uint256 ttlSeconds, string destinationChain, bool approved, string rejectionReason, uint256 timestamp))',
+  'function getDecision(bytes32 requestId) view returns (tuple(bytes32 requestId, uint256 agentId, uint256 approvedAmount, uint256 interestRateBps, uint256 ttlSeconds, uint256 destinationChain, bool approved, string rejectionReason, uint256 timestamp))',
   'function markCompleted(bytes32 requestId)',
 ];
 
@@ -115,7 +115,7 @@ export class CreditExecutor {
   private config: CreditExecutorConfig;
   private creditStudio: Contract;
   private identityRegistry: Contract;
-  private fourMicaClient: FourMicaClient;
+  public fourMicaClient: FourMicaClient;
   private circleGatewayClient: CircleGatewayClient | null = null;
   private clawPayClient: ClawPayClient | null = null;
   
@@ -468,7 +468,9 @@ export class CreditExecutor {
       agentId,
       amount: approvedAmount,
       sourceChain: this.config.defaultNetwork,
-      destinationChain: (decision.destinationChain || this.config.defaultNetwork) as NetworkId,
+      destinationChain: decision.destinationChain
+        ? `eip155:${Number(decision.destinationChain)}` as NetworkId
+        : this.config.defaultNetwork,
       ttlSeconds: Number(ttlSeconds),
       purpose,
       purposeHash: keccak256(toUtf8Bytes(purpose)),
@@ -507,36 +509,47 @@ export class CreditExecutor {
    */
   private async executeCreditFlow(record: ExecutionRecord): Promise<void> {
     try {
-      // Step 1: Get BLS certificate from 4Mica
+      // Step 1: Get BLS certificate from 4Mica (best-effort)
+      // The BLS certificate is a cryptographic proof of the credit guarantee.
+      // If 4Mica is unavailable, we still proceed with the transfer —
+      // the on-chain CreditApproved event serves as the authoritative record.
       console.log(`[4Mica] Requesting certificate for ${record.requestId}`);
       
-      const certificate = await this.fourMicaClient.requestCreditGuarantee(
-        record.intent.recipientAddress,
-        record.approvedAmount,
-        record.intent.sourceChain,
-      );
+      let certRecord = record;
+      try {
+        const certificate = await this.fourMicaClient.requestCreditGuarantee(
+          record.intent.recipientAddress,
+          record.approvedAmount,
+          record.intent.sourceChain,
+        );
+        
+        // Persist certificate immediately
+        const arweaveId = await this.certificateBackup.backup(record.requestId, certificate);
+        
+        await this.persistence.transitionState(
+          record.requestId,
+          ExecutionState.CERT_ISSUED,
+          {
+            certificate,
+            certificateIssuedAt: Date.now(),
+            certificateArweaveId: arweaveId,
+          },
+        );
+        
+        console.log(`[State] ${record.requestId}: CERT_ISSUED (backed up: ${arweaveId})`);
+        
+        const updatedRecord = await this.persistence.get(record.requestId);
+        if (updatedRecord) certRecord = updatedRecord;
+        
+      } catch (certError) {
+        // 4Mica certificate is best-effort — proceed without it
+        const msg = certError instanceof Error ? certError.message : String(certError);
+        console.warn(`[4Mica] Certificate failed (proceeding without): ${msg}`);
+        console.log(`[State] ${record.requestId}: Skipping CERT_ISSUED, moving to transfer`);
+      }
       
-      // Persist certificate immediately (CRITICAL!)
-      const arweaveId = await this.certificateBackup.backup(record.requestId, certificate);
-      
-      await this.persistence.transitionState(
-        record.requestId,
-        ExecutionState.CERT_ISSUED,
-        {
-          certificate,
-          certificateIssuedAt: Date.now(),
-          certificateArweaveId: arweaveId,
-        },
-      );
-      
-      console.log(`[State] ${record.requestId}: CERT_ISSUED (backed up: ${arweaveId})`);
-      
-      // Get updated record
-      const updatedRecord = await this.persistence.get(record.requestId);
-      if (!updatedRecord) throw new Error('Record disappeared');
-      
-      // Step 2: Execute transfer
-      await this.executeTransfer(updatedRecord);
+      // Step 2: Execute transfer (proceeds regardless of certificate outcome)
+      await this.executeTransfer(certRecord);
       
     } catch (error) {
       console.error(`[Error] Credit flow failed for ${record.requestId}:`, error);
@@ -570,6 +583,7 @@ export class CreditExecutor {
           sourceNetwork: record.intent.sourceChain,
           destinationNetwork: record.intent.destinationChain,
           recipientAddress: record.intent.recipientAddress,
+          maxFee: 2_000_100n, // 2.0001 USDC — Gateway minimum ~2.00005, actual fee ~0.00005
         });
         
         if (!result.success) {
