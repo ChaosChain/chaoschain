@@ -97,9 +97,20 @@ Override with `--network mainnet` or `--network sepolia`:
 
 ## Setup
 
+### After Installation (Required Once)
+
+Run the setup script to install Python dependencies:
+
+```bash
+cd ~/.openclaw/skills/chaoschain
+./scripts/setup.sh
+```
+
+This creates a virtual environment with `web3` and other dependencies.
+
 ### Read-Only Mode (Default)
 
-No setup required! Just use `/chaoschain verify` and `/chaoschain reputation`.
+No setup required after running `setup.sh`! Just use `/chaoschain verify` and `/chaoschain reputation`.
 
 ### With Your Own Wallet (Optional)
 

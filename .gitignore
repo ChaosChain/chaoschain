@@ -150,3 +150,5 @@ revoke_v0312_approvals.py
 
 debug_reputation.py
 register_logic_module.py
+# ClawHub local artifacts
+.clawhub/
