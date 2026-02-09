@@ -55,6 +55,9 @@ export interface GatewayConfig {
   // Arweave (Turbo)
   turboGatewayUrl: string;
 
+  // Admin signer (owner of RewardsDistributor, signs registerWork/registerValidator)
+  adminSignerAddress?: string;
+
   // Logging
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
@@ -72,6 +75,7 @@ export function loadConfigFromEnv(): GatewayConfig {
     rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
     // Arweave Turbo gateway
     turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
+    adminSignerAddress: process.env.ADMIN_SIGNER_ADDRESS || undefined,
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
   };
 }
@@ -150,6 +154,10 @@ export class Gateway {
       }
     }
 
+    if (this.config.adminSignerAddress) {
+      this.logger.info({ address: this.config.adminSignerAddress }, 'Admin signer configured for RewardsDistributor operations');
+    }
+
     // Initialize tx queue
     const txQueue = new TxQueue(chainAdapter);
 
@@ -182,7 +190,8 @@ export class Gateway {
       persistence,
       studioEncoder,
       rewardsDistributorEncoder,
-      this.config.rewardsDistributorAddress
+      this.config.rewardsDistributorAddress,
+      this.config.adminSignerAddress
     );
     this.engine.registerWorkflow(workSubmissionDef);
     this.logger.info(
@@ -205,7 +214,8 @@ export class Gateway {
         directEncoder: directScoreEncoder,           // For direct mode (default, MVP)
         commitRevealEncoder: commitRevealScoreEncoder, // For commit-reveal mode (available)
         validatorEncoder,                            // For REGISTER_VALIDATOR step (both modes)
-      }
+      },
+      this.config.adminSignerAddress
     );
     this.engine.registerWorkflow(scoreSubmissionDef);
     this.logger.info(

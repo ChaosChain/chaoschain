@@ -93,6 +93,7 @@ async function waitForGateway(url: string, maxWaitMs = 60_000): Promise<void> {
 // ─── Deploy Contracts ─────────────────────────────────────────────────
 
 interface DeployedAddresses {
+  DEPLOYER: string;
   IDENTITY_REGISTRY: string;
   REGISTRY: string;
   REWARDS_DISTRIBUTOR: string;
@@ -102,7 +103,7 @@ interface DeployedAddresses {
   STUDIO_PROXY: string;
 }
 
-function deployContracts(): Omit<DeployedAddresses, 'STUDIO_PROXY'> {
+function deployContracts(): Omit<DeployedAddresses, 'DEPLOYER' | 'STUDIO_PROXY'> {
   console.log('==> Deploying contracts via forge script...');
 
   const output = execSync(
@@ -142,7 +143,7 @@ function deployContracts(): Omit<DeployedAddresses, 'STUDIO_PROXY'> {
     console.log(`  ${key}=${addr}`);
   }
 
-  return addresses as Omit<DeployedAddresses, 'STUDIO_PROXY'>;
+  return addresses as Omit<DeployedAddresses, 'DEPLOYER' | 'STUDIO_PROXY'>;
 }
 
 // ─── Studio + Agents ──────────────────────────────────────────────────
@@ -245,8 +246,9 @@ async function main() {
   // 4. Register agents
   await registerAgents(provider, addresses.IDENTITY_REGISTRY, studioProxy);
 
-  // 5. Write addresses.json
-  const allAddresses: DeployedAddresses = { ...addresses, STUDIO_PROXY: studioProxy };
+  // 5. Write addresses.json (includes DEPLOYER for admin signer config)
+  const deployer = new ethers.Wallet(DEPLOYER_KEY, provider);
+  const allAddresses: DeployedAddresses = { ...addresses, DEPLOYER: deployer.address, STUDIO_PROXY: studioProxy };
   writeFileSync(ADDRESSES_FILE, JSON.stringify(allAddresses, null, 2) + '\n');
   console.log(`\n==> Wrote ${ADDRESSES_FILE}`);
 

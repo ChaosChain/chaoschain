@@ -910,17 +910,20 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
   private persistence: WorkflowPersistence;
   private validatorEncoder: ValidatorRegistrationEncoder;
   private chainState: ScoreChainStateAdapter;
+  private adminSignerAddress?: string;
 
   constructor(
     txQueue: TxQueue,
     persistence: WorkflowPersistence,
     validatorEncoder: ValidatorRegistrationEncoder,
-    chainState: ScoreChainStateAdapter
+    chainState: ScoreChainStateAdapter,
+    adminSignerAddress?: string
   ) {
     this.txQueue = txQueue;
     this.persistence = persistence;
     this.validatorEncoder = validatorEncoder;
     this.chainState = chainState;
+    this.adminSignerAddress = adminSignerAddress;
   }
 
   isIrreversible(): boolean {
@@ -951,14 +954,14 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
       }
     }
 
-    // Precondition: reveal must be confirmed
-    if (!progress.reveal_confirmed) {
+    // Precondition: score must be confirmed (direct mode sets score_confirmed, commit-reveal sets reveal_confirmed)
+    if (!progress.reveal_confirmed && !progress.score_confirmed) {
       return {
         type: 'FAILED',
         error: {
           category: 'PERMANENT',
-          message: 'Reveal not confirmed',
-          code: 'REVEAL_NOT_CONFIRMED',
+          message: 'Score not confirmed (neither reveal_confirmed nor score_confirmed)',
+          code: 'SCORE_NOT_CONFIRMED',
         },
       };
     }
@@ -975,15 +978,17 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
     };
 
     try {
+      // Use admin signer (RewardsDistributor owner) if configured, otherwise fall back to agent signer
+      const signer = this.adminSignerAddress || input.signer_address;
       const txHash = await this.txQueue.submitOnly(
         workflow.id,
-        input.signer_address,
+        signer,
         txRequest
       );
 
       // Persist tx hash (critical checkpoint)
-      await this.persistence.appendProgress(workflow.id, { 
-        register_validator_tx_hash: txHash 
+      await this.persistence.appendProgress(workflow.id, {
+        register_validator_tx_hash: txHash
       });
 
       return { type: 'SUCCESS', nextStep: 'AWAIT_REGISTER_VALIDATOR_CONFIRM' };
@@ -1072,10 +1077,12 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
 export class AwaitRegisterValidatorConfirmStep implements StepExecutor<ScoreSubmissionRecord> {
   private txQueue: TxQueue;
   private persistence: WorkflowPersistence;
+  private adminSignerAddress?: string;
 
-  constructor(txQueue: TxQueue, persistence: WorkflowPersistence) {
+  constructor(txQueue: TxQueue, persistence: WorkflowPersistence, adminSignerAddress?: string) {
     this.txQueue = txQueue;
     this.persistence = persistence;
+    this.adminSignerAddress = adminSignerAddress;
   }
 
   isIrreversible(): boolean {
@@ -1104,8 +1111,9 @@ export class AwaitRegisterValidatorConfirmStep implements StepExecutor<ScoreSubm
     try {
       const receipt = await this.txQueue.waitForTx(progress.register_validator_tx_hash);
 
-      // Release signer lock after confirmation
-      this.txQueue.releaseSignerLock(input.signer_address);
+      // Release the signer that was used for the register tx (admin if configured)
+      const registerSigner = this.adminSignerAddress || input.signer_address;
+      this.txQueue.releaseSignerLock(registerSigner);
 
       switch (receipt.status) {
         case 'confirmed':
@@ -1234,7 +1242,8 @@ export function createScoreSubmissionDefinition(
   txQueue: TxQueue,
   persistence: WorkflowPersistence,
   chainState: ScoreChainStateAdapter,
-  encoders: ScoreSubmissionEncoders
+  encoders: ScoreSubmissionEncoders,
+  adminSignerAddress?: string
 ): WorkflowDefinition<ScoreSubmissionRecord> {
   const steps = new Map<string, StepExecutor<ScoreSubmissionRecord>>();
 
@@ -1261,10 +1270,10 @@ export function createScoreSubmissionDefinition(
   // Validator registration steps (both modes)
   if (encoders.validatorEncoder) {
     steps.set('REGISTER_VALIDATOR', new RegisterValidatorStep(
-      txQueue, persistence, encoders.validatorEncoder, chainState
+      txQueue, persistence, encoders.validatorEncoder, chainState, adminSignerAddress
     ));
     steps.set('AWAIT_REGISTER_VALIDATOR_CONFIRM', new AwaitRegisterValidatorConfirmStep(
-      txQueue, persistence
+      txQueue, persistence, adminSignerAddress
     ));
   }
 

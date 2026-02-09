@@ -41,7 +41,7 @@ describe('Gateway E2E', () => {
   });
 
   describe('Work Submission', () => {
-    it('submits work on-chain then STALLs at REGISTER_WORK (onlyOwner)', async () => {
+    it('submits work on-chain and completes full golden path', async () => {
       const worker = WORKERS[0];
       const dataHash = randomDataHash();
       const threadRoot = randomRoot();
@@ -67,11 +67,12 @@ describe('Gateway E2E', () => {
       // Poll until terminal state
       const final = await pollUntilTerminal(data.id);
 
-      // The workflow STALLs at REGISTER_WORK (onlyOwner issue on RewardsDistributor)
-      expect(['COMPLETED', 'STALLED']).toContain(final.state);
+      // Full golden path: workflow reaches COMPLETED (admin signer handles registerWork)
+      expect(final.state).toBe('COMPLETED');
 
-      // Verify progress: arweave and onchain steps should have been reached
+      // Verify progress: all steps completed
       expect(final.progress.arweave_tx_id).toBeDefined();
+      expect(final.progress.register_confirmed).toBe(true);
 
       // On-chain verification: work IS recorded in StudioProxy despite workflow STALL
       const submitter = await verifier.getWorkSubmitter(dataHash);
@@ -95,7 +96,7 @@ describe('Gateway E2E', () => {
   });
 
   describe('Score Submission (direct mode)', () => {
-    it('submits score on-chain for existing work, then STALLs at REGISTER_VALIDATOR', async () => {
+    it('submits score for existing work and completes full golden path', async () => {
       const worker = WORKERS[1];
       const validator = VALIDATORS[0];
       const dataHash = randomDataHash();
@@ -113,7 +114,7 @@ describe('Gateway E2E', () => {
       });
       expect(workRes.status).toBe(201);
       const workFinal = await pollUntilTerminal(workRes.data.id);
-      expect(['COMPLETED', 'STALLED']).toContain(workFinal.state);
+      expect(workFinal.state).toBe('COMPLETED');
 
       // Confirm work is on-chain before scoring
       const submitter = await verifier.getWorkSubmitter(dataHash);
@@ -135,16 +136,16 @@ describe('Gateway E2E', () => {
       expect(data.type).toBe('ScoreSubmission');
       expect(data.state).toBe('CREATED');
 
-      // Poll — workflow FAILs at REGISTER_VALIDATOR ("Reveal not confirmed" — precondition bug
-      // checks reveal_confirmed instead of score_confirmed for direct mode)
+      // Full golden path: workflow reaches COMPLETED (admin signer handles registerValidator)
       const final = await pollUntilTerminal(data.id);
-      expect(['COMPLETED', 'STALLED', 'FAILED']).toContain(final.state);
+      expect(final.state).toBe('COMPLETED');
 
-      // Score tx MUST have landed on-chain before the workflow failed at REGISTER_VALIDATOR
+      // Verify progress: all steps completed
       expect(final.progress.score_tx_hash).toBeDefined();
       expect(final.progress.score_confirmed).toBe(true);
+      expect(final.progress.register_validator_confirmed).toBe(true);
 
-      // On-chain verification: score IS recorded in StudioProxy despite workflow FAIL
+      // On-chain verification: score IS recorded in StudioProxy
       const result = await verifier.getScoreVectorsForWorker(dataHash, worker.address);
       expect(result.validators.length).toBeGreaterThan(0);
       expect(result.validators.map((v) => v.toLowerCase())).toContain(validator.address.toLowerCase());

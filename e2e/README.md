@@ -112,9 +112,9 @@ Arweave is mocked (`MockArweaveAdapter`) since it's external infrastructure, but
 | Test | Flow | Verifies |
 |------|------|----------|
 | Health check | `GET /health` | Gateway is up and connected |
-| Work submission + on-chain verify | `POST /workflows/work-submission` → poll → `getWorkSubmitter()` | Workflow STALLs at REGISTER_WORK; work IS on-chain |
+| Work submission + on-chain verify | `POST /workflows/work-submission` → poll → `getWorkSubmitter()` | Full golden path → COMPLETED; work + registration on-chain |
 | Invalid input rejection | `POST` with missing `data_hash` | Returns 400, validates request schema |
-| Score submission + on-chain verify | Work submission first → `POST /workflows/score-submission` → poll → `getScoreVectorsForWorker()` | Score tx confirmed on-chain; workflow FAILs at REGISTER_VALIDATOR ("Reveal not confirmed") |
+| Score submission + on-chain verify | Work submission first → `POST /workflows/score-submission` → poll → `getScoreVectorsForWorker()` | Full golden path → COMPLETED; score + validator registration on-chain |
 | Unsubmitted dataHash (negative) | `getWorkSubmitter(unknownHash)` | Returns zero address for data never submitted |
 | Workflow status query | `POST` + `GET /workflows/:id` | Returns correct workflow details |
 | Unknown workflow | `GET /workflows/00000000-...` | Returns 404 |
@@ -220,11 +220,20 @@ All private keys are read from `e2e/.env.anvil` (single source of truth). These 
 
 ---
 
-## Workflow Stall Points
+## Admin Signer Architecture
 
-Each workflow type proceeds through its steps until it hits a blocker. The E2E tests verify that on-chain state is correctly written **before** the stall point, even though the workflow does not reach COMPLETED.
+The Gateway uses a **two-signer model** to handle the different ownership requirements of on-chain contracts:
 
-### WorkSubmission (6 steps)
+| Step | Who signs | Why |
+|------|-----------|-----|
+| `submitWork` | Agent (worker) | The worker submits their own work to StudioProxy |
+| `submitScoreVectorForWorker` | Agent (validator) | The validator submits their own score to StudioProxy |
+| `registerWork` | Admin (owner) | Bookkeeping in RewardsDistributor — `onlyOwner` by contract design |
+| `registerValidator` | Admin (owner) | Bookkeeping in RewardsDistributor — `onlyOwner` by contract design |
+
+The admin signer address is configured via `ADMIN_SIGNER_ADDRESS` env var (set from the deployer address in `addresses.json`). The deployer key is already loaded as `SIGNER_PRIVATE_KEY`.
+
+### WorkSubmission (6 steps → COMPLETED)
 
 ```
 UPLOAD_EVIDENCE         ── arweave_tx_id = "mock-ar-..."            ── PASS
@@ -233,44 +242,39 @@ UPLOAD_EVIDENCE         ── arweave_tx_id = "mock-ar-..."            ── P
 AWAIT_ARWEAVE_CONFIRM   ── arweave_confirmed = true                 ── PASS
        │
        ▼
-SUBMIT_WORK_ONCHAIN     ── onchain_tx_hash (real tx to StudioProxy) ── PASS
+SUBMIT_WORK_ONCHAIN     ── signs with agent (worker) signer         ── PASS
        │
        ▼
 AWAIT_TX_CONFIRM        ── onchain_confirmed = true, onchain_block  ── PASS
        │
        ▼
-REGISTER_WORK           ── registerWork() is onlyOwner              ── STALL
-       │
-       ✕  (never reached)
-AWAIT_REGISTER_CONFIRM
-```
-
-**Result:** STALLED. But `getWorkSubmitter(dataHash)` returns the worker address (verified in tests).
-
-### ScoreSubmission — direct mode (4 steps)
-
-```
-SUBMIT_SCORE_DIRECT     ── score_tx_hash (real tx to StudioProxy)   ── PASS
+REGISTER_WORK           ── signs with admin (owner) signer          ── PASS
        │
        ▼
-AWAIT_SCORE_CONFIRM     ── score_confirmed = true, score_block      ── PASS
-       │
-       ▼
-REGISTER_VALIDATOR      ── "Reveal not confirmed" (checks            ── FAIL
-       │                   reveal_confirmed instead of score_confirmed)
-       ✕  (never reached)
-AWAIT_REGISTER_CONFIRM
+AWAIT_REGISTER_CONFIRM  ── register_confirmed = true                ── PASS → COMPLETED
 ```
 
-**Result:** FAILED. But `getScoreVectorsForWorker(dataHash, worker)` returns the validator + scores (verified in tests).
+### ScoreSubmission — direct mode (4 steps → COMPLETED)
+
+```
+SUBMIT_SCORE_DIRECT           ── signs with agent (validator) signer      ── PASS
+       │
+       ▼
+AWAIT_SCORE_CONFIRM           ── score_confirmed = true                   ── PASS
+       │
+       ▼
+REGISTER_VALIDATOR            ── signs with admin (owner) signer          ── PASS
+       │
+       ▼
+AWAIT_REGISTER_VALIDATOR_CONFIRM ── register_validator_confirmed = true   ── PASS → COMPLETED
+```
 
 ---
 
-## Known Issues
+## Resolved Issues
 
-See [#26](https://github.com/ChaosChain/chaoschain/issues/26) for the full list of E2E findings. The main blocker for the full golden path:
-
-- **`registerWork` / `registerValidator` are `onlyOwner`** on `RewardsDistributor`. The Gateway currently uses the worker/validator wallet to sign these calls, but the contract requires the deployer/owner. Workflows STALL at the `REGISTER_WORK` step. The fix requires adding an `adminSignerAddress` to the registration steps so the Gateway uses the owner wallet for these specific calls.
+- **`registerWork` / `registerValidator` onlyOwner** — Resolved by adding `adminSignerAddress` config. The Gateway now uses the deployer/owner wallet for these specific calls while using the agent wallet for `submitWork`/`submitScoreVectorForWorker`. See [#26](https://github.com/ChaosChain/chaoschain/issues/26).
+- **Precondition bug in `RegisterValidatorStep`** — Direct mode sets `score_confirmed` but the step checked `reveal_confirmed` (commit-reveal only). Fixed to accept either flag.
 
 ---
 
@@ -301,15 +305,15 @@ See [#26](https://github.com/ChaosChain/chaoschain/issues/26) for the full list 
 - [x] Arweave confirmation
 - [x] Work submission tx (`StudioProxy.submitWork`)
 - [x] Work tx confirmation (block finality)
-- [ ] Register work (`RewardsDistributor.registerWork`) — **blocked: onlyOwner ([#26](https://github.com/ChaosChain/chaoschain/issues/26))**
+- [x] Register work (`RewardsDistributor.registerWork`) — admin signer
 - [x] Score submission tx (`StudioProxy.submitScoreVectorForWorker`)
 - [x] Score tx confirmation (block finality)
-- [ ] Register validator (`RewardsDistributor.registerValidator`) — **blocked: precondition bug + onlyOwner ([#26](https://github.com/ChaosChain/chaoschain/issues/26))**
+- [x] Register validator (`RewardsDistributor.registerValidator`) — admin signer
 
 ### Workflows — Completion Status
 
-- [ ] WorkSubmission → COMPLETED — **blocked by REGISTER_WORK**
-- [ ] ScoreSubmission (direct) → COMPLETED — **blocked by REGISTER_VALIDATOR**
+- [x] WorkSubmission → COMPLETED
+- [x] ScoreSubmission (direct) → COMPLETED
 - [ ] ScoreSubmission (commit-reveal) — not tested
 - [ ] CloseEpoch — not tested (depends on work + scores completing)
 
@@ -331,12 +335,12 @@ See [#26](https://github.com/ChaosChain/chaoschain/issues/26) for the full list 
 - [x] `GatewayClient.get_workflow()`
 - [x] Error handling (`GatewayError`, `ValueError`)
 
-### Pending — Requires Fix in Gateway Source ([#26](https://github.com/ChaosChain/chaoschain/issues/26))
+### Pending — Gateway Source
 
-- [ ] `adminSignerAddress` for REGISTER_WORK / REGISTER_VALIDATOR
-- [ ] Fix precondition bug (line 955: `reveal_confirmed` → `score_confirmed` for direct mode)
+- [x] `adminSignerAddress` for REGISTER_WORK / REGISTER_VALIDATOR
+- [x] Fix precondition bug (`reveal_confirmed` → `score_confirmed` for direct mode)
+- [x] Full golden path tests (WorkSubmission + ScoreSubmission → COMPLETED)
 - [ ] `progressUpdates` in reconciliation ADVANCE_TO_STEP
-- [ ] Full golden path tests (WorkSubmission + ScoreSubmission → COMPLETED)
 - [ ] CloseEpoch workflow tests
 
 ### Pending — Future

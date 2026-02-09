@@ -536,17 +536,20 @@ export class RegisterWorkStep implements StepExecutor<WorkSubmissionRecord> {
   private persistence: WorkflowPersistence;
   private encoder: RewardsDistributorEncoder;
   private rewardsDistributorAddress: string;
+  private adminSignerAddress?: string;
 
   constructor(
     txQueue: TxQueue,
     persistence: WorkflowPersistence,
     encoder: RewardsDistributorEncoder,
-    rewardsDistributorAddress: string
+    rewardsDistributorAddress: string,
+    adminSignerAddress?: string
   ) {
     this.txQueue = txQueue;
     this.persistence = persistence;
     this.encoder = encoder;
     this.rewardsDistributorAddress = rewardsDistributorAddress;
+    this.adminSignerAddress = adminSignerAddress;
   }
 
   isIrreversible(): boolean {
@@ -587,9 +590,11 @@ export class RegisterWorkStep implements StepExecutor<WorkSubmissionRecord> {
     };
 
     try {
+      // Use admin signer (RewardsDistributor owner) if configured, otherwise fall back to agent signer
+      const signer = this.adminSignerAddress || input.signer_address;
       const txHash = await this.txQueue.submitOnly(
         workflow.id,
-        input.signer_address,
+        signer,
         txRequest
       );
 
@@ -667,10 +672,12 @@ export class RegisterWorkStep implements StepExecutor<WorkSubmissionRecord> {
 export class AwaitRegisterConfirmStep implements StepExecutor<WorkSubmissionRecord> {
   private txQueue: TxQueue;
   private persistence: WorkflowPersistence;
+  private adminSignerAddress?: string;
 
-  constructor(txQueue: TxQueue, persistence: WorkflowPersistence) {
+  constructor(txQueue: TxQueue, persistence: WorkflowPersistence, adminSignerAddress?: string) {
     this.txQueue = txQueue;
     this.persistence = persistence;
+    this.adminSignerAddress = adminSignerAddress;
   }
 
   isIrreversible(): boolean {
@@ -699,8 +706,9 @@ export class AwaitRegisterConfirmStep implements StepExecutor<WorkSubmissionReco
     try {
       const receipt = await this.txQueue.waitForTx(progress.register_tx_hash);
 
-      // Release the signer lock
-      this.txQueue.releaseSignerLock(input.signer_address);
+      // Release the signer that was used for the register tx (admin if configured)
+      const registerSigner = this.adminSignerAddress || input.signer_address;
+      this.txQueue.releaseSignerLock(registerSigner);
 
       switch (receipt.status) {
         case 'confirmed':
@@ -801,7 +809,8 @@ export function createWorkSubmissionDefinition(
   persistence: WorkflowPersistence,
   contractEncoder: ContractEncoder,
   rewardsDistributorEncoder: RewardsDistributorEncoder,
-  rewardsDistributorAddress: string
+  rewardsDistributorAddress: string,
+  adminSignerAddress?: string
 ): WorkflowDefinition<WorkSubmissionRecord> {
   const steps = new Map<string, StepExecutor<WorkSubmissionRecord>>();
 
@@ -809,8 +818,8 @@ export function createWorkSubmissionDefinition(
   steps.set('AWAIT_ARWEAVE_CONFIRM', new AwaitArweaveConfirmStep(arweave, persistence));
   steps.set('SUBMIT_WORK_ONCHAIN', new SubmitWorkOnchainStep(txQueue, persistence, contractEncoder));
   steps.set('AWAIT_TX_CONFIRM', new AwaitTxConfirmStep(txQueue, persistence));
-  steps.set('REGISTER_WORK', new RegisterWorkStep(txQueue, persistence, rewardsDistributorEncoder, rewardsDistributorAddress));
-  steps.set('AWAIT_REGISTER_CONFIRM', new AwaitRegisterConfirmStep(txQueue, persistence));
+  steps.set('REGISTER_WORK', new RegisterWorkStep(txQueue, persistence, rewardsDistributorEncoder, rewardsDistributorAddress, adminSignerAddress));
+  steps.set('AWAIT_REGISTER_CONFIRM', new AwaitRegisterConfirmStep(txQueue, persistence, adminSignerAddress));
 
   return {
     type: 'WorkSubmission',
