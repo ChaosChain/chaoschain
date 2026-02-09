@@ -75,8 +75,9 @@ export function loadConfigFromEnv(): GatewayConfig {
     rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
     // Arweave Turbo gateway
     turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
-    adminSignerAddress: process.env.ADMIN_SIGNER_ADDRESS || undefined,
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
+    // Admin signer (optional, but required for full functionality)
+    adminSignerAddress: process.env.ADMIN_SIGNER_ADDRESS || undefined,
   };
 }
 
