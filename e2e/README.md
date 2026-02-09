@@ -140,7 +140,6 @@ Arweave is mocked (`MockArweaveAdapter`) since it's external infrastructure, but
 
 | Gap | Reason | Tracked In |
 |-----|--------|------------|
-| Full golden path to COMPLETED | `registerWork`/`registerValidator` are `onlyOwner` — workflows STALL at `REGISTER_WORK` step | [#26](https://github.com/ChaosChain/chaoschain/issues/26) |
 | Commit-reveal score submission | Only direct mode tested; commit-reveal needs two-phase interaction | Future |
 | CloseEpoch workflow | Depends on full golden path (work + scores must complete first) | Future |
 | Multi-agent work submission | `submitWorkMultiAgent` with DKG weights not exercised | Future |
