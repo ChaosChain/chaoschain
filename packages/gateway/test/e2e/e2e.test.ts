@@ -1,3 +1,4 @@
+import { ethers } from 'ethers';
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   GATEWAY_URL,
@@ -10,9 +11,12 @@ import {
   postWorkflow,
   getWorkflow,
   pollUntilTerminal,
+  createOnChainVerifier,
+  type OnChainVerifier,
 } from './helpers.js';
 
 let studioProxy: string;
+let verifier: OnChainVerifier;
 
 beforeAll(async () => {
   // Verify gateway is healthy
@@ -23,6 +27,7 @@ beforeAll(async () => {
 
   const addresses = getAddresses();
   studioProxy = addresses.STUDIO_PROXY;
+  verifier = createOnChainVerifier(studioProxy);
 });
 
 describe('Gateway E2E', () => {
@@ -36,7 +41,7 @@ describe('Gateway E2E', () => {
   });
 
   describe('Work Submission', () => {
-    it('creates a workflow and reaches RUNNING or terminal state', async () => {
+    it('submits work on-chain then STALLs at REGISTER_WORK (onlyOwner)', async () => {
       const worker = WORKERS[0];
       const dataHash = randomDataHash();
       const threadRoot = randomRoot();
@@ -62,11 +67,15 @@ describe('Gateway E2E', () => {
       // Poll until terminal state
       const final = await pollUntilTerminal(data.id);
 
-      // The workflow will either COMPLETE or STALL at REGISTER_WORK (onlyOwner issue)
+      // The workflow STALLs at REGISTER_WORK (onlyOwner issue on RewardsDistributor)
       expect(['COMPLETED', 'STALLED']).toContain(final.state);
 
       // Verify progress: arweave and onchain steps should have been reached
       expect(final.progress.arweave_tx_id).toBeDefined();
+
+      // On-chain verification: work IS recorded in StudioProxy despite workflow STALL
+      const submitter = await verifier.getWorkSubmitter(dataHash);
+      expect(submitter.toLowerCase()).toBe(worker.address.toLowerCase());
     });
 
     it('rejects invalid input (missing data_hash)', async () => {
@@ -86,11 +95,31 @@ describe('Gateway E2E', () => {
   });
 
   describe('Score Submission (direct mode)', () => {
-    it('creates a score workflow and starts processing', async () => {
-      const validator = VALIDATORS[0];
+    it('submits score on-chain for existing work, then STALLs at REGISTER_VALIDATOR', async () => {
       const worker = WORKERS[1];
+      const validator = VALIDATORS[0];
       const dataHash = randomDataHash();
 
+      // Step 1: Submit work first — the contract requires work to exist before scoring
+      const workRes = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: worker.address,
+        data_hash: dataHash,
+        thread_root: randomRoot(),
+        evidence_root: randomRoot(),
+        evidence_content: Buffer.from('work for scoring').toString('base64'),
+        signer_address: worker.address,
+      });
+      expect(workRes.status).toBe(201);
+      const workFinal = await pollUntilTerminal(workRes.data.id);
+      expect(['COMPLETED', 'STALLED']).toContain(workFinal.state);
+
+      // Confirm work is on-chain before scoring
+      const submitter = await verifier.getWorkSubmitter(dataHash);
+      expect(submitter.toLowerCase()).toBe(worker.address.toLowerCase());
+
+      // Step 2: Submit score for that work
       const { status, data } = await postWorkflow('/workflows/score-submission', {
         studio_address: studioProxy,
         epoch: 1,
@@ -106,9 +135,20 @@ describe('Gateway E2E', () => {
       expect(data.type).toBe('ScoreSubmission');
       expect(data.state).toBe('CREATED');
 
-      // Poll — the workflow will reach some state (may STALL or FAIL depending on on-chain state)
+      // Poll — workflow FAILs at REGISTER_VALIDATOR ("Reveal not confirmed" — precondition bug
+      // checks reveal_confirmed instead of score_confirmed for direct mode)
       const final = await pollUntilTerminal(data.id);
       expect(['COMPLETED', 'STALLED', 'FAILED']).toContain(final.state);
+
+      // Score tx MUST have landed on-chain before the workflow failed at REGISTER_VALIDATOR
+      expect(final.progress.score_tx_hash).toBeDefined();
+      expect(final.progress.score_confirmed).toBe(true);
+
+      // On-chain verification: score IS recorded in StudioProxy despite workflow FAIL
+      const result = await verifier.getScoreVectorsForWorker(dataHash, worker.address);
+      expect(result.validators.length).toBeGreaterThan(0);
+      expect(result.validators.map((v) => v.toLowerCase())).toContain(validator.address.toLowerCase());
+      expect(result.scoreVectors.length).toBe(result.validators.length);
     });
   });
 
@@ -134,6 +174,14 @@ describe('Gateway E2E', () => {
     it('GET /workflows/:id returns 404 for unknown ID', async () => {
       const res = await fetch(`${GATEWAY_URL}/workflows/00000000-0000-0000-0000-000000000000`);
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('On-chain state verification', () => {
+    it('unsubmitted dataHash returns zero address', async () => {
+      const unknownHash = ethers.keccak256(ethers.toUtf8Bytes('never-submitted'));
+      const submitter = await verifier.getWorkSubmitter(unknownHash);
+      expect(submitter).toBe(ethers.ZeroAddress);
     });
   });
 

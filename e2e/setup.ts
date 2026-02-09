@@ -9,7 +9,7 @@
  *
  * Prerequisites:
  *   - Anvil running on localhost:8546 (via docker-compose.e2e.yml)
- *   - Contracts pre-compiled: cd packages/contracts && forge build --skip test --skip DeployFactoryCore
+ *   - Contracts pre-compiled: cd packages/contracts && forge build --skip test
  */
 
 import { ethers } from 'ethers';
@@ -112,7 +112,7 @@ function deployContracts(): Omit<DeployedAddresses, 'STUDIO_PROXY'> {
       `--rpc-url ${RPC_URL}`,
       `--private-key ${DEPLOYER_KEY}`,
       '--broadcast',
-      '--skip test --skip DeployFactoryCore',
+      '--skip test',
     ].join(' '),
     {
       cwd: CONTRACTS_DIR,

@@ -47,6 +47,39 @@ export function getAddresses(): Record<string, string> {
   return JSON.parse(raw);
 }
 
+// ─── On-Chain Verification ────────────────────────────────────────────
+
+const STUDIO_PROXY_ABI = [
+  'function getWorkSubmitter(bytes32 dataHash) external view returns (address submitter)',
+  'function getScoreVectorsForWorker(bytes32 dataHash, address worker) external view returns (address[] validators, bytes[] scoreVectors)',
+];
+
+export interface OnChainVerifier {
+  getWorkSubmitter(dataHash: string): Promise<string>;
+  getScoreVectorsForWorker(
+    dataHash: string,
+    worker: string,
+  ): Promise<{ validators: string[]; scoreVectors: string[] }>;
+}
+
+export function createOnChainVerifier(studioProxyAddress: string): OnChainVerifier {
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  const contract = new ethers.Contract(studioProxyAddress, STUDIO_PROXY_ABI, provider);
+
+  return {
+    async getWorkSubmitter(dataHash: string): Promise<string> {
+      return contract.getWorkSubmitter(dataHash);
+    },
+    async getScoreVectorsForWorker(
+      dataHash: string,
+      worker: string,
+    ): Promise<{ validators: string[]; scoreVectors: string[] }> {
+      const [validators, scoreVectors] = await contract.getScoreVectorsForWorker(dataHash, worker);
+      return { validators: [...validators], scoreVectors: [...scoreVectors] };
+    },
+  };
+}
+
 export interface WorkflowResponse {
   id: string;
   type: string;
