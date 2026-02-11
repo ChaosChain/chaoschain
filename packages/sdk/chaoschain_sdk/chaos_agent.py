@@ -71,89 +71,75 @@ class ChaosAgent:
     
     def _load_contract_addresses(self):
         """
-        Load deployed ERC-8004 v1.0 contract addresses.
-        
-        These are the official ERC-8004 v1.0 contracts deployed on testnets.
-        Source: /Users/sumeet/Desktop/erc-8004-contracts/contracts
+        Load deployed ERC-8004 contract addresses.
+
+        Official ERC-8004 deployments (same addresses across chains):
+        - Mainnet (Ethereum, Base, Polygon, Arbitrum, Celo, Gnosis, Scroll, Taiko, Monad, BSC):
+          IdentityRegistry: 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
+          ReputationRegistry: 0x8004BAa17C55a88189AE136b182e5fdA19dE9b63
+        - Testnet (Ethereum Sepolia, Base Sepolia, Polygon Amoy, Arbitrum Testnet, Celo Testnet,
+          Scroll Testnet, Monad Testnet, BSC Testnet):
+          IdentityRegistry: 0x8004A818BFB912233c491871b3d84c89A494BD9e
+          ReputationRegistry: 0x8004B663056A597Dffe9eCcC1965A193B7388713
         """
-        # Network-specific configuration with actual deployed addresses
+        # ERC-8004 official deployed addresses (exact addresses from ERC-8004 deployment list)
+        ERC8004_MAINNET_IDENTITY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432'
+        ERC8004_MAINNET_REPUTATION = '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63'
+        ERC8004_TESTNET_IDENTITY = '0x8004A818BFB912233c491871b3d84c89A494BD9e'
+        ERC8004_TESTNET_REPUTATION = '0x8004B663056A597Dffe9eCcC1965A193B7388713'
+        ERC8004_TESTNET_VALIDATION = '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5'
+        ZERO = '0x0000000000000000000000000000000000000000'
+
+        def _mainnet(usdc=None, treasury=None):
+            return {
+                'identity_registry': ERC8004_MAINNET_IDENTITY,
+                'reputation_registry': ERC8004_MAINNET_REPUTATION,
+                'validation_registry': ZERO,
+                'usdc_token': usdc or ZERO,
+                'treasury': treasury,
+            }
+
+        def _testnet(usdc=ZERO, treasury=None, validation=ERC8004_TESTNET_VALIDATION):
+            return {
+                'identity_registry': ERC8004_TESTNET_IDENTITY,
+                'reputation_registry': ERC8004_TESTNET_REPUTATION,
+                'validation_registry': validation,
+                'usdc_token': usdc,
+                'treasury': treasury or '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
+            }
+
         contract_addresses = {
-            # ═══════════════════════════════════════════════════════════════════
-            # MAINNET - Production ERC-8004 Registries
-            # ═══════════════════════════════════════════════════════════════════
-            NetworkConfig.ETHEREUM_MAINNET: {
-                # Official ERC-8004 Registries (Jan 2026 spec)
-                # https://github.com/erc-8004/erc-8004-contracts
-                'identity_registry': '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-                'reputation_registry': '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
-                'validation_registry': None,  # Not yet deployed on mainnet
-                'usdc_token': '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',  # USDC on mainnet
-                'treasury': None,  # ChaosChain not yet on mainnet
-                # Note: ChaosChain protocol contracts not yet deployed on mainnet
-                # Agent registration works, reputation comes from ChaosChain protocol
-            },
-            # ═══════════════════════════════════════════════════════════════════
-            # TESTNETS
-            # ═══════════════════════════════════════════════════════════════════
-            NetworkConfig.BASE_SEPOLIA: {
-                'identity_registry': '0x8004AA63c570c570eBF15376c0dB199918BFe9Fb',
-                'reputation_registry': '0x8004bd8daB57f14Ed299135749a5CB5c42d341BF',
-                'validation_registry': '0x8004C269D0A5647E51E121FeB226200ECE932d55',
-                'usdc_token': '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            },
+            # ═══ MAINNET: Ethereum, Base, Polygon, Arbitrum, Celo, Gnosis, Scroll, Taiko, Monad, BSC ═══
+            NetworkConfig.ETHEREUM_MAINNET: _mainnet(usdc='0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
+            NetworkConfig.BASE_MAINNET: _mainnet(),
+            NetworkConfig.POLYGON_MAINNET: _mainnet(),
+            NetworkConfig.ARBITRUM_MAINNET: _mainnet(),
+            NetworkConfig.CELO_MAINNET: _mainnet(),
+            NetworkConfig.GNOSIS_MAINNET: _mainnet(),
+            NetworkConfig.SCROLL_MAINNET: _mainnet(),
+            NetworkConfig.TAIKO_MAINNET: _mainnet(),
+            NetworkConfig.MONAD_MAINNET: _mainnet(),
+            NetworkConfig.BSC_MAINNET: _mainnet(),
+            # ═══ TESTNET: Ethereum Sepolia, Base Sepolia, Polygon Amoy, Arbitrum Testnet, Celo Testnet, Scroll Testnet, Monad Testnet, BSC Testnet ═══
             NetworkConfig.ETHEREUM_SEPOLIA: {
-                # Official ERC-8004 Registries (Feb 2026 spec - https://github.com/erc-8004/erc-8004-contracts)
-                'identity_registry': '0x8004A818BFB912233c491871b3d84c89A494BD9e',
-                'reputation_registry': '0x8004B663056A597Dffe9eCcC1965A193B7388713',
-                'validation_registry': '0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5',
-                'usdc_token': '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70',
-                # ChaosChain Protocol v0.4.31 (deployed Jan 28, 2026) - ERC-8004 Feb 2026 ABI
-                # giveFeedback: score (uint8) -> value (int128) + valueDecimals (uint8)
-                # validationResponse: tag (bytes32) -> tag (string)
+                **_testnet(usdc='0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'),
                 'chaos_registry': '0x7F38C1aFFB24F30500d9174ed565110411E42d50',
                 'chaos_core': '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
                 'rewards_distributor': '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
                 'studio_factory': '0x54Cbf5fa7d10ECBab4f46D71FAD298A230A16aF6',
-                # LogicModules
-                'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3'
+                'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3',
             },
-            NetworkConfig.OPTIMISM_SEPOLIA: {
-                'identity_registry': '0x0000000000000000000000000000000000000000',  # Not yet deployed
-                'reputation_registry': '0x0000000000000000000000000000000000000000',
-                'validation_registry': '0x0000000000000000000000000000000000000000',
-                'usdc_token': '0x5fd84259d66Cd46123540766Be93DFE6D43130D7',
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            },
-            NetworkConfig.LINEA_SEPOLIA: {
-                'identity_registry': '0x8004aa7C931bCE1233973a0C6A667f73F66282e7',
-                'reputation_registry': '0x8004bd8483b99310df121c46ED8858616b2Bba02',
-                'validation_registry': '0x8004c44d1EFdd699B2A26e781eF7F77c56A9a4EB',
-                'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add Linea USDC
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            },
-            NetworkConfig.HEDERA_TESTNET: {
-                'identity_registry': '0x4c74ebd72921d537159ed2053f46c12a7d8e5923',
-                'reputation_registry': '0xc565edcba77e3abeade40bfd6cf6bf583b3293e0',
-                'validation_registry': '0x18df085d85c586e9241e0cd121ca422f571c2da6',
-                'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add Hedera USDC
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            },
-            NetworkConfig.BSC_TESTNET: {
-                'identity_registry': '0xabbd26d86435b35d9c45177725084ee6a2812e40',
-                'reputation_registry': '0xeced1af52a0446275e9e6e4f6f26c99977400a6a',
-                'validation_registry': '0x7866bd057f09a4940fe2ce43320518c8749a921e',
-                'usdc_token': '0x0000000000000000000000000000000000000000',  # TODO: Add BSC USDC
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            },
-            NetworkConfig.ZEROG_TESTNET: {
-                'identity_registry': '0x80043ed9cf33a3472768dcd53175bb44e03a1e4a',
-                'reputation_registry': '0x80045d7b72c47bf5ff73737b780cb1a5ba8ee202',
-                'validation_registry': '0x80041728e0aadf1d1427f9be18d52b7f3afefafb',
-                'usdc_token': '0x0000000000000000000000000000000000000000',  # 0G uses native A0GI token
-                'treasury': '0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70'
-            }
+            NetworkConfig.BASE_SEPOLIA: _testnet(usdc='0x036CbD53842c5426634e7929541eC2318f3dCF7e'),
+            NetworkConfig.POLYGON_AMOY: _testnet(),
+            NetworkConfig.ARBITRUM_TESTNET: _testnet(),
+            NetworkConfig.CELO_TESTNET: _testnet(),
+            NetworkConfig.SCROLL_TESTNET: _testnet(),
+            NetworkConfig.MONAD_TESTNET: _testnet(),
+            NetworkConfig.BSC_TESTNET: _testnet(),
+            NetworkConfig.OPTIMISM_SEPOLIA: _testnet(usdc='0x5fd84259d66Cd46123540766Be93DFE6D43130D7', validation=ZERO),
+            NetworkConfig.LINEA_SEPOLIA: _testnet(validation=ZERO),
+            NetworkConfig.MODE_TESTNET: _testnet(validation=ZERO),
+            NetworkConfig.LOCAL: _testnet(validation=ZERO),
         }
         
         network_contracts = contract_addresses.get(self.network)

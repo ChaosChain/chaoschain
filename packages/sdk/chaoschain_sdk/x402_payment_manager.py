@@ -103,15 +103,6 @@ class X402PaymentManager:
                 "token_symbol": "USDC",
                 "decimals": 6
             },
-            NetworkConfig.ZEROG_TESTNET: {
-                "chain_id": 16602,
-                "usdc_address": "0x0000000000000000000000000000000000000000",  # Placeholder for native A0GI
-                "rpc_url": os.getenv("ZEROG_TESTNET_RPC_URL", "https://evmrpc-testnet.0g.ai"),
-                "x402_network": "base-sepolia",  # Use base-sepolia for x402 protocol validation (Coinbase doesn't support 0G yet)
-                "token_symbol": "A0GI",
-                "decimals": 18,  # Native token, 18 decimals
-                "native_token": True  # Use native token instead of ERC-20
-            },
             NetworkConfig.OPTIMISM_SEPOLIA: {
                 "chain_id": 11155420,
                 "usdc_address": "0x5fd84259d66Cd46123540766Be93DFE6D43130D7",

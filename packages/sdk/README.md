@@ -127,44 +127,79 @@ pip install chaoschain-sdk[all]          # Everything
 
 ## Network Support
 
-### ERC-8004 Agent Registration (Works NOW)
+### ERC-8004 Agent Registration (Official Deployments)
 
-| Network | Status | Use Case |
-|---------|--------|----------|
-| **Ethereum Mainnet** | ✅ Live | Production agent identity |
-| **Ethereum Sepolia** | ✅ Live | Development + ChaosChain protocol |
+The SDK points to the official ERC-8004 deployed contracts. Use `NetworkConfig` to pick the chain; the SDK uses the correct Identity and Reputation registry addresses for that chain.
+
+**Mainnet** (same addresses on all): `IdentityRegistry` `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, `ReputationRegistry` `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`
+
+| NetworkConfig | Chain |
+|---------------|--------|
+| `ETHEREUM_MAINNET` | Ethereum Mainnet |
+| `BASE_MAINNET` | Base Mainnet |
+| `POLYGON_MAINNET` | Polygon Mainnet |
+| `ARBITRUM_MAINNET` | Arbitrum One |
+| `CELO_MAINNET` | Celo Mainnet |
+| `GNOSIS_MAINNET` | Gnosis |
+| `SCROLL_MAINNET` | Scroll Mainnet |
+| `TAIKO_MAINNET` | Taiko Mainnet |
+| `MONAD_MAINNET` | Monad Mainnet |
+| `BSC_MAINNET` | BNB Chain (BSC) Mainnet |
+
+**Testnet** (same addresses on all): `IdentityRegistry` `0x8004A818BFB912233c491871b3d84c89A494BD9e`, `ReputationRegistry` `0x8004B663056A597Dffe9eCcC1965A193B7388713`
+
+| NetworkConfig | Chain |
+|---------------|--------|
+| `ETHEREUM_SEPOLIA` | Ethereum Sepolia (ChaosChain protocol + recommended dev) |
+| `BASE_SEPOLIA` | Base Sepolia |
+| `POLYGON_AMOY` | Polygon Amoy |
+| `ARBITRUM_TESTNET` | Arbitrum Testnet |
+| `CELO_TESTNET` | Celo Testnet |
+| `SCROLL_TESTNET` | Scroll Testnet |
+| `MONAD_TESTNET` | Monad Testnet |
+| `BSC_TESTNET` | BSC Testnet |
+| `OPTIMISM_SEPOLIA` | Optimism Sepolia |
+| `LINEA_SEPOLIA` | Linea Sepolia |
+| `MODE_TESTNET` | Mode Testnet |
 
 ```python
 from chaoschain_sdk import ChaosChainAgentSDK, NetworkConfig
 
-# === MAINNET (Production) ===
-# Register your AI agent on Ethereum mainnet
-# Requires real ETH for gas (~$2-5 for registration)
+# Any mainnet — SDK uses mainnet ERC-8004 addresses
 sdk = ChaosChainAgentSDK(
-    agent_name="MyProductionAgent",
+    agent_name="MyAgent",
     agent_domain="myagent.com",
-    network=NetworkConfig.ETHEREUM_MAINNET,  # 👈 MAINNET
-    private_key="your_mainnet_private_key"
+    network=NetworkConfig.POLYGON_MAINNET,  # or BASE_MAINNET, ARBITRUM_MAINNET, etc.
+    private_key="0x..."
 )
 agent_id, tx = sdk.register_identity()
-print(f"✅ Agent #{agent_id} registered on mainnet!")
 
-# === TESTNET (Development) ===
-# For development and ChaosChain protocol testing
+# Any testnet — SDK uses testnet ERC-8004 addresses
 sdk = ChaosChainAgentSDK(
-    agent_name="MyTestAgent",
+    agent_name="MyAgent",
     agent_domain="test.myagent.com",
-    network=NetworkConfig.ETHEREUM_SEPOLIA,  # 👈 TESTNET
-    private_key="your_testnet_private_key"
+    network=NetworkConfig.ETHEREUM_SEPOLIA,  # or BASE_SEPOLIA, POLYGON_AMOY, etc.
+    private_key="0x..."
 )
+agent_id, tx = sdk.register_identity()
 ```
 
-### ERC-8004 Mainnet Contracts
+### ERC-8004 Contract Addresses (exact)
+
+**Mainnet** (Ethereum, Base, Polygon, Arbitrum, Celo, Gnosis, Scroll, Taiko, Monad, BSC):
 
 | Contract | Address |
 |----------|---------|
 | IdentityRegistry | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
 | ReputationRegistry | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+
+**Testnet** (Ethereum Sepolia, Base Sepolia, Polygon Amoy, Arbitrum Testnet, Celo Testnet, Scroll Testnet, Monad Testnet, BSC Testnet):
+
+| Contract | Address |
+|----------|---------|
+| IdentityRegistry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| ReputationRegistry | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
+| ValidationRegistry (where deployed) | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
 
 ### Environment Variables
 
@@ -853,11 +888,9 @@ sdk.chaos_agent.set_cached_agent_id(1234)
 | **RewardsDistributor** | `0x0549772a3fF4F095C57AEFf655B3ed97B7925C19` | [View](https://sepolia.etherscan.io/address/0x0549772a3fF4F095C57AEFf655B3ed97B7925C19) |
 | **PredictionMarketLogic** | `0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3` | [View](https://sepolia.etherscan.io/address/0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3) |
 
-### ERC-8004 Registries (Jan 2026 Spec)
+### ERC-8004 Registries (Official Deployments)
 
-| Network | Chain ID | Identity Registry | Reputation Registry | Validation Registry |
-|---------|----------|-------------------|---------------------|---------------------|
-| **Ethereum Sepolia** | 11155111 | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | `0x8004CB39f29c09145F24Ad9dDe2A108C1A2cdfC5` |
+All mainnet networks use Identity `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` and Reputation `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`. All testnet networks use Identity `0x8004A818BFB912233c491871b3d84c89A494BD9e` and Reputation `0x8004B663056A597Dffe9eCcC1965A193B7388713`. Use the `NetworkConfig` value for the chain you want (e.g. `POLYGON_MAINNET`, `ARBITRUM_TESTNET`); the SDK wires the correct contracts automatically.
 
 ---
 

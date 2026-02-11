@@ -162,6 +162,66 @@ class TestSDKExceptions:
         assert issubclass(ValidationError, ChaosChainSDKError)
 
 
+class TestERC8004Addresses:
+    """ERC-8004 contract addresses must match official deployment list (no network calls)."""
+
+    ERC8004_MAINNET_IDENTITY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+    ERC8004_MAINNET_REPUTATION = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63"
+    ERC8004_TESTNET_IDENTITY = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
+    ERC8004_TESTNET_REPUTATION = "0x8004B663056A597Dffe9eCcC1965A193B7388713"
+
+    def _make_mock_wallet(self, chain_id=1):
+        mock_wallet = Mock()
+        mock_wallet.chain_id = chain_id
+        mock_wallet.get_wallet_address.return_value = "0x" + "ab" * 20
+        mock_w3 = Mock()
+        mock_w3.eth.contract.return_value = Mock()
+        mock_wallet.w3 = mock_w3
+        return mock_wallet
+
+    def test_mainnet_networks_use_mainnet_erc8004_addresses(self):
+        from chaoschain_sdk.chaos_agent import ChaosAgent
+
+        mainnet_networks = [
+            NetworkConfig.ETHEREUM_MAINNET,
+            NetworkConfig.BASE_MAINNET,
+            NetworkConfig.POLYGON_MAINNET,
+            NetworkConfig.ARBITRUM_MAINNET,
+            NetworkConfig.BSC_MAINNET,
+        ]
+        for net in mainnet_networks:
+            mock_wallet = self._make_mock_wallet(chain_id=1)
+            agent = ChaosAgent(
+                agent_name="TestAgent",
+                agent_domain="test.example.com",
+                wallet_manager=mock_wallet,
+                network=net,
+            )
+            assert agent.contract_addresses.identity_registry == self.ERC8004_MAINNET_IDENTITY, net
+            assert agent.contract_addresses.reputation_registry == self.ERC8004_MAINNET_REPUTATION, net
+
+    def test_testnet_networks_use_testnet_erc8004_addresses(self):
+        from chaoschain_sdk.chaos_agent import ChaosAgent
+
+        testnet_networks = [
+            NetworkConfig.ETHEREUM_SEPOLIA,
+            NetworkConfig.BASE_SEPOLIA,
+            NetworkConfig.POLYGON_AMOY,
+            NetworkConfig.ARBITRUM_TESTNET,
+            NetworkConfig.BSC_TESTNET,
+        ]
+        for net in testnet_networks:
+            mock_wallet = self._make_mock_wallet(chain_id=11155111)
+            agent = ChaosAgent(
+                agent_name="TestAgent",
+                agent_domain="test.example.com",
+                wallet_manager=mock_wallet,
+                network=net,
+            )
+            assert agent.contract_addresses.identity_registry == self.ERC8004_TESTNET_IDENTITY, net
+            assert agent.contract_addresses.reputation_registry == self.ERC8004_TESTNET_REPUTATION, net
+
+
 class TestMandatesIntegration:
     """Test mandates-core integration surfaces."""
 
