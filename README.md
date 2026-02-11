@@ -300,6 +300,12 @@ The Gateway is the **orchestration layer** that bridges the SDK to all off-chain
 6. **Economically Powerless** — Gateway cannot mint, burn, or move value
 7. **Protocol Isolation** — StudioProxy and RewardsDistributor are separate contracts; Gateway orchestrates the handoff
 
+### Why `packages/gateway/src/services/credit` exists
+
+The **Gateway Service** (HTTP API, workflows, DKG, XMTP, Arweave) is the orchestration layer. It does **not** run credit execution.
+
+The `packages/gateway/src/services/credit/` directory holds **shared library code** for credit execution: `CreditExecutor`, 4Mica client, Circle Gateway client, execution state machine, persistence. This code is **consumed by Studio Executor daemons** (e.g. the Credit Studio executor in `chaoschain-studios/credit-studio/executor/`), which run as standalone processes. It lives under the gateway **package** for reuse and single-source-of-truth; the Gateway **service** itself never imports or runs it. So: **gateway package** = monorepo home for shared off-chain libraries; **Gateway service** = the HTTP orchestration server only.
+
 ### WorkSubmission Workflow (6 Steps)
 
 The Gateway's `WorkSubmission` workflow orchestrates the complete work submission lifecycle:
@@ -367,6 +373,25 @@ print(f"Workflow ID: {workflow['id']}")
 final_state = sdk.gateway.wait_for_completion(workflow['id'])
 print(f"State: {final_state['state']}")  # COMPLETED or FAILED
 ```
+
+---
+
+## Studio Executor Services
+
+**Studio Executor Services** are a first-class architectural concept: **standalone daemons** that perform post-decision execution for a Studio. The on-chain Studio (e.g. CreditStudioLogic) makes **decisions** (e.g. approve/reject credit); the executor **executes** (e.g. get 4Mica guarantee, call Circle Gateway, mark completed).
+
+**Why separate from the Gateway?**
+
+| Gateway Service | Studio Executor |
+|-----------------|-----------------|
+| Orchestrates SDK workflows (work submit, score, close epoch) | Listens for Studio-specific on-chain events |
+| Single shared deployment | One daemon per Studio (or per operator) |
+| No value movement (economically powerless) | Moves value (e.g. USDC) per Studio rules |
+| Protocol-wide | Studio-scoped |
+
+**Pattern:** Contract emits event (e.g. `CreditApproved`) → Executor daemon sees it → Executor runs idempotent execution (guarantees, transfers, logging) → Executor updates on-chain state. Executors are **restart-safe** and **idempotent** so duplicate events or crashes do not cause double-spend or stuck state.
+
+**Reference implementation:** The **Credit Executor** for Credit Studio lives in `chaoschain-studios/credit-studio/executor/`. It uses the shared execution library in `packages/gateway/src/services/credit/` (see [Why `packages/gateway/src/services/credit` exists](#why-packagesgatewaysrcservicescredit-exists)). Other Studios can add their own executors (e.g. commerce, solver settlement) using the same pattern.
 
 ---
 
@@ -770,7 +795,7 @@ ERC-8004 Reputation → Credit Eligibility → 4Mica BLS Guarantee → Circle Ga
 2. Credit Studio reads Dave's ERC-8004 reputation on-chain
 3. Deterministic policy evaluates eligibility (min 60% rep, ≥3 feedbacks)
 4. If approved: `CreditApproved` event emitted
-5. Credit Executor (standalone daemon) detects the event and:
+5. **Credit Executor** (a [Studio Executor Service](#studio-executor-services)) detects the event and:
    - Requests a 4Mica BLS credit guarantee certificate
    - Executes a Circle Gateway transfer (Sepolia → Base Sepolia, <500ms)
    - Calls `markCompleted()` on-chain
@@ -780,7 +805,7 @@ ERC-8004 Reputation → Credit Eligibility → 4Mica BLS Guarantee → Circle Ga
 - **Idempotent execution** — Two-level guard (processing lock + persistence check) ensures no double processing
 - **Restart-safe** — State machine persists through restarts (Postgres in production)
 - **TTL enforcement** — Expired credits transition to DEFAULTED, reputation updated
-- **Studio-scoped** — Executor runs independently of Gateway core
+- **Studio-scoped** — Executor runs independently of Gateway core (see [Studio Executor Services](#studio-executor-services))
 
 See the [Credit Studio README](../chaoschain-studios/credit-studio/) and [demo script](../chaoschain-studios/credit-studio/demo/) for details.
 
