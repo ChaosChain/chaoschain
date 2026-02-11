@@ -178,6 +178,7 @@ class TestScoreSubmission:
             epoch=1,
             validator_address="0xValidator",
             data_hash="0x" + "ab" * 32,
+            worker_address="0xWorker",
             scores=[8000, 7500, 9000, 6500, 8500],
             salt="0x" + "ff" * 32,
             signer_address="0xSigner"
@@ -487,4 +488,3 @@ class TestBoundaryInvariants:
         
         # Exactly ONE call to Gateway
         assert len(responses.calls) == 1
-```

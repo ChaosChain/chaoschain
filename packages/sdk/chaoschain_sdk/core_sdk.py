@@ -286,12 +286,6 @@ class ChaosChainAgentSDK:
     
     def _initialize_payment_manager(self, enabled: bool):
         """Initialize legacy payment processing (FALLBACK)."""
-        # Disable legacy payment manager for 0G testnet - use x402 only
-        if self.network == NetworkConfig.ZEROG_TESTNET:
-            rprint(f"[cyan]ℹ️  Legacy payment manager disabled for 0G testnet (using x402 only)[/cyan]")
-            self.payment_manager = None
-            return
-            
         if enabled:
             try:
                 self.payment_manager = PaymentManager(
@@ -978,80 +972,6 @@ class ChaosChainAgentSDK:
         Returns:
             Payment proof with transaction details
         """
-        # For 0G Testnet, use direct native token transfers (A0GI)
-        if self.network == NetworkConfig.ZEROG_TESTNET:
-            if not to_agent or amount is None:
-                raise PaymentError("to_agent and amount must be provided")
-            
-            rprint(f"[blue]💰 Direct A0GI transfer: {self.agent_name} → {to_agent} ({amount} A0GI)[/blue]")
-            
-            # Get recipient address
-            to_address = self.wallet_manager.get_wallet_address(to_agent)
-            if not to_address:
-                raise PaymentError(f"Could not resolve address for agent: {to_agent}")
-            
-            # Execute direct native token transfer
-            from web3 import Web3
-            from eth_account import Account
-            import time
-            
-            # Get sender wallet
-            from_wallet = self.wallet_manager.wallets.get(self.agent_name)
-            if not from_wallet:
-                raise PaymentError(f"Wallet not found for agent: {self.agent_name}")
-            
-            # Use wallet manager's web3 instance
-            w3 = self.wallet_manager.w3
-            
-            # Convert amount to wei (A0GI has 18 decimals like ETH)
-            amount_wei = w3.to_wei(amount, 'ether')
-            
-            # Build transaction
-            nonce = w3.eth.get_transaction_count(from_wallet.address)
-            
-            tx = {
-                'nonce': nonce,
-                'to': to_address,
-                'value': amount_wei,
-                'gas': 21000,
-                'gasPrice': w3.eth.gas_price,
-                'chainId': w3.eth.chain_id
-            }
-            
-            # Sign and send transaction
-            signed_tx = w3.eth.account.sign_transaction(tx, from_wallet.key)
-            
-            # Handle both old and new Web3.py versions
-            raw_transaction = getattr(signed_tx, 'raw_transaction', getattr(signed_tx, 'rawTransaction', None))
-            if raw_transaction is None:
-                raise PaymentError("Could not get raw transaction from signed transaction")
-            
-            tx_hash = w3.eth.send_raw_transaction(raw_transaction)
-            tx_hash_hex = tx_hash.hex()
-            
-            rprint(f"[green]✅ A0GI transfer successful[/green]")
-            rprint(f"   TX: {tx_hash_hex}")
-            
-            # Create payment proof
-            from .types import PaymentProof, PaymentMethod
-            from datetime import datetime
-            
-            return PaymentProof(
-                payment_id=f"a0gi_{int(time.time())}",
-                from_agent=self.agent_name,
-                to_agent=to_agent,
-                amount=amount,
-                currency="A0GI",
-                payment_method=PaymentMethod.DIRECT_TRANSFER,
-                transaction_hash=tx_hash_hex,
-                timestamp=datetime.now(),
-                receipt_data={
-                    "service_type": service_type,
-                    "network": "0G Testnet",
-                    "amount_wei": str(amount_wei)
-                }
-            )
-        
         # For other networks, use x402
         if self.x402_payment_manager:
             if not to_agent or amount is None:

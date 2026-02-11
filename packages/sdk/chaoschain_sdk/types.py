@@ -33,33 +33,34 @@ class AgentRole(str, Enum):
 
 class NetworkConfig(str, Enum):
     """
-    Supported blockchain networks with ERC-8004 v1.0 deployments.
-    
-    Mainnet:
-    - ETHEREUM_MAINNET: Production Ethereum mainnet
-    
-    Testnets:
-    - ETHEREUM_SEPOLIA: Ethereum Sepolia testnet (recommended for ChaosChain development)
-    - BASE_SEPOLIA: Base Sepolia testnet
-    - OPTIMISM_SEPOLIA: Optimism Sepolia testnet
-    - LINEA_SEPOLIA: Linea Sepolia testnet
-    - HEDERA_TESTNET: Hedera testnet
-    - BSC_TESTNET: BNB Chain testnet
-    - MODE_TESTNET: Mode testnet
-    - ZEROG_TESTNET: 0G testnet
+    Networks with official ERC-8004 deployments.
+    Mainnet: Identity 0x8004A169FB4a3325136EB29fA0ceB6D2e539a432, Reputation 0x8004BAa17C55a88189AE136b182e5fdA19dE9b63
+    Testnet: Identity 0x8004A818BFB912233c491871b3d84c89A494BD9e, Reputation 0x8004B663056A597Dffe9eCcC1965A193B7388713
     """
-    # === MAINNET ===
+    # === MAINNET (same ERC-8004 addresses on all) ===
     ETHEREUM_MAINNET = "ethereum-mainnet"
-    
-    # === TESTNETS ===
+    BASE_MAINNET = "base-mainnet"
+    POLYGON_MAINNET = "polygon-mainnet"
+    ARBITRUM_MAINNET = "arbitrum-mainnet"
+    CELO_MAINNET = "celo-mainnet"
+    GNOSIS_MAINNET = "gnosis-mainnet"
+    SCROLL_MAINNET = "scroll-mainnet"
+    TAIKO_MAINNET = "taiko-mainnet"
+    MONAD_MAINNET = "monad-mainnet"
+    BSC_MAINNET = "bsc-mainnet"
+    # === TESTNET (same ERC-8004 addresses on all) ===
     ETHEREUM_SEPOLIA = "ethereum-sepolia"
     BASE_SEPOLIA = "base-sepolia"
+    POLYGON_AMOY = "polygon-amoy"
+    ARBITRUM_TESTNET = "arbitrum-testnet"
+    CELO_TESTNET = "celo-testnet"
+    SCROLL_TESTNET = "scroll-testnet"
+    MONAD_TESTNET = "monad-testnet"
+    BSC_TESTNET = "bsc-testnet"
+    # === OTHER (testnets, same testnet ERC-8004 addresses) ===
     OPTIMISM_SEPOLIA = "optimism-sepolia"
     LINEA_SEPOLIA = "linea-sepolia"
-    HEDERA_TESTNET = "hedera-testnet"
-    BSC_TESTNET = "bsc-testnet"
     MODE_TESTNET = "mode-testnet"
-    ZEROG_TESTNET = "0g-testnet"
     LOCAL = "local"
 
 

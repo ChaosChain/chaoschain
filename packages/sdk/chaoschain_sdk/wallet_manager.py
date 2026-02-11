@@ -52,27 +52,55 @@ class WalletManager:
         # Default public RPC URLs (can be overridden via environment variables)
         # For mainnet, we use a public RPC by default but STRONGLY recommend setting ETH_MAINNET_RPC_URL
         default_rpc_urls = {
-            # === MAINNET ===
-            NetworkConfig.ETHEREUM_MAINNET: 'https://ethereum-rpc.publicnode.com',  # Rate-limited, use own RPC for production
-            # === TESTNETS ===
-            NetworkConfig.BASE_SEPOLIA: 'https://sepolia.base.org',
+            # === MAINNET (ERC-8004: 0x8004A169..., 0x8004BAa17...) ===
+            NetworkConfig.ETHEREUM_MAINNET: 'https://ethereum-rpc.publicnode.com',
+            NetworkConfig.BASE_MAINNET: 'https://mainnet.base.org',
+            NetworkConfig.POLYGON_MAINNET: 'https://polygon-rpc.com',
+            NetworkConfig.ARBITRUM_MAINNET: 'https://arb1.arbitrum.io/rpc',
+            NetworkConfig.CELO_MAINNET: 'https://forno.celo.org',
+            NetworkConfig.GNOSIS_MAINNET: 'https://rpc.gnosischain.com',
+            NetworkConfig.SCROLL_MAINNET: 'https://rpc.scroll.io',
+            NetworkConfig.TAIKO_MAINNET: 'https://rpc.mainnet.taiko.xyz',
+            NetworkConfig.MONAD_MAINNET: 'https://rpc.monad.xyz',
+            NetworkConfig.BSC_MAINNET: 'https://bsc-dataseed.binance.org',
+            # === TESTNET (ERC-8004: 0x8004A818..., 0x8004B663...) ===
             NetworkConfig.ETHEREUM_SEPOLIA: 'https://ethereum-sepolia-rpc.publicnode.com',
+            NetworkConfig.BASE_SEPOLIA: 'https://sepolia.base.org',
+            NetworkConfig.POLYGON_AMOY: 'https://rpc-amoy.polygon.technology',
+            NetworkConfig.ARBITRUM_TESTNET: 'https://sepolia-rollup.arbitrum.io/rpc',
+            NetworkConfig.CELO_TESTNET: 'https://alfajores-forno.celo-testnet.org',
+            NetworkConfig.SCROLL_TESTNET: 'https://sepolia-rpc.scroll.io',
+            NetworkConfig.MONAD_TESTNET: 'https://testnet-rpc.monad.xyz',
+            NetworkConfig.BSC_TESTNET: 'https://data-seed-prebsc-1-s1.binance.org:8545',
             NetworkConfig.OPTIMISM_SEPOLIA: 'https://sepolia.optimism.io',
+            NetworkConfig.LINEA_SEPOLIA: 'https://rpc.sepolia.linea.build',
             NetworkConfig.MODE_TESTNET: 'https://sepolia.mode.network',
-            NetworkConfig.ZEROG_TESTNET: 'https://evmrpc-testnet.0g.ai',
-            NetworkConfig.LOCAL: 'http://127.0.0.1:8545'
+            NetworkConfig.LOCAL: 'http://127.0.0.1:8545',
         }
         
         rpc_urls = {
-            # === MAINNET ===
             NetworkConfig.ETHEREUM_MAINNET: os.getenv('ETH_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.ETHEREUM_MAINNET]),
-            # === TESTNETS ===
+            NetworkConfig.BASE_MAINNET: os.getenv('BASE_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.BASE_MAINNET]),
+            NetworkConfig.POLYGON_MAINNET: os.getenv('POLYGON_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.POLYGON_MAINNET]),
+            NetworkConfig.ARBITRUM_MAINNET: os.getenv('ARBITRUM_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.ARBITRUM_MAINNET]),
+            NetworkConfig.CELO_MAINNET: os.getenv('CELO_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.CELO_MAINNET]),
+            NetworkConfig.GNOSIS_MAINNET: os.getenv('GNOSIS_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.GNOSIS_MAINNET]),
+            NetworkConfig.SCROLL_MAINNET: os.getenv('SCROLL_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.SCROLL_MAINNET]),
+            NetworkConfig.TAIKO_MAINNET: os.getenv('TAIKO_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.TAIKO_MAINNET]),
+            NetworkConfig.MONAD_MAINNET: os.getenv('MONAD_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.MONAD_MAINNET]),
+            NetworkConfig.BSC_MAINNET: os.getenv('BSC_MAINNET_RPC_URL', default_rpc_urls[NetworkConfig.BSC_MAINNET]),
+            NetworkConfig.ETHEREUM_SEPOLIA: os.getenv('SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.ETHEREUM_SEPOLIA]),
             NetworkConfig.BASE_SEPOLIA: os.getenv('BASE_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.BASE_SEPOLIA]),
-            NetworkConfig.ETHEREUM_SEPOLIA: os.getenv('SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.ETHEREUM_SEPOLIA]), 
+            NetworkConfig.POLYGON_AMOY: os.getenv('POLYGON_AMOY_RPC_URL', default_rpc_urls[NetworkConfig.POLYGON_AMOY]),
+            NetworkConfig.ARBITRUM_TESTNET: os.getenv('ARBITRUM_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.ARBITRUM_TESTNET]),
+            NetworkConfig.CELO_TESTNET: os.getenv('CELO_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.CELO_TESTNET]),
+            NetworkConfig.SCROLL_TESTNET: os.getenv('SCROLL_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.SCROLL_TESTNET]),
+            NetworkConfig.MONAD_TESTNET: os.getenv('MONAD_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.MONAD_TESTNET]),
+            NetworkConfig.BSC_TESTNET: os.getenv('BSC_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.BSC_TESTNET]),
             NetworkConfig.OPTIMISM_SEPOLIA: os.getenv('OPTIMISM_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.OPTIMISM_SEPOLIA]),
+            NetworkConfig.LINEA_SEPOLIA: os.getenv('LINEA_SEPOLIA_RPC_URL', default_rpc_urls[NetworkConfig.LINEA_SEPOLIA]),
             NetworkConfig.MODE_TESTNET: os.getenv('MODE_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.MODE_TESTNET]),
-            NetworkConfig.ZEROG_TESTNET: os.getenv('ZEROG_TESTNET_RPC_URL', default_rpc_urls[NetworkConfig.ZEROG_TESTNET]),
-            NetworkConfig.LOCAL: os.getenv('LOCAL_RPC_URL', default_rpc_urls[NetworkConfig.LOCAL])
+            NetworkConfig.LOCAL: os.getenv('LOCAL_RPC_URL', default_rpc_urls[NetworkConfig.LOCAL]),
         }
         
         rpc_url = rpc_urls.get(self.network)

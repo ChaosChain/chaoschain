@@ -2,14 +2,13 @@
 ChaosChain × 0G Integration Example
 
 This example demonstrates how to use the ChaosChain SDK with 0G Storage and 0G Compute
-to build a verifiable AI agent with the Triple-Verified Stack.
+as optional providers while the agent uses an ERC-8004–supported network (e.g. Ethereum Sepolia).
 
 Features demonstrated:
-1. Agent registration on 0G Chain (ERC-8004 v1.0)
-2. 0G Storage for audit trails
-3. 0G Compute with TEE-ML verification
-4. Reputation bonuses for verified compute
-5. Multi-provider fallback
+1. Agent registration on Ethereum Sepolia (ERC-8004)
+2. 0G Storage for audit trails (optional provider)
+3. 0G Compute with TEE-ML verification (optional provider)
+4. Reputation and multi-provider fallback
 """
 
 import os
@@ -38,25 +37,25 @@ console = Console()
 
 
 def example_1_basic_0g_agent():
-    """Example 1: Basic agent on 0G Chain"""
-    console.print("\n[bold cyan]Example 1: Basic Agent on 0G Chain[/bold cyan]\n")
+    """Example 1: Agent on Ethereum Sepolia with 0G as optional storage/compute."""
+    console.print("\n[bold cyan]Example 1: Agent on Ethereum Sepolia (ERC-8004)[/bold cyan]\n")
     
     try:
-        # Initialize agent on 0G Testnet
+        # Initialize agent on Ethereum Sepolia (ERC-8004 supported). 0G Storage/Compute can be used as optional providers.
         agent = ChaosChainAgentSDK(
             agent_name="ZeroGAgent",
-            agent_domain="agent.0g.ai",
+            agent_domain="agent.example.com",
             agent_role="server",
-            network=NetworkConfig.ZEROG_TESTNET
+            network=NetworkConfig.ETHEREUM_SEPOLIA
         )
         
-        rprint("[green]✅ Agent initialized on 0G Testnet[/green]")
+        rprint("[green]✅ Agent initialized on Ethereum Sepolia[/green]")
         rprint(f"   Network: {agent.network}")
         rprint(f"   Chain ID: {agent.chain_id}")
         rprint(f"   Address: {agent.address}")
         
-        # Register on ERC-8004 v1.0
-        console.print("\n[yellow]Registering agent on 0G Chain...[/yellow]")
+        # Register on ERC-8004
+        console.print("\n[yellow]Registering agent on ERC-8004...[/yellow]")
         agent_id, tx_hash = agent.register_identity()
         
         rprint(f"[green]✅ Agent registered as ERC-721 NFT[/green]")
@@ -197,7 +196,7 @@ def example_4_complete_workflow():
             agent_name="CompleteAgent",
             agent_domain="complete.0g.ai",
             agent_role="server",
-            network=NetworkConfig.ZEROG_TESTNET
+            network=NetworkConfig.ETHEREUM_SEPOLIA
         )
         
         # Configure storage and compute

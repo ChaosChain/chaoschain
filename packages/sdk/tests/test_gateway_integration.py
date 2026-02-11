@@ -233,6 +233,7 @@ class TestGoldenPath:
             epoch=1,
             validator_address="0x" + "33" * 20,
             data_hash="0x" + "ab" * 32,
+            worker_address="0x" + "22" * 20,
             scores=[8000, 7500, 9000, 6500, 8500],
             salt="0x" + "ff" * 32,
             signer_address="0x" + "33" * 20
