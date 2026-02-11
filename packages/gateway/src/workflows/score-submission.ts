@@ -1357,18 +1357,34 @@ export class DefaultDirectScoreContractEncoder implements DirectScoreContractEnc
 
 /**
  * Default encoder for commit-reveal scoring mode.
- * Encodes calls to StudioProxy.commitScore and revealScore
+ * Encodes calls to StudioProxy.commitScore and revealScore.
+ * Contract: revealScore(bytes32 dataHash, bytes calldata scoreVector, bytes32 salt)
+ * Commitment: keccak256(abi.encodePacked(scoreVector, salt, dataHash))
  */
 export class DefaultScoreContractEncoder implements ScoreContractEncoder {
   private commitScoreSelector: string;
   private revealScoreSelector: string;
 
   constructor() {
-    // Function selectors for StudioProxy
-    // commitScore(bytes32 dataHash, bytes32 commitHash)
+    // Function selectors for StudioProxy (must match deployed contract)
     this.commitScoreSelector = ethers.id('commitScore(bytes32,bytes32)').slice(0, 10);
-    // revealScore(bytes32 dataHash, uint16[] scores, bytes32 salt)
-    this.revealScoreSelector = ethers.id('revealScore(bytes32,uint16[],bytes32)').slice(0, 10);
+    // revealScore(bytes32 dataHash, bytes calldata scoreVector, bytes32 salt)
+    this.revealScoreSelector = ethers.id('revealScore(bytes32,bytes,bytes32)').slice(0, 10);
+  }
+
+  /**
+   * Build scoreVector bytes from scores (0-10000 basis points).
+   * Matches contract tests: abi.encode(uint8, uint8, ...) with 5 scores scaled to 0-100.
+   */
+  private encodeScoreVectorAsBytes(scores: number[]): string {
+    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+    const scaled = scores.map(s => Math.min(255, Math.floor(s / 100)));
+    const padded = scaled.slice(0, 5);
+    while (padded.length < 5) padded.push(0);
+    return abiCoder.encode(
+      ['uint8', 'uint8', 'uint8', 'uint8', 'uint8'],
+      padded
+    );
   }
 
   computeCommitHash(
@@ -1376,13 +1392,14 @@ export class DefaultScoreContractEncoder implements ScoreContractEncoder {
     scores: number[],
     salt: string
   ): string {
-    // commit = keccak256(abi.encodePacked(dataHash, scores, salt))
-    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-    const encoded = abiCoder.encode(
-      ['bytes32', 'uint16[]', 'bytes32'],
-      [dataHash, scores, salt]
-    );
-    return ethers.keccak256(encoded);
+    // Contract: keccak256(abi.encodePacked(scoreVector, salt, dataHash))
+    const scoreVectorHex = this.encodeScoreVectorAsBytes(scores);
+    const packed = ethers.concat([
+      ethers.getBytes(scoreVectorHex),
+      ethers.getBytes(salt),
+      ethers.getBytes(dataHash),
+    ]);
+    return ethers.keccak256(packed);
   }
 
   encodeCommitScore(
@@ -1403,9 +1420,10 @@ export class DefaultScoreContractEncoder implements ScoreContractEncoder {
     salt: string
   ): string {
     const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+    const scoreVectorHex = this.encodeScoreVectorAsBytes(scores);
     const params = abiCoder.encode(
-      ['bytes32', 'uint16[]', 'bytes32'],
-      [dataHash, scores, salt]
+      ['bytes32', 'bytes', 'bytes32'],
+      [dataHash, scoreVectorHex, salt]
     );
     return this.revealScoreSelector + params.slice(2);
   }

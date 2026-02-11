@@ -304,7 +304,7 @@ The Gateway is the **orchestration layer** that bridges the SDK to all off-chain
 
 The **Gateway Service** (HTTP API, workflows, DKG, XMTP, Arweave) is the orchestration layer. It does **not** run credit execution.
 
-The `packages/gateway/src/services/credit/` directory holds **shared library code** for credit execution: `CreditExecutor`, 4Mica client, Circle Gateway client, execution state machine, persistence. This code is **consumed by Studio Executor daemons** (e.g. the Credit Studio executor in `chaoschain-studios/credit-studio/executor/`), which run as standalone processes. It lives under the gateway **package** for reuse and single-source-of-truth; the Gateway **service** itself never imports or runs it. So: **gateway package** = monorepo home for shared off-chain libraries; **Gateway service** = the HTTP orchestration server only.
+The `packages/gateway/src/services/credit/` directory holds **shared library code** for credit execution: `CreditExecutor`, 4Mica client, Circle Gateway client, execution state machine, persistence. This code is **consumed by Studio Executor daemons** (e.g. the Credit Studio executor), which run as standalone processes. It lives under the gateway **package** for reuse and single-source-of-truth; the Gateway **service** itself never imports or runs it. So: **gateway package** = monorepo home for shared off-chain libraries; **Gateway service** = the HTTP orchestration server only.
 
 ### WorkSubmission Workflow (6 Steps)
 
