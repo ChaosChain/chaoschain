@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'sdk-v*'
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -44,13 +45,13 @@ jobs:
         python -m twine upload dist/* --skip-existing
     
     - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/sdk-v')
+      if: startsWith(github.ref, 'refs/tags/sdk-v') || startsWith(github.ref, 'refs/tags/v')
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: ChaosChain SDK ${{ github.ref }}
+        tag_name: ${{ github.ref_name }}
+        release_name: ChaosChain SDK ${{ github.ref_name }}
         body: |
           ## ChaosChain SDK Release
           
