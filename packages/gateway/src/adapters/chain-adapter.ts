@@ -41,15 +41,15 @@ const STUDIO_PROXY_ABI = [
   // submitWorkMultiAgent function (no feedbackAuth in Jan 2026 spec)
   'function submitWorkMultiAgent(bytes32 dataHash, bytes32 threadRoot, bytes32 evidenceRoot, address[] calldata workers, uint16[] calldata weights, string calldata evidenceUri) external',
   // View functions for checking existing submissions
-  'function getWorkSubmission(bytes32 dataHash) external view returns (address submitter, bytes32 threadRoot, bytes32 evidenceRoot, bytes memory feedbackAuth, uint64 timestamp)',
+  'function getWorkSubmitter(bytes32 dataHash) external view returns (address submitter)',
   // Score submission (commit-reveal mode)
   'function commitScore(bytes32 dataHash, bytes32 commitHash) external',
-  'function revealScore(bytes32 dataHash, uint16[] calldata scores, bytes32 salt) external',
-  'function getScoreCommit(bytes32 dataHash, address validator) external view returns (bytes32 commitHash, uint64 timestamp)',
+  'function revealScore(bytes32 dataHash, bytes calldata scoreVector, bytes32 salt) external',
+  'function getScoreCommitment(bytes32 dataHash, address validator) external view returns (bytes32 commitment)',
   'function getScoreReveal(bytes32 dataHash, address validator) external view returns (uint16[] memory scores, uint64 timestamp)',
   // Score submission (direct mode)
   'function submitScoreVectorForWorker(bytes32 dataHash, address worker, bytes calldata scoreVector) external',
-  'function getScoreForWorker(bytes32 dataHash, address validator, address worker) external view returns (bytes memory scores, uint64 timestamp)',
+  'function getScoreVectorsForWorker(bytes32 dataHash, address worker) external view returns (address[] memory validators, bytes[] memory scoreVectors)',
 ];
 
 // =============================================================================
@@ -65,7 +65,7 @@ const REWARDS_DISTRIBUTOR_ABI = [
   'function registerValidator(bytes32 dataHash, address validator) external',
   // Query functions
   'function getEpochWork(address studio, uint64 epoch) external view returns (bytes32[] memory)',
-  'function getValidators(bytes32 dataHash) external view returns (address[] memory)',
+  'function getWorkValidators(bytes32 dataHash) external view returns (address[] memory)',
 ];
 
 // =============================================================================
@@ -210,12 +210,10 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     );
 
     try {
-      const submission = await contract.getWorkSubmission(dataHash);
-      // If submitter is zero address, no submission exists
-      return submission.submitter !== ethers.ZeroAddress;
+      const submitter = await contract.getWorkSubmitter(dataHash);
+      return submitter !== ethers.ZeroAddress;
     } catch (error) {
       // Contract call failed - assume doesn't exist
-      // This could be because the function doesn't exist or other reasons
       return false;
     }
   }
@@ -236,17 +234,17 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     );
 
     try {
-      const submission = await contract.getWorkSubmission(dataHash);
-      
-      if (submission.submitter === ethers.ZeroAddress) {
+      const submitter = await contract.getWorkSubmitter(dataHash);
+
+      if (submitter === ethers.ZeroAddress) {
         return null;
       }
 
       return {
         dataHash,
-        submitter: submission.submitter,
-        timestamp: Number(submission.timestamp),
-        blockNumber: 0, // Not available from this call
+        submitter,
+        timestamp: 0,
+        blockNumber: 0,
       };
     } catch {
       return null;
@@ -269,9 +267,8 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     );
 
     try {
-      const commit = await contract.getScoreCommit(dataHash, validator);
-      // If commitHash is zero, no commit exists
-      return commit.commitHash !== ethers.ZeroHash;
+      const commitment = await contract.getScoreCommitment(dataHash, validator);
+      return commitment !== ethers.ZeroHash;
     } catch {
       return false;
     }
@@ -309,13 +306,13 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     );
 
     try {
-      const commit = await contract.getScoreCommit(dataHash, validator);
-      if (commit.commitHash === ethers.ZeroHash) {
+      const commitment = await contract.getScoreCommitment(dataHash, validator);
+      if (commitment === ethers.ZeroHash) {
         return null;
       }
       return {
-        commitHash: commit.commitHash,
-        timestamp: Number(commit.timestamp),
+        commitHash: commitment,
+        timestamp: 0,
       };
     } catch {
       return null;
@@ -339,11 +336,12 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     );
 
     try {
-      const score = await contract.getScoreForWorker(dataHash, validator, worker);
-      // If scores bytes is non-empty, score exists
-      return score.scores && score.scores.length > 0;
+      const result = await contract.getScoreVectorsForWorker(dataHash, worker);
+      const validators: string[] = result.validators ?? result[0];
+      return validators.some(
+        (v: string) => v.toLowerCase() === validator.toLowerCase()
+      );
     } catch {
-      // Contract may not have this function, or other error
       return false;
     }
   }
@@ -448,7 +446,7 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
       );
       
       // Get all validators for this dataHash and check if validator is included
-      const validators: string[] = await contract.getValidators(dataHash);
+      const validators: string[] = await contract.getWorkValidators(dataHash);
       return validators.some((v: string) => 
         v.toLowerCase() === validatorAddress.toLowerCase()
       );
