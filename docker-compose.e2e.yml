@@ -1,0 +1,54 @@
+services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: /e2e/anvil-entrypoint.sh
+    volumes:
+      - ./e2e/anvil-entrypoint.sh:/e2e/anvil-entrypoint.sh:ro
+    ports:
+      - "8546:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://127.0.0.1:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gateway
+      POSTGRES_PASSWORD: gateway
+      POSTGRES_DB: gateway
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  gateway:
+    build:
+      context: ./packages/gateway
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: /e2e/gateway-entrypoint.sh
+    volumes:
+      - ./e2e:/e2e:ro
+    env_file:
+      - ./e2e/.env.anvil
+    environment:
+      DATABASE_URL: postgresql://gateway:gateway@postgres:5432/gateway
+      RPC_URL: http://anvil:8545
+      CHAIN_ID: "31337"
+      CONFIRMATION_BLOCKS: "1"
+      USE_MOCK_ARWEAVE: "true"
+      LOG_LEVEL: info
+      PORT: "3000"
+      HOST: 0.0.0.0
+    ports:
+      - "3333:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 30

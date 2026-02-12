@@ -4,9 +4,8 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
-    include: ['test/**/*.test.ts'],
-    exclude: ['test/e2e/**'],
-    testTimeout: 10000,
-    hookTimeout: 10000,
+    include: ['test/e2e/**/*.test.ts'],
+    testTimeout: 120_000,
+    hookTimeout: 30_000,
   },
 });
