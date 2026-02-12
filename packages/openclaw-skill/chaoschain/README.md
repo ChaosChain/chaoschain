@@ -51,11 +51,11 @@ cp -r chaoschain ~/your-workspace/skills/
 
 ### Network Flag
 
-All commands support `--network mainnet` or `--network sepolia`:
+All commands support `--network <network_key>`:
 
 ```bash
-/chaoschain verify 450 --network sepolia
-/chaoschain register --network mainnet  # Advanced users only
+/chaoschain verify 450 --network base_mainnet
+/chaoschain register --network ethereum_sepolia  # Recommended
 ```
 
 **Safety Default**: Registration defaults to Sepolia to prevent accidental mainnet transactions.
@@ -159,17 +159,49 @@ Add to `~/.openclaw/openclaw.json`:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `CHAOSCHAIN_NETWORK` | `mainnet` or `sepolia` | No (default: mainnet) |
+| `CHAOSCHAIN_NETWORK` | Network key (e.g. `ethereum_mainnet`, `base_mainnet`, `ethereum_sepolia`) | No (default: `ethereum_mainnet` for read, `ethereum_sepolia` for register) |
 | `CHAOSCHAIN_ADDRESS` | Your wallet address | For `/whoami` |
 | `CHAOSCHAIN_PRIVATE_KEY` | Your private key | For `/register` |
 | `CHAOSCHAIN_RPC_URL` | Custom RPC endpoint | No |
 
 ## Network Support
 
-| Network | Identity Registry | Reputation Registry |
-|---------|-------------------|---------------------|
-| Ethereum Mainnet | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
-| Ethereum Sepolia | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
+### Mainnet (same registry addresses on all)
+
+`IdentityRegistry` `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`  
+`ReputationRegistry` `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`
+
+- `ethereum_mainnet`
+- `base_mainnet`
+- `polygon_mainnet`
+- `arbitrum_mainnet`
+- `celo_mainnet`
+- `gnosis_mainnet`
+- `scroll_mainnet`
+- `taiko_mainnet`
+- `monad_mainnet`
+- `bsc_mainnet`
+
+### Testnet (same registry addresses on all)
+
+`IdentityRegistry` `0x8004A818BFB912233c491871b3d84c89A494BD9e`  
+`ReputationRegistry` `0x8004B663056A597Dffe9eCcC1965A193B7388713`
+
+- `ethereum_sepolia`
+- `base_sepolia`
+- `polygon_amoy`
+- `arbitrum_testnet`
+- `celo_testnet`
+- `scroll_testnet`
+- `monad_testnet`
+- `bsc_testnet`
+- `optimism_sepolia`
+- `linea_sepolia`
+- `mode_testnet`
+
+Backward-compatible aliases:
+- `mainnet` -> `ethereum_mainnet`
+- `sepolia` -> `ethereum_sepolia`
 
 ## Security
 

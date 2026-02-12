@@ -88,11 +88,11 @@ Requirements:
 | `whoami` | Mainnet | Check production identity |
 | `register` | **Sepolia** | Safety - avoid accidental mainnet txs |
 
-Override with `--network mainnet` or `--network sepolia`:
+Override with `--network <network_key>`:
 
 ```
-/chaoschain verify 450 --network sepolia
-/chaoschain register --network mainnet
+/chaoschain verify 450 --network base_mainnet
+/chaoschain register --network ethereum_mainnet
 ```
 
 ## Setup
@@ -152,8 +152,34 @@ For registration (on-chain action):
 
 ### Network Options
 
-- `mainnet` - Ethereum Mainnet (production ERC-8004)
-- `sepolia` - Ethereum Sepolia (testnet)
+Mainnet keys (same official ERC-8004 registries):
+- `ethereum_mainnet`
+- `base_mainnet`
+- `polygon_mainnet`
+- `arbitrum_mainnet`
+- `celo_mainnet`
+- `gnosis_mainnet`
+- `scroll_mainnet`
+- `taiko_mainnet`
+- `monad_mainnet`
+- `bsc_mainnet`
+
+Testnet keys (same official ERC-8004 registries):
+- `ethereum_sepolia`
+- `base_sepolia`
+- `polygon_amoy`
+- `arbitrum_testnet`
+- `celo_testnet`
+- `scroll_testnet`
+- `monad_testnet`
+- `bsc_testnet`
+- `optimism_sepolia`
+- `linea_sepolia`
+- `mode_testnet`
+
+Backward-compatible aliases:
+- `mainnet` -> `ethereum_mainnet`
+- `sepolia` -> `ethereum_sepolia`
 
 ## Example Usage
 
@@ -208,10 +234,10 @@ ChaosChain is a reference implementation of ERC-8004.
 
 | Network | Registry | Address |
 |---------|----------|---------|
-| Mainnet | Identity | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
-| Mainnet | Reputation | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
-| Sepolia | Identity | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
-| Sepolia | Reputation | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
+| Mainnet (all supported mainnet chains) | Identity | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` |
+| Mainnet (all supported mainnet chains) | Reputation | `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` |
+| Testnet (all supported testnet chains) | Identity | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
+| Testnet (all supported testnet chains) | Reputation | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
 
 ## Learn More
 

@@ -12,7 +12,7 @@ Commands:
 - register - (OPTIONAL) Register on ERC-8004 (on-chain action)
 
 Environment Variables:
-- CHAOSCHAIN_NETWORK: "mainnet" or "sepolia" (default: mainnet)
+- CHAOSCHAIN_NETWORK: Network key (default: ethereum_mainnet for read, ethereum_sepolia for register)
 - CHAOSCHAIN_ADDRESS: Your wallet address (for whoami, read-only)
 - CHAOSCHAIN_PRIVATE_KEY: Your private key (ONLY for register command)
 - CHAOSCHAIN_RPC_URL: Custom RPC URL (optional)
@@ -23,22 +23,169 @@ import sys
 import json
 from typing import Optional, Dict, Any, Tuple
 
-# Contract addresses
+# Official ERC-8004 registries (same per network group)
+MAINNET_IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"
+MAINNET_REPUTATION_REGISTRY = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63"
+TESTNET_IDENTITY_REGISTRY = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
+TESTNET_REPUTATION_REGISTRY = "0x8004B663056A597Dffe9eCcC1965A193B7388713"
+
+# Network support aligned with SDK NetworkConfig list.
 CONTRACTS = {
-    "mainnet": {
-        "identity_registry": "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432",
-        "reputation_registry": "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63",
+    # Mainnet
+    "ethereum_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
         "rpc_url": "https://eth.llamarpc.com",
         "chain_id": 1,
-        "explorer": "https://etherscan.io"
+        "explorer": "https://etherscan.io",
     },
-    "sepolia": {
-        "identity_registry": "0x8004A818BFB912233c491871b3d84c89A494BD9e",
-        "reputation_registry": "0x8004B663056A597Dffe9eCcC1965A193B7388713",
+    "base_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://base-rpc.publicnode.com",
+        "chain_id": 8453,
+        "explorer": "https://basescan.org",
+    },
+    "polygon_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://polygon-bor-rpc.publicnode.com",
+        "chain_id": 137,
+        "explorer": "https://polygonscan.com",
+    },
+    "arbitrum_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://arbitrum-one-rpc.publicnode.com",
+        "chain_id": 42161,
+        "explorer": "https://arbiscan.io",
+    },
+    "celo_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://celo-rpc.publicnode.com",
+        "chain_id": 42220,
+        "explorer": "https://celoscan.io",
+    },
+    "gnosis_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://gnosis-rpc.publicnode.com",
+        "chain_id": 100,
+        "explorer": "https://gnosisscan.io",
+    },
+    "scroll_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://scroll-rpc.publicnode.com",
+        "chain_id": 534352,
+        "explorer": "https://scrollscan.com",
+    },
+    "taiko_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://rpc.mainnet.taiko.xyz",
+        "chain_id": 167000,
+        "explorer": "https://taikoscan.io",
+    },
+    "monad_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://rpc.monad.xyz",
+        "chain_id": 10143,
+        "explorer": "https://explorer.monad.xyz",
+    },
+    "bsc_mainnet": {
+        "identity_registry": MAINNET_IDENTITY_REGISTRY,
+        "reputation_registry": MAINNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://bsc-rpc.publicnode.com",
+        "chain_id": 56,
+        "explorer": "https://bscscan.com",
+    },
+    # Testnet
+    "ethereum_sepolia": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
         "rpc_url": "https://ethereum-sepolia-rpc.publicnode.com",
         "chain_id": 11155111,
-        "explorer": "https://sepolia.etherscan.io"
-    }
+        "explorer": "https://sepolia.etherscan.io",
+    },
+    "base_sepolia": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://base-sepolia-rpc.publicnode.com",
+        "chain_id": 84532,
+        "explorer": "https://sepolia.basescan.org",
+    },
+    "polygon_amoy": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://polygon-amoy-bor-rpc.publicnode.com",
+        "chain_id": 80002,
+        "explorer": "https://amoy.polygonscan.com",
+    },
+    "arbitrum_testnet": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://arbitrum-sepolia-rpc.publicnode.com",
+        "chain_id": 421614,
+        "explorer": "https://sepolia.arbiscan.io",
+    },
+    "celo_testnet": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://celo-alfajores-rpc.publicnode.com",
+        "chain_id": 44787,
+        "explorer": "https://alfajores.celoscan.io",
+    },
+    "scroll_testnet": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://scroll-sepolia-rpc.publicnode.com",
+        "chain_id": 534351,
+        "explorer": "https://sepolia.scrollscan.com",
+    },
+    "monad_testnet": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://testnet-rpc.monad.xyz",
+        "chain_id": 10143,
+        "explorer": "https://testnet.monadexplorer.com",
+    },
+    "bsc_testnet": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://bsc-testnet-rpc.publicnode.com",
+        "chain_id": 97,
+        "explorer": "https://testnet.bscscan.com",
+    },
+    "optimism_sepolia": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://optimism-sepolia-rpc.publicnode.com",
+        "chain_id": 11155420,
+        "explorer": "https://sepolia-optimism.etherscan.io",
+    },
+    "linea_sepolia": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://linea-sepolia-rpc.publicnode.com",
+        "chain_id": 59141,
+        "explorer": "https://sepolia.lineascan.build",
+    },
+    "mode_testnet": {
+        "identity_registry": TESTNET_IDENTITY_REGISTRY,
+        "reputation_registry": TESTNET_REPUTATION_REGISTRY,
+        "rpc_url": "https://sepolia.mode.network",
+        "chain_id": 919,
+        "explorer": "https://sepolia.explorer.mode.network",
+    },
+}
+
+# Backward-compatible aliases
+NETWORK_ALIASES = {
+    "mainnet": "ethereum_mainnet",
+    "sepolia": "ethereum_sepolia",
 }
 
 # Minimal ABIs for read operations
@@ -68,14 +215,17 @@ def get_network_config(command: str = "read") -> Dict[str, Any]:
     """
     env_network = os.environ.get("CHAOSCHAIN_NETWORK", "").lower()
     
+    if env_network:
+        env_network = NETWORK_ALIASES.get(env_network, env_network)
+
     if env_network and env_network in CONTRACTS:
         network = env_network
     elif command == "register":
         # Safety default: registration goes to Sepolia to avoid accidents
-        network = "sepolia"
+        network = "ethereum_sepolia"
     else:
         # Read operations default to Mainnet (production data)
-        network = "mainnet"
+        network = "ethereum_mainnet"
     
     config = CONTRACTS[network].copy()
     
@@ -545,16 +695,18 @@ def parse_network_flag(args: list) -> Tuple[list, Optional[str]]:
     while i < len(args):
         if args[i] == "--network" and i + 1 < len(args):
             network = args[i + 1].lower()
+            network = NETWORK_ALIASES.get(network, network)
             if network not in CONTRACTS:
                 print(f"❌ Unknown network: {network}")
-                print("   Valid options: mainnet, sepolia")
+                print("   Valid options: mainnet, sepolia, or SDK-style keys (e.g. base_mainnet)")
                 sys.exit(1)
             i += 2
         elif args[i].startswith("--network="):
             network = args[i].split("=")[1].lower()
+            network = NETWORK_ALIASES.get(network, network)
             if network not in CONTRACTS:
                 print(f"❌ Unknown network: {network}")
-                print("   Valid options: mainnet, sepolia")
+                print("   Valid options: mainnet, sepolia, or SDK-style keys (e.g. base_mainnet)")
                 sys.exit(1)
             i += 1
         else:
@@ -576,11 +728,11 @@ def main():
         print("  register               - Register on ERC-8004")
         print("")
         print("Options:")
-        print("  --network <network>    - mainnet or sepolia")
+        print("  --network <network>    - mainnet/sepolia or SDK-style key (e.g. base_mainnet)")
         print("")
         print("Network Defaults:")
-        print("  • Read operations (verify, reputation): Mainnet")
-        print("  • Write operations (register): Sepolia (safe default)")
+        print("  • Read operations (verify, reputation): ethereum_mainnet")
+        print("  • Write operations (register): ethereum_sepolia (safe default)")
         print("")
         print("Examples:")
         print("  python chaoschain_skill.py verify 450")
@@ -600,13 +752,13 @@ def main():
     
     if command == "verify":
         if len(args) < 2:
-            print("Usage: verify <agent_id_or_address> [--network mainnet|sepolia]")
+            print("Usage: verify <agent_id_or_address> [--network <network_key>]")
             return
         cmd_verify(args[1], network)
     
     elif command == "reputation":
         if len(args) < 2:
-            print("Usage: reputation <agent_id_or_address> [--network mainnet|sepolia]")
+            print("Usage: reputation <agent_id_or_address> [--network <network_key>]")
             return
         cmd_reputation(args[1], network)
     
