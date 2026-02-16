@@ -30,59 +30,60 @@ abstract contract LogicModule {
     // ============ Storage Matching StudioProxy ============
     // CRITICAL: Must match StudioProxy storage layout exactly
     //
-    // The proxy inherits EIP712 (2 slots) before its own declared variables.
+    // The proxy inherits EIP712 (2 slots) and ReentrancyGuard (1 slot) before its own declared variables.
     // We reserve those slots plus any StudioProxy variables that LogicModule
     // doesn't need direct access to, using __gap arrays.
     // See StudioProxy.sol for the authoritative layout.
 
-    /// @dev Slots 0-2: Reserved for inherited and proxy-internal storage.
+    /// @dev Slots 0-3: Reserved for inherited and proxy-internal storage.
     ///   Slot 0: EIP712._nameFallback (string)
     ///   Slot 1: EIP712._versionFallback (string)
-    ///   Slot 2: StudioProxy._logicModule (address)
-    uint256[3] private __proxyPreamble;
+    ///   Slot 2: ReentrancyGuard._status (uint256)
+    ///   Slot 3: StudioProxy._logicModule (address)
+    uint256[4] private __proxyPreamble;
 
-    /// @dev Slot 3: RewardsDistributor address
+    /// @dev Slot 4: RewardsDistributor address
     address internal _rewardsDistributor;
 
-    /// @dev Slot 4: Escrow balances (account => balance)
+    /// @dev Slot 5: Escrow balances (account => balance)
     mapping(address => uint256) internal _escrowBalances;
 
-    /// @dev Slot 5: Work submissions (dataHash => submitter)
+    /// @dev Slot 6: Work submissions (dataHash => submitter)
     mapping(bytes32 => address) internal _workSubmissions;
 
-    /// @dev Slots 6-8: Reserved for StudioProxy variables not used by LogicModule.
-    ///   Slot 6: StudioProxy._workParticipants (mapping)
-    ///   Slot 7: StudioProxy._contributionWeights (mapping)
-    ///   Slot 8: StudioProxy._evidenceCIDs (mapping)
+    /// @dev Slots 7-9: Reserved for StudioProxy variables not used by LogicModule.
+    ///   Slot 7: StudioProxy._workParticipants (mapping)
+    ///   Slot 8: StudioProxy._contributionWeights (mapping)
+    ///   Slot 9: StudioProxy._evidenceCIDs (mapping)
     uint256[3] private __gap1;
 
-    /// @dev Slot 9: Score vectors (dataHash => validator => scoreVector)
+    /// @dev Slot 10: Score vectors (dataHash => validator => scoreVector)
     mapping(bytes32 => mapping(address => bytes)) internal _scoreVectors;
 
-    /// @dev Slots 10-11: Reserved for StudioProxy variables not used by LogicModule.
-    ///   Slot 10: StudioProxy._scoreVectorsPerWorker (mapping)
-    ///   Slot 11: StudioProxy._validators (mapping)
+    /// @dev Slots 11-12: Reserved for StudioProxy variables not used by LogicModule.
+    ///   Slot 11: StudioProxy._scoreVectorsPerWorker (mapping)
+    ///   Slot 12: StudioProxy._validators (mapping)
     uint256[2] private __gap2;
 
-    /// @dev Slot 12: Total escrow in the Studio
+    /// @dev Slot 13: Total escrow in the Studio
     uint256 internal _totalEscrow;
 
-    /// @dev Slots 13-27: Reserved for remaining StudioProxy storage.
-    ///   Slot 13: StudioProxy._scoreNonces (mapping)
-    ///   Slot 14: StudioProxy._withdrawable (mapping)
-    ///   Slot 15: StudioProxy._scoreCommitments (mapping)
-    ///   Slot 16: StudioProxy._commitDeadlines (mapping)
-    ///   Slot 17: StudioProxy._revealDeadlines (mapping)
-    ///   Slot 18: StudioProxy._agentIds (mapping)
-    ///   Slot 19: StudioProxy._agentStakes (mapping)
-    ///   Slot 20: StudioProxy._feedbackAuths (mapping, deprecated)
-    ///   Slot 21: StudioProxy._customDimensionNames (string[])
-    ///   Slot 22: StudioProxy._customDimensionWeights (mapping)
-    ///   Slot 23: StudioProxy._universalWeight (uint256)
-    ///   Slot 24: StudioProxy._customWeight (uint256)
-    ///   Slot 25: StudioProxy._agentRoles (mapping)
-    ///   Slot 26: StudioProxy._tasks (mapping)
-    ///   Slot 27: StudioProxy._clientTasks (mapping)
+    /// @dev Slots 14-28: Reserved for remaining StudioProxy storage.
+    ///   Slot 14: StudioProxy._scoreNonces (mapping)
+    ///   Slot 15: StudioProxy._withdrawable (mapping)
+    ///   Slot 16: StudioProxy._scoreCommitments (mapping)
+    ///   Slot 17: StudioProxy._commitDeadlines (mapping)
+    ///   Slot 18: StudioProxy._revealDeadlines (mapping)
+    ///   Slot 19: StudioProxy._agentIds (mapping)
+    ///   Slot 20: StudioProxy._agentStakes (mapping)
+    ///   Slot 21: StudioProxy._feedbackAuths (mapping, deprecated)
+    ///   Slot 22: StudioProxy._customDimensionNames (string[])
+    ///   Slot 23: StudioProxy._customDimensionWeights (mapping)
+    ///   Slot 24: StudioProxy._universalWeight (uint256)
+    ///   Slot 25: StudioProxy._customWeight (uint256)
+    ///   Slot 26: StudioProxy._agentRoles (mapping)
+    ///   Slot 27: StudioProxy._tasks (mapping)
+    ///   Slot 28: StudioProxy._clientTasks (mapping)
     uint256[15] private __gap3;
 
     // ============ Events ============
