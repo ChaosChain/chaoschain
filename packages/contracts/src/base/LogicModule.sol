@@ -40,6 +40,11 @@ abstract contract LogicModule {
     ///   Slot 1: EIP712._versionFallback (string)
     ///   Slot 2: ReentrancyGuard._status (uint256)
     ///   Slot 3: StudioProxy._logicModule (address)
+    ///
+    /// NOTE: OpenZeppelin v5.5.0+ makes ReentrancyGuard stateless (transient storage),
+    /// removing slot 2. Upgrading will require reducing this preamble to 3 slots
+    /// and shifting all subsequent storage layout by -1. See:
+    /// https://github.com/OpenZeppelin/openzeppelin-contracts/releases/tag/v5.5.0
     uint256[4] private __proxyPreamble;
 
     /// @dev Slot 4: RewardsDistributor address
