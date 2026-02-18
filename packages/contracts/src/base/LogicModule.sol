@@ -29,24 +29,68 @@ abstract contract LogicModule {
     
     // ============ Storage Matching StudioProxy ============
     // CRITICAL: Must match StudioProxy storage layout exactly
-    
-    /// @dev Slot 0: ChaosCore (immutable in proxy, not accessible here)
-    /// @dev Slot 1: Logic module address (immutable in proxy, not accessible here)
-    /// @dev Slot 2: RewardsDistributor address
+    //
+    // The proxy inherits EIP712 (2 slots) and ReentrancyGuard (1 slot) before its own declared variables.
+    // We reserve those slots plus any StudioProxy variables that LogicModule
+    // doesn't need direct access to, using __gap arrays.
+    // See StudioProxy.sol for the authoritative layout.
+
+    /// @dev Slots 0-3: Reserved for inherited and proxy-internal storage.
+    ///   Slot 0: EIP712._nameFallback (string)
+    ///   Slot 1: EIP712._versionFallback (string)
+    ///   Slot 2: ReentrancyGuard._status (uint256)
+    ///   Slot 3: StudioProxy._logicModule (address)
+    ///
+    /// NOTE: OpenZeppelin v5.5.0+ makes ReentrancyGuard stateless (transient storage),
+    /// removing slot 2. Upgrading will require reducing this preamble to 3 slots
+    /// and shifting all subsequent storage layout by -1. See:
+    /// https://github.com/OpenZeppelin/openzeppelin-contracts/releases/tag/v5.5.0
+    uint256[4] private __proxyPreamble;
+
+    /// @dev Slot 4: RewardsDistributor address
     address internal _rewardsDistributor;
-    
-    /// @dev Slot 3+: Escrow balances
+
+    /// @dev Slot 5: Escrow balances (account => balance)
     mapping(address => uint256) internal _escrowBalances;
-    
-    /// @dev Work submissions
+
+    /// @dev Slot 6: Work submissions (dataHash => submitter)
     mapping(bytes32 => address) internal _workSubmissions;
-    
-    /// @dev Score vectors
+
+    /// @dev Slots 7-9: Reserved for StudioProxy variables not used by LogicModule.
+    ///   Slot 7: StudioProxy._workParticipants (mapping)
+    ///   Slot 8: StudioProxy._contributionWeights (mapping)
+    ///   Slot 9: StudioProxy._evidenceCIDs (mapping)
+    uint256[3] private __gap1;
+
+    /// @dev Slot 10: Score vectors (dataHash => validator => scoreVector)
     mapping(bytes32 => mapping(address => bytes)) internal _scoreVectors;
-    
-    /// @dev Total escrow
+
+    /// @dev Slots 11-12: Reserved for StudioProxy variables not used by LogicModule.
+    ///   Slot 11: StudioProxy._scoreVectorsPerWorker (mapping)
+    ///   Slot 12: StudioProxy._validators (mapping)
+    uint256[2] private __gap2;
+
+    /// @dev Slot 13: Total escrow in the Studio
     uint256 internal _totalEscrow;
-    
+
+    /// @dev Slots 14-28: Reserved for remaining StudioProxy storage.
+    ///   Slot 14: StudioProxy._scoreNonces (mapping)
+    ///   Slot 15: StudioProxy._withdrawable (mapping)
+    ///   Slot 16: StudioProxy._scoreCommitments (mapping)
+    ///   Slot 17: StudioProxy._commitDeadlines (mapping)
+    ///   Slot 18: StudioProxy._revealDeadlines (mapping)
+    ///   Slot 19: StudioProxy._agentIds (mapping)
+    ///   Slot 20: StudioProxy._agentStakes (mapping)
+    ///   Slot 21: StudioProxy._feedbackAuths (mapping, deprecated)
+    ///   Slot 22: StudioProxy._customDimensionNames (string[])
+    ///   Slot 23: StudioProxy._customDimensionWeights (mapping)
+    ///   Slot 24: StudioProxy._universalWeight (uint256)
+    ///   Slot 25: StudioProxy._customWeight (uint256)
+    ///   Slot 26: StudioProxy._agentRoles (mapping)
+    ///   Slot 27: StudioProxy._tasks (mapping)
+    ///   Slot 28: StudioProxy._clientTasks (mapping)
+    uint256[15] private __gap3;
+
     // ============ Events ============
     
     /**
