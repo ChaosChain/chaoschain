@@ -147,7 +147,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     uint8[] memory scores = _decodeScoreVector(validatorScore);
                     
                     workerScoreVectors[validScores] = ScoreVector({
-                        validatorAgentId: 0,
+                        validatorAgentId: studioProxy.getAgentId(validators[j]),
                         dataHash: dataHash,
                         stake: 1 ether,
                         scores: scores,
@@ -322,7 +322,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 endpoint,
                 string(abi.encodePacked("chaoschain://", _toHexString(dataHash))), // feedbackURI
                 feedbackHash
-            ) {} catch {}
+            ) {} catch Error(string memory reason) {
+                emit GiveFeedbackFailed(agentId, reason);
+            } catch {
+                emit GiveFeedbackFailed(agentId, "");
+            }
         }
     }
     
@@ -617,24 +621,26 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                     studioProxy.releaseFunds(validators[i], reward, dataHash);
                     totalDistributed += reward;
                 }
-                
-                // Calculate performance score (0-100) based on accuracy
-                // Performance = e^(-β * error²) scaled to 0-100
-                uint256 performanceScore = (weight * 100) / PRECISION;
-                if (performanceScore > 100) performanceScore = 100;
-                
-                // Publish VA reputation to Reputation Registry (§4.3 protocol_spec_v0.1.md)
-                if (scoreVectors[i].validatorAgentId != 0) {
-                    // Note: In production, feedbackUri would be fetched from validation evidence
-                    // For MVP, we pass empty strings (SDK handles feedback creation)
-                    _publishValidatorReputation(
-                        scoreVectors[i].validatorAgentId,
-                        uint8(performanceScore),
-                        dataHash,
-                        "",           // feedbackUri (would come from SDK/validation evidence)
-                        bytes32(0)    // feedbackHash
-                    );
+            }
+            
+            // Publish VA reputation independently of reward distribution.
+            // Performance score: inverse of normalized error (0-100).
+            // Uses PRECISION² to avoid integer truncation in the weight formula.
+            if (scoreVectors[i].validatorAgentId != 0) {
+                uint256 performanceScore;
+                if (errors[i] == 0) {
+                    performanceScore = 100;
+                } else {
+                    performanceScore = (PRECISION * 100) / (PRECISION + errors[i]);
+                    if (performanceScore > 100) performanceScore = 100;
                 }
+                _publishValidatorReputation(
+                    scoreVectors[i].validatorAgentId,
+                    uint8(performanceScore),
+                    dataHash,
+                    "",
+                    bytes32(0)
+                );
             }
         }
         
@@ -754,9 +760,9 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 uint8[] memory scores = abi.decode(scoreVectors[i], (uint8[]));
                 
                 scoreVectorStructs[validCount] = ScoreVector({
-                    validatorAgentId: 0, // Would come from IdentityRegistry
+                    validatorAgentId: studioProxy.getAgentId(validators[i]),
                     dataHash: dataHash,
-                    stake: 1 ether, // Simplified
+                    stake: 1 ether,
                     scores: scores,
                     timestamp: block.timestamp,
                     processed: false
@@ -954,8 +960,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 feedbackHash
             ) {
                 // Success - reputation published for this dimension
+            } catch Error(string memory reason) {
+                emit GiveFeedbackFailed(workerAgentId, reason);
             } catch {
-                // Failed - likely a mock registry or invalid dimension, continue
+                emit GiveFeedbackFailed(workerAgentId, "");
             }
         }
     }
@@ -1014,8 +1022,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             feedbackHash           // Hash of feedback content
         ) {
             // Success - reputation published with Triple-Verified Stack proofs
+        } catch Error(string memory reason) {
+            emit GiveFeedbackFailed(validatorAgentId, reason);
         } catch {
-            // Failed - likely a mock registry or other issue
+            emit GiveFeedbackFailed(validatorAgentId, "");
         }
     }
     

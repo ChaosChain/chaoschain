@@ -171,9 +171,9 @@ contract ERC8004Jan2026BoundaryTest is Test {
         rewardsDistributor.closeEpoch(proxy, 1);
         
         assertEq(
-            strictReputationRegistry.lastAgentId(),
+            strictReputationRegistry.lastWorkerAgentId(),
             workerAgentId,
-            "giveFeedback must use worker's agentId"
+            "worker dimension feedback must use worker's agentId"
         );
     }
     
@@ -230,7 +230,7 @@ contract ERC8004Jan2026BoundaryTest is Test {
         
         rewardsDistributor.closeEpoch(proxy, 1);
         
-        string memory tag1 = strictReputationRegistry.lastTag1();
+        string memory tag1 = strictReputationRegistry.lastWorkerTag1();
         
         // tag1 should be one of the dimension names
         bool isValidDimension = (
@@ -257,7 +257,7 @@ contract ERC8004Jan2026BoundaryTest is Test {
         
         rewardsDistributor.closeEpoch(proxy, 1);
         
-        string memory tag2 = strictReputationRegistry.lastTag2();
+        string memory tag2 = strictReputationRegistry.lastWorkerTag2();
         
         // tag2 should be the studio address as a string (0x...)
         assertTrue(
@@ -330,7 +330,7 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
     uint256 private _lastCallParameterCount;
     bool private _endpointProvided;
     
-    // Last call values
+    // Last call values (any call)
     uint256 public lastAgentId;
     int128 public lastValue;
     uint8 public lastValueDecimals;
@@ -339,6 +339,11 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
     string public lastEndpoint;
     string public lastFeedbackUri;
     bytes32 public lastFeedbackHash;
+
+    // Last WORKER dimension feedback (tag1 is a dimension name, not VALIDATOR_ACCURACY)
+    uint256 public lastWorkerAgentId;
+    string public lastWorkerTag1;
+    string public lastWorkerTag2;
     
     function resetCallCount() external {
         _giveFeedbackCalls = 0;
@@ -397,6 +402,13 @@ contract StrictJan2026ReputationMock is IERC8004Reputation {
         lastEndpoint = endpoint;
         lastFeedbackUri = feedbackUri;
         lastFeedbackHash = feedbackHash;
+
+        // Track worker dimension feedback separately from validator feedback
+        if (keccak256(bytes(tag1)) != keccak256(bytes("VALIDATOR_ACCURACY"))) {
+            lastWorkerAgentId = agentId;
+            lastWorkerTag1 = tag1;
+            lastWorkerTag2 = tag2;
+        }
         
         emit NewFeedback(
             agentId,

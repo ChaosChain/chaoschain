@@ -107,6 +107,17 @@ interface IRewardsDistributor {
         uint64 timestamp
     );
 
+    /**
+     * @dev Emitted when giveFeedback to the ReputationRegistry fails
+     * @param agentId The agent whose feedback failed
+     * @param reason The revert reason (may be empty for low-level failures)
+     */
+    event GiveFeedbackFailed(
+        uint256 indexed agentId,
+        string reason
+    );
+
+
     // ============ Core Functions ============
     
     /**

@@ -79,7 +79,7 @@ export interface ArweaveAdapter {
 
 export type ReconciliationResult =
   | { action: 'NO_CHANGE' }
-  | { action: 'ADVANCE_TO_STEP'; step: string }
+  | { action: 'ADVANCE_TO_STEP'; step: string; progressUpdates?: Record<string, unknown> }
   | { action: 'COMPLETE' }
   | { action: 'FAIL'; reason: string }
   | { action: 'CLEAR_TX_HASH_AND_RETRY' }
@@ -222,10 +222,10 @@ export class WorkflowReconciler {
     if (onChainExists) {
       // Work is on StudioProxy - need to check if we should advance to REGISTER_WORK
       if (step === 'SUBMIT_WORK_ONCHAIN' || step === 'AWAIT_TX_CONFIRM') {
-        // Skip to REGISTER_WORK
         return { 
           action: 'ADVANCE_TO_STEP', 
-          step: 'REGISTER_WORK' 
+          step: 'REGISTER_WORK',
+          progressUpdates: { onchain_confirmed: true, onchain_confirmed_at: Date.now() },
         };
       }
       // If we're at REGISTER_WORK or later, continue execution
@@ -250,10 +250,10 @@ export class WorkflowReconciler {
             input.data_hash
           );
           if (doubleCheck) {
-            // Work exists, advance to REGISTER_WORK
             return { 
               action: 'ADVANCE_TO_STEP', 
-              step: 'REGISTER_WORK' 
+              step: 'REGISTER_WORK',
+              progressUpdates: { onchain_confirmed: true, onchain_confirmed_at: Date.now() },
             };
           }
           // Tx confirmed but work not found - should not happen
@@ -395,12 +395,11 @@ export class WorkflowReconciler {
     );
 
     if (revealExists) {
-      // Reveal is on chain - check if we should advance to REGISTER_VALIDATOR
       if (step === 'REVEAL_SCORE' || step === 'AWAIT_REVEAL_CONFIRM') {
-        // Skip to REGISTER_VALIDATOR
         return { 
           action: 'ADVANCE_TO_STEP', 
-          step: 'REGISTER_VALIDATOR' 
+          step: 'REGISTER_VALIDATOR',
+          progressUpdates: { reveal_confirmed: true, reveal_confirmed_at: Date.now() },
         };
       }
       // If we're at REGISTER_VALIDATOR or later, continue execution
@@ -425,10 +424,10 @@ export class WorkflowReconciler {
             input.validator_address
           );
           if (revealDoubleCheck) {
-            // Advance to REGISTER_VALIDATOR
             return { 
               action: 'ADVANCE_TO_STEP', 
-              step: 'REGISTER_VALIDATOR' 
+              step: 'REGISTER_VALIDATOR',
+              progressUpdates: { reveal_confirmed: true, reveal_confirmed_at: Date.now() },
             };
           }
           return { action: 'FAIL', reason: 'reveal_tx_confirmed_but_reveal_not_found' };
@@ -657,6 +656,9 @@ export class WorkflowReconciler {
             step: result.step,
             step_attempts: 0,
             updated_at: Date.now(),
+            progress: result.progressUpdates
+              ? { ...(workflow.progress as Record<string, unknown>), ...result.progressUpdates }
+              : workflow.progress,
           },
           stateChanged: true,
         };

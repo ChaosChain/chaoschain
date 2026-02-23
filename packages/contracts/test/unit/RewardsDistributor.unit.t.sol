@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test, console, Vm} from "forge-std/Test.sol";
 import {ChaosChainRegistry} from "../../src/ChaosChainRegistry.sol";
 import {RewardsDistributor} from "../../src/RewardsDistributor.sol";
 import {IRewardsDistributor} from "../../src/interfaces/IRewardsDistributor.sol";
@@ -10,6 +10,7 @@ import {StudioProxyFactory} from "../../src/StudioProxyFactory.sol";
 import {ChaosCore} from "../../src/ChaosCore.sol";
 import {PredictionMarketLogic} from "../../src/logic/PredictionMarketLogic.sol";
 import {IERC8004IdentityV1} from "../../src/interfaces/IERC8004IdentityV1.sol";
+import {IERC8004Reputation} from "../../src/interfaces/IERC8004Reputation.sol";
 
 /**
  * @title RewardsDistributorUnitTest
@@ -205,6 +206,138 @@ contract RewardsDistributorUnitTest is Test {
         // Should either have 1 (idempotent) or 2 (allowed duplicates) - verify behavior
         assertTrue(validators.length >= 1, "At least one validator registered");
     }
+}
+
+/**
+ * @title GiveFeedbackFailedTest
+ * @notice Proves that giveFeedback failures emit GiveFeedbackFailed and don't kill the epoch
+ */
+contract GiveFeedbackFailedTest is Test {
+    ChaosChainRegistry public registry;
+    RewardsDistributor public rewardsDistributor;
+    ChaosCore public chaosCore;
+    StudioProxyFactory public factory;
+    PredictionMarketLogic public predictionLogic;
+    MockIdentityRegistryUnit public mockIdentityRegistry;
+    RevertingReputationRegistry public revertingRepRegistry;
+
+    address public studioOwner;
+    address public workerAgent;
+    address public validatorAgent;
+    uint256 public workerAgentId;
+    uint256 public validatorAgentId;
+
+    event GiveFeedbackFailed(uint256 indexed agentId, string reason);
+    event EpochClosed(address indexed studio, uint64 indexed epoch, uint256 workCount, uint256 validatorCount);
+
+    function setUp() public {
+        studioOwner = makeAddr("studioOwner");
+        workerAgent = makeAddr("workerAgent");
+        validatorAgent = makeAddr("validatorAgent");
+
+        mockIdentityRegistry = new MockIdentityRegistryUnit();
+        revertingRepRegistry = new RevertingReputationRegistry();
+
+        vm.prank(workerAgent);
+        workerAgentId = mockIdentityRegistry.register();
+        vm.prank(validatorAgent);
+        validatorAgentId = mockIdentityRegistry.register();
+
+        registry = new ChaosChainRegistry(
+            address(mockIdentityRegistry),
+            address(revertingRepRegistry),
+            address(0x1003)
+        );
+
+        rewardsDistributor = new RewardsDistributor(address(registry));
+        factory = new StudioProxyFactory();
+        chaosCore = new ChaosCore(address(registry), address(factory));
+        predictionLogic = new PredictionMarketLogic();
+
+        registry.setChaosCore(address(chaosCore));
+        registry.setRewardsDistributor(address(rewardsDistributor));
+        chaosCore.registerLogicModule(address(predictionLogic), "PredictionMarket");
+
+        vm.deal(studioOwner, 100 ether);
+        vm.deal(workerAgent, 10 ether);
+        vm.deal(validatorAgent, 10 ether);
+    }
+
+    function test_giveFeedbackFailed_emits_event_and_epoch_still_closes() public {
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Feedback Fail Studio", address(predictionLogic));
+
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).registerAgent{value: 1 ether}(workerAgentId, StudioProxy.AgentRole.WORKER);
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).registerAgent{value: 1 ether}(validatorAgentId, StudioProxy.AgentRole.VERIFIER);
+
+        vm.prank(studioOwner);
+        StudioProxy(payable(proxy)).deposit{value: 10 ether}();
+
+        bytes32 dataHash = keccak256("feedback_fail_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)), new bytes(65));
+
+        uint64 epoch = 1;
+        rewardsDistributor.registerWork(proxy, epoch, dataHash);
+
+        bytes memory scoreVector = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).submitScoreVectorForWorker(dataHash, workerAgent, scoreVector);
+        rewardsDistributor.registerValidator(dataHash, validatorAgent);
+
+        vm.recordLogs();
+        rewardsDistributor.closeEpoch(proxy, epoch);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        // Count events
+        bytes32 feedbackFailedSig = keccak256("GiveFeedbackFailed(uint256,string)");
+        bytes32 epochClosedSig = keccak256("EpochClosed(address,uint64,uint256,uint256)");
+        uint256 feedbackFailedCount = 0;
+        uint256 epochClosedCount = 0;
+
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == feedbackFailedSig) feedbackFailedCount++;
+            if (logs[i].topics[0] == epochClosedSig) epochClosedCount++;
+        }
+
+        assertGt(feedbackFailedCount, 0, "GiveFeedbackFailed must be emitted at least once");
+        assertEq(epochClosedCount, 1, "EpochClosed must be emitted exactly once");
+
+        // Epoch closed successfully despite giveFeedback failures
+        uint256 workerBalance = StudioProxy(payable(proxy)).getWithdrawableBalance(workerAgent);
+        assertGt(workerBalance, 0, "Worker must still receive rewards despite feedback failure");
+    }
+}
+
+/**
+ * @notice Reputation registry mock that always reverts on giveFeedback
+ */
+contract RevertingReputationRegistry is IERC8004Reputation {
+    function giveFeedback(uint256, int128, uint8, string calldata, string calldata,
+        string calldata, string calldata, bytes32) external pure override {
+        revert("reputation registry broken");
+    }
+    function revokeFeedback(uint256, uint64) external pure override {}
+    function appendResponse(uint256, address, uint64, string calldata, bytes32) external pure override {}
+    function getIdentityRegistry() external pure override returns (address) { return address(0); }
+    function getSummary(uint256, address[] calldata, string calldata, string calldata)
+        external pure override returns (uint64, int128, uint8) { return (0, 0, 0); }
+    function readFeedback(uint256, address, uint64) external pure override
+        returns (int128, uint8, string memory, string memory, bool) { return (0, 0, "", "", false); }
+    function readAllFeedback(uint256, address[] calldata, string calldata, string calldata, bool)
+        external pure override returns (
+            address[] memory, uint64[] memory, int128[] memory, uint8[] memory,
+            string[] memory, string[] memory, bool[] memory
+        ) {
+        return (new address[](0), new uint64[](0), new int128[](0), new uint8[](0),
+                new string[](0), new string[](0), new bool[](0));
+    }
+    function getLastIndex(uint256, address) external pure override returns (uint64) { return 0; }
+    function getClients(uint256) external pure override returns (address[] memory) { return new address[](0); }
+    function getResponseCount(uint256, address, uint64, address[] calldata)
+        external pure override returns (uint64) { return 0; }
 }
 
 /**

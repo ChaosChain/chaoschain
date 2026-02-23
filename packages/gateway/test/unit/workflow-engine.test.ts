@@ -879,6 +879,33 @@ describe('E. REGISTER_WORK step (RewardsDistributor registration)', () => {
     }
   });
 
+  it('ADVANCE_TO_STEP must set onchain_confirmed so RegisterWorkStep does not reject', async () => {
+    // Scenario: Gateway crashed after submitWork confirmed. On restart,
+    // reconciliation detects work on StudioProxy and returns ADVANCE_TO_STEP.
+    // RegisterWorkStep has a precondition: if (!progress.onchain_confirmed) → FAIL.
+    // This test proves that applyReconciliationResult carries the progress update.
+    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(false);
+
+    const input = createTestInput();
+    const workflow = createWorkSubmissionWorkflow(input);
+    workflow.state = 'RUNNING';
+    workflow.step = 'SUBMIT_WORK_ONCHAIN';
+    workflow.progress = {
+      arweave_tx_id: 'ar-tx-id',
+      arweave_confirmed: true,
+    };
+
+    const result = await reconciler.reconcileWorkSubmission(workflow);
+    expect(result.action).toBe('ADVANCE_TO_STEP');
+
+    const { workflow: updated } = reconciler.applyReconciliationResult(workflow, result);
+
+    expect(updated.step).toBe('REGISTER_WORK');
+    expect((updated.progress as Record<string, unknown>).onchain_confirmed).toBe(true);
+    expect((updated.progress as Record<string, unknown>).onchain_confirmed_at).toBeTypeOf('number');
+  });
+
   it('should handle duplicate registerWork gracefully (idempotent)', async () => {
     // Setup: registerWork tx exists but not confirmed yet
     // Workflow has register_tx_hash already
