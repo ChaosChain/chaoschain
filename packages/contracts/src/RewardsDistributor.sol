@@ -607,11 +607,17 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             errors[i] = errorSquared;
             
             // Weight = e^(-β * error²) (simplified as 1 / (1 + error))
+            // KNOWN LIMITATION: Integer division makes this effectively binary —
+            // weight is 1 when error==0 and 0 otherwise. Validator reward weighting
+            // is currently binary due to integer division; economics revision
+            // scheduled post-DKG integration.
             uint256 weight = PRECISION / (PRECISION + errors[i]);
             totalWeight += weight;
         }
         
-        // Distribute rewards proportional to accuracy
+        // Distribute rewards proportional to accuracy.
+        // See KNOWN LIMITATION above: totalWeight>0 only when all validators
+        // have zero error (perfect consensus agreement).
         for (uint256 i = 0; i < validators.length; i++) {
             if (totalWeight > 0) {
                 uint256 weight = PRECISION / (PRECISION + errors[i]);
