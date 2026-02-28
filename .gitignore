@@ -99,6 +99,11 @@ coverage.json
 gas-report.txt
 
 # =========================================
+# E2E
+# =========================================
+e2e/addresses.json
+
+# =========================================
 # DOCKER
 # =========================================
 docker-compose.override.yml
@@ -128,6 +133,7 @@ packages/sdk/chaoschain_wallets.json
 !docs/X402_INTEGRATION_GUIDE.md
 !docs/MERCHANT_GUIDE.md
 !packages/openclaw-skill/**/SKILL.md
+!e2e/README.md
 
 packages/contracts-v1/IMPLEMENTATION_ROADMAP.md
 packages/contracts/deploy_rewards_only.sh
