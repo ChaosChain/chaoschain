@@ -12,6 +12,8 @@ import { createWorkSubmissionWorkflow } from '../workflows/work-submission.js';
 import { createScoreSubmissionWorkflow } from '../workflows/score-submission.js';
 import { createCloseEpochWorkflow } from '../workflows/close-epoch.js';
 import { WorkSubmissionInput, ScoreSubmissionInput, CloseEpochInput, WorkflowRecord } from '../workflows/index.js';
+import type { DKGEvidencePackage } from '../workflows/types.js';
+import { trackWorkflowCreated } from '../metrics/index.js';
 import { Logger } from '../utils/logger.js';
 
 // =============================================================================
@@ -23,8 +25,7 @@ interface CreateWorkSubmissionRequest {
   epoch: number;
   agent_address: string;
   data_hash: string;
-  thread_root: string;
-  evidence_root: string;
+  dkg_evidence: DKGEvidencePackage[];
   evidence_content: string; // base64 encoded
   signer_address: string;
 }
@@ -124,6 +125,43 @@ function validateScoresArray(value: unknown, fieldName: string): number[] {
   return value as number[];
 }
 
+function validateDkgEvidence(value: unknown, fieldName: string): DKGEvidencePackage[] {
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${fieldName} must be an array`);
+  }
+  if (value.length === 0) {
+    throw new ValidationError(`${fieldName} must not be empty`);
+  }
+  for (let i = 0; i < value.length; i++) {
+    const pkg = value[i];
+    if (!pkg || typeof pkg !== 'object') {
+      throw new ValidationError(`${fieldName}[${i}] must be an object`);
+    }
+    if (typeof pkg.arweave_tx_id !== 'string' || !pkg.arweave_tx_id) {
+      throw new ValidationError(`${fieldName}[${i}].arweave_tx_id must be a non-empty string`);
+    }
+    if (typeof pkg.author !== 'string' || !pkg.author) {
+      throw new ValidationError(`${fieldName}[${i}].author must be a non-empty string`);
+    }
+    if (typeof pkg.timestamp !== 'number') {
+      throw new ValidationError(`${fieldName}[${i}].timestamp must be a number`);
+    }
+    if (!Array.isArray(pkg.parent_ids)) {
+      throw new ValidationError(`${fieldName}[${i}].parent_ids must be an array`);
+    }
+    if (typeof pkg.payload_hash !== 'string') {
+      throw new ValidationError(`${fieldName}[${i}].payload_hash must be a string`);
+    }
+    if (!Array.isArray(pkg.artifact_ids)) {
+      throw new ValidationError(`${fieldName}[${i}].artifact_ids must be an array`);
+    }
+    if (typeof pkg.signature !== 'string') {
+      throw new ValidationError(`${fieldName}[${i}].signature must be a string`);
+    }
+  }
+  return value as DKGEvidencePackage[];
+}
+
 class ValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -158,8 +196,7 @@ export function createRoutes(
           epoch: validatePositiveInteger(body.epoch, 'epoch'),
           agent_address: validateAddress(body.agent_address, 'agent_address'),
           data_hash: validateBytes32(body.data_hash, 'data_hash'),
-          thread_root: validateBytes32(body.thread_root, 'thread_root'),
-          evidence_root: validateBytes32(body.evidence_root, 'evidence_root'),
+          dkg_evidence: validateDkgEvidence(body.dkg_evidence, 'dkg_evidence'),
           evidence_content: validateBase64(body.evidence_content, 'evidence_content'),
           signer_address: validateAddress(body.signer_address, 'signer_address'),
         };
@@ -168,6 +205,7 @@ export function createRoutes(
         const workflow = createWorkSubmissionWorkflow(input);
 
         logger.info({ workflowId: workflow.id, type: workflow.type }, 'Creating workflow');
+        trackWorkflowCreated(workflow.id, workflow.type);
 
         // Persist and start
         await engine.createWorkflow(workflow);
@@ -234,6 +272,7 @@ export function createRoutes(
           mode,
           step: workflow.step 
         }, 'Creating score submission workflow');
+        trackWorkflowCreated(workflow.id, workflow.type);
 
         // Persist and start
         await engine.createWorkflow(workflow);
@@ -272,6 +311,7 @@ export function createRoutes(
         const workflow = createCloseEpochWorkflow(input);
 
         logger.info({ workflowId: workflow.id, type: workflow.type, epoch: input.epoch }, 'Creating workflow');
+        trackWorkflowCreated(workflow.id, workflow.type);
 
         // Persist and start
         await engine.createWorkflow(workflow);

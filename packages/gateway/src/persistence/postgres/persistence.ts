@@ -228,6 +228,100 @@ export class PostgresWorkflowPersistence implements WorkflowPersistence {
   }
 
   // ===========================================================================
+  // Read-only queries for public API (WorkflowQuerySource)
+  // ===========================================================================
+
+  async findWorkByDataHash(dataHash: string): Promise<WorkflowRecord | null> {
+    const query = `
+      SELECT id, type, created_at, updated_at,
+             state, step, step_attempts,
+             input, progress, error, signer
+      FROM workflows
+      WHERE type = 'WorkSubmission' AND input->>'data_hash' = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const result = await this.pool.query(query, [dataHash]);
+    return result.rows.length > 0 ? this.rowToRecord(result.rows[0]) : null;
+  }
+
+  async findLatestCompletedWorkForAgent(agentAddress: string): Promise<WorkflowRecord | null> {
+    const query = `
+      SELECT id, type, created_at, updated_at,
+             state, step, step_attempts,
+             input, progress, error, signer
+      FROM workflows
+      WHERE type = 'WorkSubmission'
+        AND state = 'COMPLETED'
+        AND LOWER(input->>'agent_address') = LOWER($1)
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const result = await this.pool.query(query, [agentAddress]);
+    return result.rows.length > 0 ? this.rowToRecord(result.rows[0]) : null;
+  }
+
+  async findAllCompletedWorkflowsForAgent(
+    agentAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const countQuery = `
+      SELECT COUNT(*) AS cnt FROM workflows
+      WHERE state = 'COMPLETED'
+        AND (
+          (type = 'WorkSubmission' AND LOWER(input->>'agent_address') = LOWER($1))
+          OR
+          (type = 'ScoreSubmission' AND LOWER(input->>'validator_address') = LOWER($1))
+        )
+    `;
+    const countResult = await this.pool.query(countQuery, [agentAddress]);
+    const total = parseInt(countResult.rows[0]?.cnt ?? '0', 10);
+
+    const query = `
+      SELECT id, type, created_at, updated_at,
+             state, step, step_attempts,
+             input, progress, error, signer
+      FROM workflows
+      WHERE state = 'COMPLETED'
+        AND (
+          (type = 'WorkSubmission' AND LOWER(input->>'agent_address') = LOWER($1))
+          OR
+          (type = 'ScoreSubmission' AND LOWER(input->>'validator_address') = LOWER($1))
+        )
+      ORDER BY created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+    const result = await this.pool.query(query, [agentAddress, limit, offset]);
+    return { records: result.rows.map((row) => this.rowToRecord(row)), total };
+  }
+
+  async hasCompletedScoreForDataHash(dataHash: string): Promise<boolean> {
+    const query = `
+      SELECT 1 FROM workflows
+      WHERE type = 'ScoreSubmission'
+        AND state = 'COMPLETED'
+        AND input->>'data_hash' = $1
+      LIMIT 1
+    `;
+    const result = await this.pool.query(query, [dataHash]);
+    return result.rows.length > 0;
+  }
+
+  async hasCompletedCloseEpoch(studioAddress: string, epoch: number): Promise<boolean> {
+    const query = `
+      SELECT 1 FROM workflows
+      WHERE type = 'CloseEpoch'
+        AND state = 'COMPLETED'
+        AND input->>'studio_address' = $1
+        AND (input->>'epoch')::int = $2
+      LIMIT 1
+    `;
+    const result = await this.pool.query(query, [studioAddress, epoch]);
+    return result.rows.length > 0;
+  }
+
+  // ===========================================================================
   // PRIVATE: Row mapping
   // ===========================================================================
 

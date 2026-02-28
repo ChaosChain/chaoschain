@@ -28,7 +28,16 @@ import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workf
 import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
 import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
-import { createRoutes, errorHandler } from './http/index.js';
+import { createRoutes, errorHandler, apiKeyAuth, parseApiKeys, rateLimit, InMemoryRateLimiter } from './http/index.js';
+import { createPublicApiRoutes } from './routes/public-api.js';
+import { ReputationReader } from './services/reputation-reader.js';
+import { WorkDataReader } from './services/work-data-reader.js';
+import {
+  trackWorkflowCreated,
+  trackWorkflowCompleted,
+  trackWorkflowFailed,
+  startMetricsServer,
+} from './metrics/index.js';
 import { createLogger, Logger } from './utils/index.js';
 
 // =============================================================================
@@ -52,6 +61,10 @@ export interface GatewayConfig {
   chaosCoreAddress: string;
   rewardsDistributorAddress: string;
 
+  // ERC-8004 registries (read-only, for public API)
+  identityRegistryAddress: string;
+  reputationRegistryAddress: string;
+
   // Arweave (Turbo)
   turboGatewayUrl: string;
 
@@ -70,6 +83,9 @@ export function loadConfigFromEnv(): GatewayConfig {
     // ChaosChain contract addresses (Sepolia) - v0.4.31 ERC-8004 Feb 2026 ABI
     chaosCoreAddress: process.env.CHAOS_CORE_ADDRESS ?? '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
     rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
+    // ERC-8004 registries (Base Sepolia official deployments)
+    identityRegistryAddress: process.env.IDENTITY_REGISTRY_ADDRESS ?? '0x8004A818BFB912233c491871b3d84c89A494BD9e',
+    reputationRegistryAddress: process.env.REPUTATION_REGISTRY_ADDRESS ?? '0x8004B663056A597Dffe9eCcC1965A193B7388713',
     // Arweave Turbo gateway
     turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
@@ -87,6 +103,7 @@ export class Gateway {
   private pool: Pool;
   private engine: WorkflowEngine;
   private server?: ReturnType<Express['listen']>;
+  private metricsServer?: import('http').Server;
   private shutdownPromise?: Promise<void>;
 
   constructor(config: GatewayConfig) {
@@ -223,7 +240,7 @@ export class Gateway {
     this.engine.registerWorkflow(closeEpochDef);
     this.logger.info({}, 'CloseEpoch workflow registered');
 
-    // Subscribe to engine events for logging
+    // Subscribe to engine events for logging + metrics
     this.engine.onEvent((event) => {
       const ctx = { workflowId: 'workflowId' in event ? event.workflowId : undefined };
       
@@ -248,9 +265,11 @@ export class Gateway {
           break;
         case 'WORKFLOW_FAILED':
           this.logger.error({ ...ctx, error: event.error }, 'Workflow failed');
+          trackWorkflowFailed(event.workflowId);
           break;
         case 'WORKFLOW_COMPLETED':
           this.logger.info(ctx, 'Workflow completed');
+          trackWorkflowCompleted(event.workflowId);
           break;
         case 'RECONCILIATION_RAN':
           if (event.changed) {
@@ -267,7 +286,46 @@ export class Gateway {
 
     // Setup HTTP server
     this.app.use(express.json({ limit: '10mb' }));
+
+    // Rate limiting (in-memory, per-IP)
+    const readLimiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 60 });
+    const writeLimiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 30 });
+
+    // API key auth for write endpoints
+    const apiKeys = parseApiKeys(process.env.CHAOSCHAIN_API_KEYS);
+    if (apiKeys.size > 0) {
+      this.app.post('/workflows/*', apiKeyAuth({ keys: apiKeys }));
+      this.logger.info({ count: apiKeys.size }, 'API key auth enabled for write endpoints');
+    } else {
+      this.logger.warn({}, 'No CHAOSCHAIN_API_KEYS configured — write endpoints are unauthenticated');
+    }
+
+    // Write endpoint rate limiting (POST /workflows/*)
+    this.app.post('/workflows/*', rateLimit(writeLimiter));
+
+    // Workflow routes
     this.app.use(createRoutes(this.engine, persistence, this.logger));
+
+    // Public read API (rate limited, no auth)
+    const reputationReader = new ReputationReader({
+      provider: await this.createProvider(),
+      identityRegistryAddress: this.config.identityRegistryAddress,
+      reputationRegistryAddress: this.config.reputationRegistryAddress,
+    });
+    const workDataReader = new WorkDataReader(
+      persistence as any,
+    );
+    this.app.use(
+      rateLimit(readLimiter),
+      createPublicApiRoutes({
+        reputationReader,
+        workDataReader,
+        network: process.env.NETWORK_NAME ?? 'base-sepolia',
+        identityRegistryAddress: this.config.identityRegistryAddress,
+        reputationRegistryAddress: this.config.reputationRegistryAddress,
+      }),
+    );
+
     this.app.use(errorHandler(this.logger));
 
     // Start listening
@@ -280,6 +338,11 @@ export class Gateway {
         resolve();
       });
     });
+
+    // Start internal metrics server (Prometheus /metrics)
+    const metricsPort = parseInt(process.env.METRICS_PORT ?? '9090', 10);
+    this.metricsServer = startMetricsServer(metricsPort);
+    this.logger.info({ port: metricsPort }, 'Internal metrics server started (Prometheus /metrics)');
 
     // Setup shutdown handlers
     this.setupShutdownHandlers();
@@ -317,6 +380,12 @@ export class Gateway {
         });
       });
       this.logger.info({}, 'HTTP server stopped');
+    }
+
+    // Stop metrics server
+    if (this.metricsServer) {
+      this.metricsServer.close();
+      this.logger.info({}, 'Metrics server stopped');
     }
 
     // Close database pool

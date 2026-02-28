@@ -5,6 +5,9 @@
  * See: GatewayWorkflowExecutionModel.md
  */
 
+import type { EvidencePackage as DKGEvidencePackage } from '../services/dkg/types.js';
+export type { DKGEvidencePackage };
+
 // =============================================================================
 // META-STATES (Universal across all workflow types)
 // =============================================================================
@@ -32,6 +35,7 @@ export type WorkflowType =
 // =============================================================================
 
 export type WorkSubmissionStep =
+  | 'COMPUTE_DKG'
   | 'UPLOAD_EVIDENCE'
   | 'AWAIT_ARWEAVE_CONFIRM'
   | 'SUBMIT_WORK_ONCHAIN'
@@ -95,8 +99,7 @@ export interface WorkSubmissionInput {
   epoch: number;
   agent_address: string;
   data_hash: string;          // bytes32 hex
-  thread_root: string;        // bytes32 hex
-  evidence_root: string;      // bytes32 hex
+  dkg_evidence: DKGEvidencePackage[];
   evidence_content: Buffer;   // Raw evidence bytes
   signer_address: string;     // Which key signs on-chain txs
 }
@@ -106,6 +109,11 @@ export interface WorkSubmissionInput {
 // =============================================================================
 
 export interface WorkSubmissionProgress {
+  // DKG computation
+  dkg_thread_root?: string;
+  dkg_evidence_root?: string;
+  dkg_weights?: Record<string, number>;
+  // Arweave
   arweave_tx_id?: string;
   arweave_confirmed?: boolean;
   arweave_confirmed_at?: number;

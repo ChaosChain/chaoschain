@@ -643,9 +643,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
                 _publishValidatorReputation(
                     scoreVectors[i].validatorAgentId,
                     uint8(performanceScore),
-                    dataHash,
-                    "",
-                    bytes32(0)
+                    dataHash
                 );
             }
         }
@@ -975,29 +973,20 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     }
     
     /**
-     * @notice Publish VA performance scores to Reputation Registry (ERC-8004 Jan 2026 compatible)
+     * @notice Publish VA performance scores to Reputation Registry (ERC-8004 Feb 2026 compatible)
      * @dev Called after consensus to build global verifiable reputation (§4.3 protocol_spec_v0.1.md)
      * 
-     * ERC-8004 Jan 2026 Changes:
-     * - feedbackAuth parameter REMOVED - feedback is now permissionless
-     * - endpoint parameter ADDED
-     * - tags changed from bytes32 to string
-     * 
-     * Triple-Verified Stack Integration:
-     * - feedbackUri contains IntegrityProof (Layer 2: Process Integrity)
-     * - SDK creates this automatically for validators
+     * Mirrors _publishWorkerReputation pattern: constructs a deterministic feedbackURI and
+     * non-zero feedbackHash so the ERC-8004 registry persists the entry.
      * 
      * @param validatorAgentId The validator's agent ID
      * @param performanceScore The performance score (0-100, based on accuracy to consensus)
-     * @param feedbackUri IPFS/Irys URI containing IntegrityProof (from SDK)
-     * @param feedbackHash Hash of feedback content
+     * @param dataHash The work hash used to build deterministic feedbackURI and feedbackHash
      */
     function _publishValidatorReputation(
         uint256 validatorAgentId,
         uint8 performanceScore,
-        bytes32 /* dataHash */,
-        string memory feedbackUri,
-        bytes32 feedbackHash
+        bytes32 dataHash
     ) internal {
         // Get ReputationRegistry from registry
         address reputationRegistry = registry.getReputationRegistry();
@@ -1015,7 +1004,20 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         string memory tag2 = "CONSENSUS_MATCH";
         string memory endpoint = ""; // Optional endpoint
         
-        // Try to publish feedback with Triple-Verified Stack proofs
+        // Construct deterministic feedbackHash (mirrors worker pattern at line 308)
+        bytes32 feedbackHash = keccak256(abi.encodePacked(
+            dataHash,
+            validatorAgentId,
+            tag1,
+            performanceScore
+        ));
+        
+        // Construct feedbackURI (mirrors worker pattern at line 323)
+        string memory feedbackUri = string(abi.encodePacked(
+            "chaoschain://validator/",
+            _toHexString(dataHash)
+        ));
+        
         // Feb 2026 ABI: value (int128) + valueDecimals (uint8) instead of score
         try IERC8004Reputation(reputationRegistry).giveFeedback(
             validatorAgentId,
@@ -1024,10 +1026,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             tag1,
             tag2,
             endpoint,
-            feedbackUri,           // Contains IntegrityProof
-            feedbackHash           // Hash of feedback content
+            feedbackUri,
+            feedbackHash
         ) {
-            // Success - reputation published with Triple-Verified Stack proofs
+            // Success
         } catch Error(string memory reason) {
             emit GiveFeedbackFailed(validatorAgentId, reason);
         } catch {

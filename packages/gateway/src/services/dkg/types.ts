@@ -132,3 +132,28 @@ export const DEFAULT_DKG_CONFIG: DKGEngineConfig = {
   weight_method: 'betweenness',
   version: '1.0.0',
 };
+
+// =============================================================================
+// POA FEATURE TYPES
+// =============================================================================
+
+/**
+ * Proof-of-Agency feature scores derived from DKG graph structure.
+ * Each score is 0-100.
+ *
+ * initiative and collaboration and reasoning are evidence-derived.
+ * compliance and efficiency are verifier-opinion placeholders until
+ * formal definitions are ratified.
+ */
+export interface PoAFeatures {
+  /** Ratio of nodes where agent is originator vs total nodes (0-100) */
+  initiative: number;
+  /** Ratio of reply edges involving agent (0-100) */
+  collaboration: number;
+  /** Normalized max path length from agent nodes (0-100) */
+  reasoning: number;
+  /** Verifier-opinion placeholder — not graph-derivable yet */
+  compliance: null;
+  /** Verifier-opinion placeholder — not graph-derivable yet */
+  efficiency: null;
+}

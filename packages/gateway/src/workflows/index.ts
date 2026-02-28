@@ -20,6 +20,7 @@
 
 // Type-only exports (interfaces and type aliases)
 export type {
+  DKGEvidencePackage,
   WorkflowMetaState,
   WorkflowType,
   WorkSubmissionStep,
@@ -75,6 +76,7 @@ export type {
   RewardsDistributorStateAdapter,
 } from './work-submission.js';
 export {
+  ComputeDKGStep,
   UploadEvidenceStep,
   AwaitArweaveConfirmStep,
   SubmitWorkOnchainStep,

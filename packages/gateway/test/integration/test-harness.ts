@@ -477,6 +477,21 @@ export function generateEvidenceRoot(evidence: string): string {
   return keccak256(toUtf8Bytes(evidence));
 }
 
+export function generateDkgEvidence(
+  author: string,
+  messages: string[] = ['msg'],
+): Array<{ arweave_tx_id: string; author: string; timestamp: number; parent_ids: string[]; payload_hash: string; artifact_ids: string[]; signature: string }> {
+  return messages.map((msg, i) => ({
+    arweave_tx_id: `ar-${keccak256(toUtf8Bytes(msg + author + i)).slice(2, 18)}`,
+    author,
+    timestamp: 1000 + i,
+    parent_ids: i > 0 ? [`ar-${keccak256(toUtf8Bytes(messages[i - 1] + author + (i - 1))).slice(2, 18)}`] : [],
+    payload_hash: keccak256(toUtf8Bytes(msg)),
+    artifact_ids: [],
+    signature: '0x' + '00'.repeat(65),
+  }));
+}
+
 export function generateSalt(): string {
   return '0x' + [...Array(64)].map(() => Math.floor(Math.random() * 16).toString(16)).join('');
 }
@@ -536,15 +551,14 @@ export class SimulatedGateway {
     epoch: number;
     agent_address: string;
     data_hash: string;
-    thread_root: string;
-    evidence_root: string;
+    dkg_evidence: Array<{ arweave_tx_id: string; author: string; timestamp: number; parent_ids: string[]; payload_hash: string; artifact_ids: string[]; signature: string }>;
     signer_address: string;
   }): SimulatedWorkflow {
     const workflow: SimulatedWorkflow = {
       id: uuidv4(),
       type: 'WorkSubmission',
       state: 'CREATED',
-      step: 'STORE_EVIDENCE',
+      step: 'COMPUTE_DKG',
       input,
       progress: {},
       signer: input.signer_address,
@@ -646,8 +660,19 @@ export class SimulatedGateway {
     const input = workflow.input as {
       agent_address: string;
       data_hash: string;
-      thread_root: string;
-      evidence_root: string;
+      dkg_evidence: Array<{ arweave_tx_id: string }>;
+    };
+
+    // Step 0: Compute DKG (simulated)
+    workflow.step = 'COMPUTE_DKG';
+    if (this.shouldFail('COMPUTE_DKG')) return;
+    const mockThreadRoot = keccak256(toUtf8Bytes('thread-' + workflow.id));
+    const mockEvidenceRoot = keccak256(toUtf8Bytes('evidence-' + workflow.id));
+    workflow.progress = {
+      ...workflow.progress,
+      dkg_thread_root: mockThreadRoot,
+      dkg_evidence_root: mockEvidenceRoot,
+      dkg_weights: { [input.agent_address]: 1.0 },
     };
 
     // Step 1: Store evidence
@@ -661,15 +686,14 @@ export class SimulatedGateway {
     if (this.shouldFail('AWAIT_EVIDENCE_CONFIRM')) return;
     workflow.progress = { ...workflow.progress, arweave_confirmed: true };
 
-    // Step 3: Submit on-chain
+    // Step 3: Submit on-chain (uses DKG-computed roots from progress)
     workflow.step = 'SUBMIT_WORK_ONCHAIN';
     if (this.shouldFail('SUBMIT_WORK_ONCHAIN')) return;
     
-    // Actually call the mock contract
     this.studio.submitWork(
       input.data_hash,
-      input.thread_root,
-      input.evidence_root,
+      mockThreadRoot,
+      mockEvidenceRoot,
       input.agent_address
     );
     
@@ -806,8 +830,7 @@ export class SDKClientSimulator {
     epoch: number;
     agent_address: string;
     data_hash: string;
-    thread_root: string;
-    evidence_root: string;
+    dkg_evidence: Array<{ arweave_tx_id: string; author: string; timestamp: number; parent_ids: string[]; payload_hash: string; artifact_ids: string[]; signature: string }>;
     signer_address: string;
   }): Promise<SimulatedWorkflow> {
     const workflow = this.gateway.createWorkSubmission(params);

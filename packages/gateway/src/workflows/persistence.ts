@@ -153,6 +153,83 @@ export class InMemoryWorkflowPersistence implements WorkflowPersistence {
     return results;
   }
 
+  // ===========================================================================
+  // Read-only queries for public API (WorkflowQuerySource)
+  // ===========================================================================
+
+  async findWorkByDataHash(dataHash: string): Promise<WorkflowRecord | null> {
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'WorkSubmission') continue;
+      const input = record.input as Record<string, unknown>;
+      if (input.data_hash === dataHash) return structuredClone(record);
+    }
+    return null;
+  }
+
+  async findLatestCompletedWorkForAgent(agentAddress: string): Promise<WorkflowRecord | null> {
+    let latest: WorkflowRecord | null = null;
+    const addr = agentAddress.toLowerCase();
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'WorkSubmission') continue;
+      if (record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.agent_address as string)?.toLowerCase() !== addr) continue;
+      if (!latest || record.created_at > latest.created_at) {
+        latest = record;
+      }
+    }
+    return latest ? structuredClone(latest) : null;
+  }
+
+  async findAllCompletedWorkflowsForAgent(
+    agentAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const addr = agentAddress.toLowerCase();
+    const matching: WorkflowRecord[] = [];
+
+    for (const record of this.workflows.values()) {
+      if (record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+
+      if (record.type === 'WorkSubmission') {
+        if ((input.agent_address as string)?.toLowerCase() === addr) {
+          matching.push(record);
+        }
+      } else if (record.type === 'ScoreSubmission') {
+        if ((input.validator_address as string)?.toLowerCase() === addr) {
+          matching.push(record);
+        }
+      }
+    }
+
+    matching.sort((a, b) => b.created_at - a.created_at);
+    const total = matching.length;
+    const sliced = matching.slice(offset, offset + limit).map(r => structuredClone(r));
+    return { records: sliced, total };
+  }
+
+  async hasCompletedScoreForDataHash(dataHash: string): Promise<boolean> {
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'ScoreSubmission') continue;
+      if (record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if (input.data_hash === dataHash) return true;
+    }
+    return false;
+  }
+
+  async hasCompletedCloseEpoch(studioAddress: string, epoch: number): Promise<boolean> {
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'CloseEpoch') continue;
+      if (record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if (input.studio_address === studioAddress && input.epoch === epoch) return true;
+    }
+    return false;
+  }
+
   // For testing: clear all data
   clear(): void {
     this.workflows.clear();

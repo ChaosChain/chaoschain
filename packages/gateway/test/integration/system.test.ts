@@ -23,6 +23,7 @@ import {
   generateDataHash,
   generateThreadRoot,
   generateEvidenceRoot,
+  generateDkgEvidence,
   generateSalt,
   generateScores,
   computeScoreCommitment,
@@ -60,8 +61,6 @@ describe('System-Level Consistency Tests', () => {
     it('should complete work → score → close epoch cycle', async () => {
       const sdk = new SDKClientSimulator(gateway, 'sdk-1');
       const dataHash = generateDataHash('test work content');
-      const threadRoot = generateThreadRoot(['msg1', 'msg2', 'msg3']);
-      const evidenceRoot = generateEvidenceRoot('evidence package');
       const scores = generateScores();
       const salt = generateSalt();
 
@@ -71,8 +70,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: threadRoot,
-        evidence_root: evidenceRoot,
+        dkg_evidence: generateDkgEvidence(wallets.worker1, ['msg1', 'msg2', 'msg3']),
         signer_address: wallets.worker1,
       });
 
@@ -127,8 +125,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash1,
-        thread_root: generateThreadRoot(['w1-msg']),
-        evidence_root: generateEvidenceRoot('w1-evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1, ['w1-msg']),
         signer_address: wallets.worker1,
       });
       expect(workResult1.state).toBe('COMPLETED');
@@ -140,8 +137,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker2,
         data_hash: dataHash2,
-        thread_root: generateThreadRoot(['w2-msg']),
-        evidence_root: generateEvidenceRoot('w2-evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker2, ['w2-msg']),
         signer_address: wallets.worker2,
       });
       expect(workResult2.state).toBe('COMPLETED');
@@ -161,8 +157,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -217,8 +212,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -255,8 +249,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -278,8 +271,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: generateDataHash('test'),
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -311,8 +303,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: generateDataHash('test'),
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
 
@@ -331,8 +322,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: generateDataHash('test'),
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
 
@@ -350,8 +340,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: generateDataHash('test'),
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
 
@@ -369,8 +358,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: generateDataHash('test'),
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
 
@@ -392,8 +380,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: unregisteredWorker,
           data_hash: generateDataHash('test'),
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: unregisteredWorker,
         });
 
@@ -414,8 +401,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: dataHash,
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
         expect(result1.state).toBe('COMPLETED');
@@ -426,8 +412,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: dataHash,
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
         expect(result2.state).toBe('FAILED');
@@ -444,8 +429,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: wallets.worker1,
           data_hash: dataHash,
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: wallets.worker1,
         });
 
@@ -475,8 +459,7 @@ describe('System-Level Consistency Tests', () => {
           epoch: 1,
           agent_address: unregisteredWorker,
           data_hash: generateDataHash('test'),
-          thread_root: generateThreadRoot(['msg']),
-          evidence_root: generateEvidenceRoot('evidence'),
+          dkg_evidence: generateDkgEvidence(wallets.worker1),
           signer_address: unregisteredWorker,
         });
 
@@ -505,8 +488,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash1,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -549,8 +531,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -581,8 +562,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -636,8 +616,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -662,8 +641,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -712,8 +690,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -735,8 +712,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
       expect(result1.state).toBe('COMPLETED');
@@ -747,8 +723,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
       expect(result2.state).toBe('FAILED');
@@ -764,8 +739,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: generateDataHash('work from worker1'),
-        thread_root: generateThreadRoot(['w1-msg']),
-        evidence_root: generateEvidenceRoot('w1-evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1, ['w1-msg']),
         signer_address: wallets.worker1,
       });
       expect(result1.state).toBe('COMPLETED');
@@ -776,8 +750,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker2,
         data_hash: generateDataHash('work from worker2'),
-        thread_root: generateThreadRoot(['w2-msg']),
-        evidence_root: generateEvidenceRoot('w2-evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker2, ['w2-msg']),
         signer_address: wallets.worker2,
       });
       expect(result2.state).toBe('COMPLETED');
@@ -797,8 +770,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -843,8 +815,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -887,8 +858,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -918,8 +888,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: unregisteredWorker,
         data_hash: generateDataHash('test'),
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: unregisteredWorker,
       });
 
@@ -938,8 +907,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: generateDataHash('test'),
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 
@@ -961,8 +929,7 @@ describe('System-Level Consistency Tests', () => {
         epoch: 1,
         agent_address: wallets.worker1,
         data_hash: dataHash,
-        thread_root: generateThreadRoot(['msg']),
-        evidence_root: generateEvidenceRoot('evidence'),
+        dkg_evidence: generateDkgEvidence(wallets.worker1),
         signer_address: wallets.worker1,
       });
 

@@ -20,6 +20,7 @@ import {
 import { StepExecutor, WorkflowDefinition } from './engine.js';
 import { TxQueue, TxRequest } from './tx-queue.js';
 import { WorkflowPersistence } from './persistence.js';
+import { computeDKG } from '../services/dkg/engine.js';
 
 // =============================================================================
 // ARWEAVE ADAPTER INTERFACE
@@ -97,6 +98,59 @@ export interface RewardsDistributorStateAdapter {
 // =============================================================================
 // STEP EXECUTORS
 // =============================================================================
+
+/**
+ * Step 0: Compute DKG (thread_root, evidence_root, weights)
+ *
+ * Pure, synchronous computation over the caller-provided evidence packages.
+ * Persists results to progress so downstream steps never depend on caller-supplied roots.
+ */
+export class ComputeDKGStep implements StepExecutor<WorkSubmissionRecord> {
+  private persistence: WorkflowPersistence;
+
+  constructor(persistence: WorkflowPersistence) {
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    return false;
+  }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    if (progress.dkg_thread_root) {
+      return { type: 'SUCCESS', nextStep: 'UPLOAD_EVIDENCE' };
+    }
+
+    try {
+      const result = computeDKG(input.dkg_evidence);
+
+      const weights: Record<string, number> = {};
+      for (const [agent, weight] of result.weights) {
+        weights[agent] = weight;
+      }
+
+      await this.persistence.appendProgress(workflow.id, {
+        dkg_thread_root: result.thread_root,
+        dkg_evidence_root: result.evidence_root,
+        dkg_weights: weights,
+      });
+
+      return { type: 'SUCCESS', nextStep: 'UPLOAD_EVIDENCE' };
+    } catch (error) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: error instanceof Error ? error.message : String(error),
+          code: 'DKG_COMPUTATION_FAILED',
+          originalError: error instanceof Error ? error : undefined,
+        },
+      };
+    }
+  }
+}
 
 /**
  * Step 1: Upload evidence to Arweave
@@ -305,7 +359,6 @@ export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord>
     }
 
     if (!progress.arweave_tx_id || !progress.arweave_confirmed) {
-      // Should not happen if state machine is correct
       return {
         type: 'FAILED',
         error: {
@@ -316,12 +369,23 @@ export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord>
       };
     }
 
+    if (!progress.dkg_thread_root || !progress.dkg_evidence_root) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'DKG roots missing from progress',
+          code: 'MISSING_DKG_ROOTS',
+        },
+      };
+    }
+
     const evidenceUri = `ar://${progress.arweave_tx_id}`;
 
     const txData = this.contractEncoder.encodeSubmitWork(
       input.data_hash,
-      input.thread_root,
-      input.evidence_root,
+      progress.dkg_thread_root,
+      progress.dkg_evidence_root,
       evidenceUri
     );
 
@@ -776,7 +840,7 @@ export function createWorkSubmissionWorkflow(
     created_at: Date.now(),
     updated_at: Date.now(),
     state: 'CREATED',
-    step: 'UPLOAD_EVIDENCE',
+    step: 'COMPUTE_DKG',
     step_attempts: 0,
     input,
     progress: {},
@@ -788,6 +852,7 @@ export function createWorkSubmissionWorkflow(
  * Create WorkSubmission workflow definition.
  * 
  * The full workflow now includes:
+ * 0. COMPUTE_DKG - Compute thread_root and evidence_root via DKG
  * 1. UPLOAD_EVIDENCE - Upload to Arweave
  * 2. AWAIT_ARWEAVE_CONFIRM - Wait for Arweave confirmation
  * 3. SUBMIT_WORK_ONCHAIN - Submit to StudioProxy
@@ -805,6 +870,7 @@ export function createWorkSubmissionDefinition(
 ): WorkflowDefinition<WorkSubmissionRecord> {
   const steps = new Map<string, StepExecutor<WorkSubmissionRecord>>();
 
+  steps.set('COMPUTE_DKG', new ComputeDKGStep(persistence));
   steps.set('UPLOAD_EVIDENCE', new UploadEvidenceStep(arweave, persistence));
   steps.set('AWAIT_ARWEAVE_CONFIRM', new AwaitArweaveConfirmStep(arweave, persistence));
   steps.set('SUBMIT_WORK_ONCHAIN', new SubmitWorkOnchainStep(txQueue, persistence, contractEncoder));
@@ -814,9 +880,10 @@ export function createWorkSubmissionDefinition(
 
   return {
     type: 'WorkSubmission',
-    initialStep: 'UPLOAD_EVIDENCE',
+    initialStep: 'COMPUTE_DKG',
     steps,
     stepOrder: [
+      'COMPUTE_DKG',
       'UPLOAD_EVIDENCE',
       'AWAIT_ARWEAVE_CONFIRM',
       'SUBMIT_WORK_ONCHAIN',

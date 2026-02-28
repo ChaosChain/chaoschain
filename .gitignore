@@ -125,7 +125,6 @@ packages/sdk/chaoschain_wallets.json
 
 *.md
 !README.md
-!docs/protocol_spec_v0.1.md
 !docs/X402_INTEGRATION_GUIDE.md
 !docs/MERCHANT_GUIDE.md
 !packages/openclaw-skill/**/SKILL.md

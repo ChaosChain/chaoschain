@@ -8,4 +8,4 @@
  */
 
 export * from './types.js';
-export { computeDKG, verifyCausality } from './engine.js';
+export { computeDKG, verifyCausality, extractPoAFeatures } from './engine.js';

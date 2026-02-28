@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeDKG,
   verifyCausality,
+  extractPoAFeatures,
   EvidencePackage,
   DKGResult,
   DEFAULT_DKG_CONFIG,
@@ -359,5 +360,146 @@ describe('DKG Versioning', () => {
     const result = computeDKG(evidence, config);
 
     expect(result.version).toBe('2.0.0');
+  });
+});
+
+// =============================================================================
+// G. POA FEATURE EXTRACTION TESTS
+// =============================================================================
+
+describe('extractPoAFeatures', () => {
+  it('returns initiative score based on root-originator ratio', () => {
+    // Alice authors root tx1, Bob replies tx2, Carol replies tx3
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+      createTestEvidence('tx2', '0xBob', 2000, ['tx1']),
+      createTestEvidence('tx3', '0xCarol', 3000, ['tx1']),
+    ];
+
+    const result = computeDKG(evidence);
+    const alice = extractPoAFeatures(result, '0xAlice');
+    const bob = extractPoAFeatures(result, '0xBob');
+
+    // Alice authored the only root out of 3 nodes → initiative = round(1/3 * 100) = 33
+    expect(alice.initiative).toBe(33);
+    // Bob authored no roots
+    expect(bob.initiative).toBe(0);
+  });
+
+  it('returns collaboration score based on edge involvement', () => {
+    // tx1(Alice) → tx2(Bob) → tx3(Carol)
+    // Edges: tx1→tx2, tx2→tx3
+    // Alice is parent on tx1→tx2 (1 edge)
+    // Bob is child on tx1→tx2 and parent on tx2→tx3 (2 edges)
+    // Carol is child on tx2→tx3 (1 edge)
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+      createTestEvidence('tx2', '0xBob', 2000, ['tx1']),
+      createTestEvidence('tx3', '0xCarol', 3000, ['tx2']),
+    ];
+
+    const result = computeDKG(evidence);
+
+    const alice = extractPoAFeatures(result, '0xAlice');
+    const bob = extractPoAFeatures(result, '0xBob');
+    const carol = extractPoAFeatures(result, '0xCarol');
+
+    // 2 total edges, Alice on 1 → 50, Bob on 2 → 100, Carol on 1 → 50
+    expect(alice.collaboration).toBe(50);
+    expect(bob.collaboration).toBe(100);
+    expect(carol.collaboration).toBe(50);
+  });
+
+  it('returns reasoning score based on max depth from agent nodes', () => {
+    // tx1(Alice) → tx2(Bob) → tx3(Carol) → tx4(Dave)
+    // maxPossibleDepth = 3
+    // Alice's max depth from tx1: 3 → reasoning = round(3/3 * 100) = 100
+    // Carol's max depth from tx3: 1 → reasoning = round(1/3 * 100) = 33
+    // Dave's max depth from tx4: 0 → reasoning = round(0/3 * 100) = 0
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+      createTestEvidence('tx2', '0xBob', 2000, ['tx1']),
+      createTestEvidence('tx3', '0xCarol', 3000, ['tx2']),
+      createTestEvidence('tx4', '0xDave', 4000, ['tx3']),
+    ];
+
+    const result = computeDKG(evidence);
+
+    const alice = extractPoAFeatures(result, '0xAlice');
+    const carol = extractPoAFeatures(result, '0xCarol');
+    const dave = extractPoAFeatures(result, '0xDave');
+
+    expect(alice.reasoning).toBe(100);
+    expect(carol.reasoning).toBe(33);
+    expect(dave.reasoning).toBe(0);
+  });
+
+  it('returns compliance and efficiency as null', () => {
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+    ];
+
+    const result = computeDKG(evidence);
+    const features = extractPoAFeatures(result, '0xAlice');
+
+    expect(features.compliance).toBeNull();
+    expect(features.efficiency).toBeNull();
+  });
+
+  it('returns zeros for unknown agent', () => {
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+      createTestEvidence('tx2', '0xBob', 2000, ['tx1']),
+    ];
+
+    const result = computeDKG(evidence);
+    const features = extractPoAFeatures(result, '0xNobody');
+
+    expect(features.initiative).toBe(0);
+    expect(features.collaboration).toBe(0);
+    expect(features.reasoning).toBe(0);
+  });
+
+  it('handles empty DAG', () => {
+    const result = computeDKG([]);
+    const features = extractPoAFeatures(result, '0xAlice');
+
+    expect(features.initiative).toBe(0);
+    expect(features.collaboration).toBe(0);
+    expect(features.reasoning).toBe(0);
+  });
+
+  it('is deterministic — same inputs produce same outputs', () => {
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+      createTestEvidence('tx2', '0xBob', 2000, ['tx1']),
+      createTestEvidence('tx3', '0xAlice', 3000, ['tx2']),
+    ];
+
+    const result = computeDKG(evidence);
+    const f1 = extractPoAFeatures(result, '0xAlice');
+    const f2 = extractPoAFeatures(result, '0xAlice');
+
+    expect(f1.initiative).toBe(f2.initiative);
+    expect(f1.collaboration).toBe(f2.collaboration);
+    expect(f1.reasoning).toBe(f2.reasoning);
+  });
+
+  it('scores range 0-100', () => {
+    const evidence: EvidencePackage[] = [
+      createTestEvidence('tx1', '0xAlice', 1000),
+      createTestEvidence('tx2', '0xAlice', 2000, ['tx1']),
+      createTestEvidence('tx3', '0xBob', 3000, ['tx2']),
+    ];
+
+    const result = computeDKG(evidence);
+
+    for (const agent of ['0xAlice', '0xBob', '0xNobody']) {
+      const f = extractPoAFeatures(result, agent);
+      for (const val of [f.initiative, f.collaboration, f.reasoning]) {
+        expect(val).toBeGreaterThanOrEqual(0);
+        expect(val).toBeLessThanOrEqual(100);
+      }
+    }
   });
 });

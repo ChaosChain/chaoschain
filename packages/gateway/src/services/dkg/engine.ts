@@ -29,6 +29,7 @@ import {
   ContributionWeights,
   DKGEngineConfig,
   DEFAULT_DKG_CONFIG,
+  PoAFeatures,
 } from './types.js';
 
 // =============================================================================
@@ -472,6 +473,106 @@ function computeMerkleRoot(hashes: string[]): string {
   }
 
   return currentLevel[0];
+}
+
+// =============================================================================
+// POA FEATURE EXTRACTION
+// =============================================================================
+
+/**
+ * Extract Proof-of-Agency feature scores from a DKG result for a specific agent.
+ *
+ * PURE FUNCTION: same DKGResult + agentAddress → same PoAFeatures. Always.
+ *
+ * Features:
+ *   initiative   — ratio of root nodes authored by agent vs total nodes
+ *   collaboration — ratio of edges where agent is parent or child vs total edges
+ *   reasoning    — max depth reachable from any agent node, normalized to 0-100
+ *   compliance   — null (requires task spec comparison, stays verifier-opinion)
+ *   efficiency   — null (requires goal-completion heuristic, stays verifier-opinion)
+ */
+export function extractPoAFeatures(
+  result: DKGResult,
+  agentAddress: string,
+): PoAFeatures {
+  const { dag } = result;
+  const totalNodes = dag.nodes.size;
+
+  if (totalNodes === 0) {
+    return { initiative: 0, collaboration: 0, reasoning: 0, compliance: null, efficiency: null };
+  }
+
+  // --- initiative: root-originator ratio ---
+  let agentRoots = 0;
+  for (const rootId of dag.roots) {
+    const node = dag.nodes.get(rootId);
+    if (node && node.author === agentAddress) agentRoots++;
+  }
+  const initiative = Math.round((agentRoots / totalNodes) * 100);
+
+  // --- collaboration: reply-edge involvement ratio ---
+  let totalEdges = 0;
+  let agentEdges = 0;
+  for (const [parentId, children] of dag.edges) {
+    for (const childId of children) {
+      totalEdges++;
+      const parent = dag.nodes.get(parentId);
+      const child = dag.nodes.get(childId);
+      if (
+        (parent && parent.author === agentAddress) ||
+        (child && child.author === agentAddress)
+      ) {
+        agentEdges++;
+      }
+    }
+  }
+  const collaboration = totalEdges > 0
+    ? Math.round((agentEdges / totalEdges) * 100)
+    : 0;
+
+  // --- reasoning: max depth reachable from any agent node ---
+  const agentNodeIds: string[] = [];
+  for (const [nodeId, node] of dag.nodes) {
+    if (node.author === agentAddress) agentNodeIds.push(nodeId);
+  }
+
+  let maxDepth = 0;
+  for (const startId of agentNodeIds) {
+    const depth = computeMaxDepth(dag, startId);
+    if (depth > maxDepth) maxDepth = depth;
+  }
+
+  // Normalize: max possible depth is (totalNodes - 1)
+  const maxPossibleDepth = totalNodes - 1;
+  const reasoning = maxPossibleDepth > 0
+    ? Math.round((maxDepth / maxPossibleDepth) * 100)
+    : (agentNodeIds.length > 0 ? 100 : 0);
+
+  return { initiative, collaboration, reasoning, compliance: null, efficiency: null };
+}
+
+/**
+ * Compute the maximum depth reachable from a starting node following edges.
+ * Deterministic: children processed in sorted order.
+ */
+function computeMaxDepth(dag: DKGDAG, startId: string): number {
+  let max = 0;
+  const visited = new Set<string>();
+
+  function dfs(nodeId: string, depth: number): void {
+    if (depth > max) max = depth;
+    visited.add(nodeId);
+    const children = dag.edges.get(nodeId) ?? [];
+    for (const childId of [...children].sort()) {
+      if (!visited.has(childId)) {
+        dfs(childId, depth + 1);
+      }
+    }
+    visited.delete(nodeId);
+  }
+
+  dfs(startId, 0);
+  return max;
 }
 
 // =============================================================================
