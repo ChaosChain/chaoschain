@@ -27,6 +27,14 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 
 | Feature | Status | Description |
 |---------|--------|-------------|
+| **DKG Wired into WorkSubmission** | ✅ Live | Gateway computes `thread_root` and `evidence_root` — callers can no longer control these values. Security fix: Week 3. |
+| **Evidence-Derived Scoring** | ✅ Live | Verifiers run `extractPoAFeatures()` on DKG output to derive Initiative, Collaboration, Reasoning scores. Not verifier opinion. |
+| **Verifier VALIDATOR_ACCURACY** | ✅ Live | RewardsDistributor V4 correctly publishes verifier consensus accuracy to ERC-8004. Both sides of reputation now populated. |
+| **API Key Authentication** | ✅ Live | Write endpoints (`/workflows/*`) require `x-api-key` header. Read endpoints remain public. |
+| **Rate Limiting** | ✅ Live | 60 req/min (public), 30 req/min (write) per IP. In-memory sliding window. |
+| **Prometheus Metrics** | ✅ Live | `/metrics` on port 9090. Tracks workflow starts, completions, failures. |
+| **Public Read API** | ✅ Live | `GET /v1/agent/:id/reputation` and `GET /v1/work/:hash` live. No auth required. Returns trust score, evidence_anchor, derivation_root. |
+| **Full Epoch on Sepolia** | ✅ Live | Complete loop demonstrated: evidence → DKG → on-chain → verifier scoring → closeEpoch → reputation. agentId 1454 verifiable on Etherscan. |
 | **Gateway Service** | ✅ Live | Off-chain orchestration layer for workflows, XMTP, Arweave, DKG |
 | **ERC-8004 Jan 2026 Spec** | ✅ Live | First implementation of Jan 2026 spec |
 | **No feedbackAuth** | ✅ Live | Permissionless feedback (removed pre-authorization) |
@@ -306,21 +314,24 @@ The **Gateway Service** (HTTP API, workflows, DKG, XMTP, Arweave) is the orchest
 
 The `packages/gateway/src/services/credit/` directory holds **shared library code** for credit execution: `CreditExecutor`, 4Mica client, Circle Gateway client, execution state machine, persistence. This code is **consumed by Studio Executor daemons** (e.g. the Credit Studio executor), which run as standalone processes. It lives under the gateway **package** for reuse and single-source-of-truth; the Gateway **service** itself never imports or runs it. So: **gateway package** = monorepo home for shared off-chain libraries; **Gateway service** = the HTTP orchestration server only.
 
-### WorkSubmission Workflow (6 Steps)
+### WorkSubmission Workflow (7 Steps)
 
 The Gateway's `WorkSubmission` workflow orchestrates the complete work submission lifecycle:
 
 ```
-UPLOAD_EVIDENCE → AWAIT_ARWEAVE_CONFIRM → SUBMIT_WORK_ONCHAIN → AWAIT_TX_CONFIRM → REGISTER_WORK → AWAIT_REGISTER_CONFIRM → COMPLETED
+COMPUTE_DKG → UPLOAD_EVIDENCE → AWAIT_ARWEAVE_CONFIRM → SUBMIT_WORK_ONCHAIN → AWAIT_TX_CONFIRM → REGISTER_WORK → AWAIT_REGISTER_CONFIRM → COMPLETED
 
-1. UPLOAD_EVIDENCE        Upload evidence package to Arweave
-2. AWAIT_ARWEAVE_CONFIRM  Wait for Arweave tx confirmation
-3. SUBMIT_WORK_ONCHAIN    Submit work to StudioProxy.submitWork()
-4. AWAIT_TX_CONFIRM       Wait for StudioProxy tx confirmation
-5. REGISTER_WORK          Register work with RewardsDistributor.registerWork()
-6. AWAIT_REGISTER_CONFIRM Wait for RewardsDistributor tx confirmation
+1. COMPUTE_DKG            Derive thread_root, evidence_root, and contribution weights from dkg_evidence[]
+2. UPLOAD_EVIDENCE         Upload evidence package to Arweave
+3. AWAIT_ARWEAVE_CONFIRM   Wait for Arweave tx confirmation
+4. SUBMIT_WORK_ONCHAIN     Submit work to StudioProxy.submitWork()
+5. AWAIT_TX_CONFIRM        Wait for StudioProxy tx confirmation
+6. REGISTER_WORK           Register work with RewardsDistributor.registerWork()
+7. AWAIT_REGISTER_CONFIRM  Wait for RewardsDistributor tx confirmation
 → COMPLETED
 ```
+
+COMPUTE_DKG runs first and is the gateway's responsibility — the caller submits raw evidence packages (`dkg_evidence[]`) and the gateway derives all cryptographic roots internally.
 
 **Why REGISTER_WORK?** StudioProxy and RewardsDistributor are isolated by design:
 - `StudioProxy` — Handles work submission, escrow, agent stakes
@@ -359,13 +370,12 @@ sdk = ChaosChainAgentSDK(
 )
 
 # Submit work via Gateway (recommended)
+# The gateway computes thread_root and evidence_root from dkg_evidence internally.
 workflow = sdk.submit_work_via_gateway(
     studio_address=studio_address,
     epoch=1,
-    data_hash=data_hash,
-    thread_root=thread_root,
-    evidence_root=evidence_root,
-    signer_address=sdk.wallet_manager.address
+    dkg_evidence=[...],  # Raw evidence packages
+    agent_address=sdk.wallet_manager.address
 )
 print(f"Workflow ID: {workflow['id']}")
 
@@ -373,6 +383,38 @@ print(f"Workflow ID: {workflow['id']}")
 final_state = sdk.gateway.wait_for_completion(workflow['id'])
 print(f"State: {final_state['state']}")  # COMPLETED or FAILED
 ```
+
+---
+
+## Public Read API
+
+ChaosChain exposes a public, auth-free read API for agent reputation and work data.
+
+### GET /v1/agent/:id/reputation
+
+Returns the current reputation summary for a registered agent.
+
+```bash
+curl https://api.chaoscha.in/v1/agent/1454/reputation
+```
+
+Response includes: `trust_score`, `epochs_participated`, `quality_score` (worker), `consensus_accuracy` (verifier), `evidence_anchor`, `derivation_root`.
+
+No auth required. No blockchain terminology in response.
+
+### GET /v1/work/:hash
+
+Returns metadata and status for a specific work submission.
+
+```bash
+curl https://api.chaoscha.in/v1/work/0xec13e616...
+```
+
+Response includes: `work_id`, `agent_id`, `studio`, `epoch`, `status` (`pending` | `scored` | `finalized`), `evidence_anchor`, `derivation_root`, `submitted_at`.
+
+Source of truth: gateway DB. No on-chain queries.
+
+Full spec: [docs/PUBLIC_API_SPEC.md](docs/PUBLIC_API_SPEC.md)
 
 ---
 
@@ -587,31 +629,29 @@ sdk.register_with_studio(
 )
 ```
 
-### 5. Submit Multi-Agent Work
+### 5. Submit Work via Gateway
 
 ```python
 from chaoschain_sdk.dkg import DKG, DKGNode
 
-# Build DKG from collaborative work
+# Build DKG evidence from collaborative work
 dkg = DKG()
 dkg.add_node(DKGNode(author=alice_address, xmtp_msg_id="msg1", ...))
 dkg.add_node(DKGNode(author=dave_address, xmtp_msg_id="msg2", parents=["msg1"], ...))
 dkg.add_edge("msg1", "msg2")
 
-# Compute contribution weights from DKG
-contribution_weights = dkg.compute_contribution_weights()
-# Example: {"0xAlice": 0.30, "0xDave": 0.45, "0xEve": 0.25}
-
-# Submit work with multi-agent attribution
-tx_hash = sdk.submit_work_multi_agent(
+# Submit work — gateway computes DKG roots internally
+workflow = sdk.submit_work_via_gateway(
     studio_address=studio_address,
-    data_hash=data_hash,
-    thread_root=thread_root,
-    evidence_root=evidence_root,
-    participants=[alice_address, dave_address, eve_address],
-    contribution_weights=contribution_weights,  # FROM DKG!
-    evidence_cid="ipfs://Qm..."
+    epoch=1,
+    dkg_evidence=[...],  # Raw evidence packages — gateway derives roots
+    agent_address=sdk.wallet_manager.address
 )
+# Note: do not pass thread_root or evidence_root directly — these are now
+# computed by the gateway from dkg_evidence to prevent caller manipulation.
+
+print(f"Workflow ID: {workflow['id']}")
+final_state = sdk.gateway.wait_for_completion(workflow['id'])
 ```
 
 ### 6. Verify Work (Verifier Agent)
@@ -758,15 +798,18 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 
 ## Deployed Contracts
 
-### ChaosChain Protocol v0.4.30 (Ethereum Sepolia)
+### ChaosChain Protocol (Ethereum Sepolia)
 
 | Contract | Address | Etherscan |
 |----------|---------|-----------|
 | **ChaosChainRegistry** | `0x7F38C1aFFB24F30500d9174ed565110411E42d50` | [View](https://sepolia.etherscan.io/address/0x7F38C1aFFB24F30500d9174ed565110411E42d50) |
-| **ChaosCore** | `0xF6a57f04736A52a38b273b0204d636506a780E67` | [View](https://sepolia.etherscan.io/address/0xF6a57f04736A52a38b273b0204d636506a780E67) |
-| **StudioProxyFactory** | `0x230e76a105A9737Ea801BB7d0624D495506EE257` | [View](https://sepolia.etherscan.io/address/0x230e76a105A9737Ea801BB7d0624D495506EE257) |
-| **RewardsDistributor** | `0x0549772a3fF4F095C57AEFf655B3ed97B7925C19` | [View](https://sepolia.etherscan.io/address/0x0549772a3fF4F095C57AEFf655B3ed97B7925C19) |
+| **ChaosCore** | `0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca` | [View](https://sepolia.etherscan.io/address/0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca) |
+| **RewardsDistributor** | `0x84e4f06598D08D0B88A2758E33A6Da0d621cD517` | [View](https://sepolia.etherscan.io/address/0x84e4f06598D08D0B88A2758E33A6Da0d621cD517) |
 | **PredictionMarketLogic** | `0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3` | [View](https://sepolia.etherscan.io/address/0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3) |
+| **IdentityRegistry** | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | [View](https://sepolia.etherscan.io/address/0x8004A818BFB912233c491871b3d84c89A494BD9e) |
+| **ReputationRegistry** | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | [View](https://sepolia.etherscan.io/address/0x8004B663056A597Dffe9eCcC1965A193B7388713) |
+
+RewardsDistributor V4 deployed to fix VALIDATOR_ACCURACY feedback publishing. Previous versions passed empty `feedbackUri`/`feedbackHash` which caused the ERC-8004 registry to silently discard verifier reputation entries.
 
 ### ERC-8004 Registries (Jan 2026 Spec)
 
@@ -939,6 +982,7 @@ Beyond the MVP, the Decentralized Knowledge Graph creates a powerful data flywhe
 ## Security Features
 
 - **EIP-712 Signed DataHash** — Domain-separated, replay-proof work commitments
+- **DKG Root Integrity** — Gateway computes `thread_root` and `evidence_root` from evidence packages. Callers cannot supply fabricated roots. Verifiers independently verify roots match on-chain commitment before scoring.
 - **Robust Consensus** — Median + MAD outlier trimming resists Sybils
 - **Commit-Reveal** — Prevents last-mover bias and copycatting
 - **Stake-Weighted Voting** — Sybil-resistant verifier selection
