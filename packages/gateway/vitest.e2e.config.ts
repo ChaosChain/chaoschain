@@ -9,12 +9,5 @@ export default defineConfig({
     hookTimeout: 180_000,
     pool: 'forks',
     fileParallelism: false,
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html', 'json-summary'],
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/**/*.test.ts'],
-      reportsDirectory: './coverage/e2e',
-    },
   },
 });
