@@ -1,0 +1,32 @@
+{
+  "session_id": "cursor-session-001",
+  "agent_name": "Cursor",
+  "repository": "github.com/acme-corp/payments-service",
+  "task": "Add retry logic and circuit breaker to payment processor",
+  "commits": [
+    {
+      "hash": "c3d4e5f",
+      "message": "Implement exponential backoff retry logic",
+      "files_changed": ["src/payments/retry.ts"],
+      "parent_commits": []
+    },
+    {
+      "hash": "g6h7i8j",
+      "message": "Add circuit breaker pattern",
+      "files_changed": ["src/payments/circuit-breaker.ts", "src/payments/processor.ts"],
+      "parent_commits": ["c3d4e5f"]
+    },
+    {
+      "hash": "k9l0m1n",
+      "message": "Add failure simulation tests",
+      "files_changed": ["tests/payments/resilience.test.ts"],
+      "parent_commits": ["g6h7i8j"]
+    }
+  ],
+  "pr_number": 67,
+  "tests_passed": true,
+  "lines_added": 203,
+  "lines_removed": 8,
+  "session_duration_seconds": 1043,
+  "timestamp": 1740873600
+}

@@ -1,0 +1,68 @@
+{
+  "source": "https://github.com/dabit3/react-native-ai/pull/40",
+  "fetched_at": "2026-02-28T23:30:00Z",
+  "note": "Real Devin AI PR — bundled fallback for when GitHub API is rate-limited",
+  "pr": {
+    "number": 40,
+    "title": "Add Kimi K2.5 as a model option",
+    "state": "closed",
+    "merged": true,
+    "author": "devin-ai-integration[bot]",
+    "repo": "dabit3/react-native-ai",
+    "created_at": "2026-02-28T02:49:32Z",
+    "merged_at": "2026-02-28T07:58:05Z",
+    "additions": 214,
+    "deletions": 4,
+    "changed_files": 7
+  },
+  "commits": [
+    {
+      "sha": "16fd79b",
+      "full_sha": "16fd79b1bf7234ebfd1e620e27d4cc22280fe8c5",
+      "message": "Add Kimi K2.5 as a model option",
+      "author": "Devin AI",
+      "timestamp": "2026-02-28T02:48:59Z",
+      "parents_in_pr": [],
+      "files_changed": [
+        "app/constants.ts",
+        "app/src/components/KimiIcon.tsx",
+        "app/src/components/index.ts",
+        "app/src/screens/chat.tsx",
+        "app/src/utils.ts",
+        "server/src/chat/chatRouter.ts",
+        "server/src/chat/kimi.ts"
+      ]
+    },
+    {
+      "sha": "17276a3",
+      "full_sha": "17276a3aa0dabdcd895ce743098fe0c8b7668088",
+      "message": "Fix broken-line recovery ordering and inconsistent serialization in Kimi handler",
+      "author": "Devin AI",
+      "timestamp": "2026-02-28T02:54:40Z",
+      "parents_in_pr": ["16fd79b"],
+      "files_changed": [
+        "server/src/chat/kimi.ts"
+      ]
+    },
+    {
+      "sha": "693792e",
+      "full_sha": "693792e10cbcfc780c0bf484226e4297cfb93421",
+      "message": "Add missing res.end() on happy path in Kimi handler",
+      "author": "Devin AI",
+      "timestamp": "2026-02-28T02:57:46Z",
+      "parents_in_pr": ["17276a3"],
+      "files_changed": [
+        "server/src/chat/kimi.ts"
+      ]
+    }
+  ],
+  "files": [
+    { "filename": "app/constants.ts", "additions": 2, "deletions": 0, "status": "modified" },
+    { "filename": "app/src/components/KimiIcon.tsx", "additions": 28, "deletions": 0, "status": "added" },
+    { "filename": "app/src/components/index.ts", "additions": 2, "deletions": 1, "status": "modified" },
+    { "filename": "app/src/screens/chat.tsx", "additions": 86, "deletions": 1, "status": "modified" },
+    { "filename": "app/src/utils.ts", "additions": 4, "deletions": 1, "status": "modified" },
+    { "filename": "server/src/chat/chatRouter.ts", "additions": 3, "deletions": 1, "status": "modified" },
+    { "filename": "server/src/chat/kimi.ts", "additions": 89, "deletions": 0, "status": "added" }
+  ]
+}
