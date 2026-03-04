@@ -41,6 +41,37 @@ export function randomRoot(): string {
   return ethers.keccak256(ethers.toUtf8Bytes(`root-${Date.now()}-${Math.random()}`));
 }
 
+export interface DkgEvidencePackage {
+  arweave_tx_id: string;
+  author: string;
+  timestamp: number;
+  parent_ids: string[];
+  payload_hash: string;
+  artifact_ids: string[];
+  signature: string;
+}
+
+/**
+ * Build a minimal valid DKG evidence array.
+ * Each author gets one evidence node, chained causally (parent_ids).
+ * Signatures are dummy — the DKG engine doesn't validate them.
+ */
+export function createDkgEvidence(
+  authors: { address: string }[],
+): DkgEvidencePackage[] {
+  const ts = Date.now();
+  const nonce = Math.random().toString(36).slice(2, 8);
+  return authors.map((author, i) => ({
+    arweave_tx_id: `e2e-ev-${nonce}-${i}`,
+    author: author.address,
+    timestamp: ts + i,
+    parent_ids: i > 0 ? [`e2e-ev-${nonce}-${i - 1}`] : [],
+    payload_hash: ethers.keccak256(ethers.toUtf8Bytes(`payload-${nonce}-${i}`)),
+    artifact_ids: [],
+    signature: '0x' + '00'.repeat(65),
+  }));
+}
+
 export function getAddresses(): Record<string, string> {
   const addressesPath = resolve(__dirname, '../../../../e2e/addresses.json');
   const raw = readFileSync(addressesPath, 'utf-8');

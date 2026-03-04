@@ -6,7 +6,7 @@ import {
   VALIDATORS,
   UNREGISTERED,
   randomDataHash,
-  randomRoot,
+  createDkgEvidence,
   getAddresses,
   postWorkflow,
   getWorkflow,
@@ -44,8 +44,6 @@ describe('Gateway E2E', () => {
     it('submits work on-chain and completes full golden path', async () => {
       const worker = WORKERS[0];
       const dataHash = randomDataHash();
-      const threadRoot = randomRoot();
-      const evidenceRoot = randomRoot();
       const evidence = Buffer.from('e2e test evidence content').toString('base64');
 
       const { status, data } = await postWorkflow('/workflows/work-submission', {
@@ -53,8 +51,7 @@ describe('Gateway E2E', () => {
         epoch: 1,
         agent_address: worker.address,
         data_hash: dataHash,
-        thread_root: threadRoot,
-        evidence_root: evidenceRoot,
+        dkg_evidence: createDkgEvidence([worker]),
         evidence_content: evidence,
         signer_address: worker.address,
       });
@@ -85,8 +82,7 @@ describe('Gateway E2E', () => {
         epoch: 1,
         agent_address: WORKERS[0].address,
         // data_hash intentionally missing
-        thread_root: randomRoot(),
-        evidence_root: randomRoot(),
+        dkg_evidence: createDkgEvidence([WORKERS[0]]),
         evidence_content: Buffer.from('test').toString('base64'),
         signer_address: WORKERS[0].address,
       });
@@ -95,41 +91,14 @@ describe('Gateway E2E', () => {
     });
   });
 
-  // Skipped: Gateway Docker image must be rebuilt with dkg_evidence input support.
-  // Current running image uses the legacy thread_root/evidence_root API.
-  // Enable after: docker compose -f docker-compose.e2e.yml build --no-cache gateway
-  describe.skip('Work Submission (multi-agent)', () => {
+  describe('Work Submission (multi-agent)', () => {
     it('submits multi-agent work with DKG evidence and completes', async () => {
       const author0 = WORKERS[0];
       const author1 = WORKERS[1];
       const dataHash = randomDataHash();
       const evidence = Buffer.from('multi-agent e2e evidence').toString('base64');
 
-      const now = Date.now();
-      const payloadHash0 = ethers.keccak256(ethers.toUtf8Bytes(`payload-0-${now}`));
-      const payloadHash1 = ethers.keccak256(ethers.toUtf8Bytes(`payload-1-${now}`));
-
-      // Build DKG evidence packages for 2 authors
-      const dkgEvidence = [
-        {
-          arweave_tx_id: `fake-arweave-tx-${now}-0`,
-          author: author0.address,
-          timestamp: now,
-          parent_ids: [],
-          payload_hash: payloadHash0,
-          artifact_ids: [],
-          signature: '0x' + '00'.repeat(65),
-        },
-        {
-          arweave_tx_id: `fake-arweave-tx-${now}-1`,
-          author: author1.address,
-          timestamp: now + 1,
-          parent_ids: [`fake-arweave-tx-${now}-0`],
-          payload_hash: payloadHash1,
-          artifact_ids: [],
-          signature: '0x' + '00'.repeat(65),
-        },
-      ];
+      const dkgEvidence = createDkgEvidence([author0, author1]);
 
       const { status, data } = await postWorkflow('/workflows/work-submission', {
         studio_address: studioProxy,
@@ -147,10 +116,9 @@ describe('Gateway E2E', () => {
       const final = await pollUntilTerminal(data.id);
       expect(final.state).toBe('COMPLETED');
 
-      // DKG computation should have produced weights
-      expect(final.progress.dkg_weights).toBeDefined();
-      const weights = final.progress.dkg_weights as Record<string, number>;
-      expect(Object.keys(weights).length).toBe(2);
+      // DKG computation ran: thread_root and evidence_root were derived
+      expect(final.progress.dkg_thread_root).toBeDefined();
+      expect(final.progress.dkg_evidence_root).toBeDefined();
 
       // On-chain verification
       const submitter = await verifier.getWorkSubmitter(dataHash);
@@ -171,8 +139,7 @@ describe('Gateway E2E', () => {
         epoch: 1,
         agent_address: worker.address,
         data_hash: dataHash,
-        thread_root: randomRoot(),
-        evidence_root: randomRoot(),
+        dkg_evidence: createDkgEvidence([worker]),
         evidence_content: Buffer.from('work for scoring').toString('base64'),
         signer_address: worker.address,
       });
@@ -234,8 +201,7 @@ describe('Gateway E2E', () => {
         epoch: 1,
         agent_address: worker.address,
         data_hash: dataHash,
-        thread_root: randomRoot(),
-        evidence_root: randomRoot(),
+        dkg_evidence: createDkgEvidence([worker]),
         evidence_content: Buffer.from('work for commit-reveal scoring').toString('base64'),
         signer_address: worker.address,
       });
@@ -310,8 +276,7 @@ describe('Gateway E2E', () => {
         epoch: 1,
         agent_address: WORKERS[2].address,
         data_hash: randomDataHash(),
-        thread_root: randomRoot(),
-        evidence_root: randomRoot(),
+        dkg_evidence: createDkgEvidence([WORKERS[2]]),
         evidence_content: Buffer.from('status test').toString('base64'),
         signer_address: WORKERS[2].address,
       });
@@ -343,8 +308,7 @@ describe('Gateway E2E', () => {
         epoch: 1,
         agent_address: UNREGISTERED.address,
         data_hash: randomDataHash(),
-        thread_root: randomRoot(),
-        evidence_root: randomRoot(),
+        dkg_evidence: createDkgEvidence([UNREGISTERED]),
         evidence_content: Buffer.from('should fail').toString('base64'),
         signer_address: UNREGISTERED.address,
       });
