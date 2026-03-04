@@ -1,0 +1,86 @@
+{
+  "_description": "Pre-built evidence packages for verifier testing. Derived from a 3-commit Devin session (JWT auth refactor). Use these to test your verifier locally without running the full demo script.",
+  "_studio": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+  "_session": "devin-session-001",
+
+  "evidence_packages": [
+    {
+      "arweave_tx_id": "demo_a1b2c3d_jwt_validation",
+      "author": "0xWorkerAgentAddressHere",
+      "timestamp": 1740700800,
+      "parent_ids": [],
+      "payload_hash": "0x9c2a1b3e4f5d6c7a8b9e0f1d2c3b4a5e6f7d8c9b0a1e2f3d4c5b6a7e8f9d0c1",
+      "artifact_ids": ["src/auth/jwt-validator.ts", "src/auth/types.ts"],
+      "signature": "0xdemo_sig_a1b2c3d"
+    },
+    {
+      "arweave_tx_id": "demo_e4f5g6h_rbac_middleware",
+      "author": "0xWorkerAgentAddressHere",
+      "timestamp": 1740700860,
+      "parent_ids": [],
+      "payload_hash": "0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2",
+      "artifact_ids": ["src/auth/middleware.ts", "src/auth/rbac.ts"],
+      "signature": "0xdemo_sig_e4f5g6h"
+    },
+    {
+      "arweave_tx_id": "demo_i7j8k9l_integration_tests",
+      "author": "0xWorkerAgentAddressHere",
+      "timestamp": 1740701647,
+      "parent_ids": [
+        "demo_a1b2c3d_jwt_validation",
+        "demo_e4f5g6h_rbac_middleware"
+      ],
+      "payload_hash": "0x3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4",
+      "artifact_ids": ["tests/auth/middleware.test.ts", "tests/auth/rbac.test.ts"],
+      "signature": "0xdemo_sig_i7j8k9l"
+    }
+  ],
+
+  "expected_scores": {
+    "initiative": 67,
+    "collaboration": 100,
+    "reasoning": 67,
+    "compliance": 75,
+    "efficiency": 80,
+    "_notes": {
+      "initiative": "2 of 3 packages are root nodes (no parents) → (2/3)*100 = 67",
+      "collaboration": "2 edges exist, max possible edges = 2 → (2/2)*100 = 100",
+      "reasoning": "max causal depth = 2, total packages = 3 → (2/3)*100 = 67",
+      "compliance": "verifier-assessed — default 75, override with your own judgment",
+      "efficiency": "verifier-assessed — default 80, override with your own judgment"
+    }
+  },
+
+  "graph_structure": {
+    "_description": "DAG layout for visual reference",
+    "roots": ["demo_a1b2c3d_jwt_validation", "demo_e4f5g6h_rbac_middleware"],
+    "integration_nodes": ["demo_i7j8k9l_integration_tests"],
+    "ascii": [
+      "[ROOT] demo_a1b2c3d  ──┐",
+      "                        ├──▶  demo_i7j8k9l  (INTEGRATION)",
+      "[ROOT] demo_e4f5g6h  ──┘"
+    ]
+  },
+
+  "sdk_usage": {
+    "_description": "Paste this into your verifier to test scoring against these fixtures",
+    "code": [
+      "import { derivePoAScores, validateEvidenceGraph } from '@chaoschain/sdk';",
+      "import fixtures from './docs/evidence-fixtures.json';",
+      "",
+      "const evidence = fixtures.evidence_packages;",
+      "",
+      "// Validate the graph structure first",
+      "const isValid = validateEvidenceGraph(evidence);",
+      "console.log('Graph valid:', isValid); // true",
+      "",
+      "// Derive scores — override compliance/efficiency with your own assessment",
+      "const scores = derivePoAScores(evidence, {",
+      "  compliance: 85,  // your verifier's assessment",
+      "  efficiency: 78,  // your verifier's assessment",
+      "});",
+      "console.log('Scores [initiative, collaboration, reasoning, compliance, efficiency]:', scores);",
+      "// Expected: [67, 100, 67, 85, 78]"
+    ]
+  }
+}
