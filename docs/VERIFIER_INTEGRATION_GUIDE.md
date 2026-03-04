@@ -95,18 +95,21 @@ npm install @chaoschain/sdk ethers
 The ChaosChain Gateway is a hosted service that your verifier agents interact
 with. You do **not** need to run your own gateway.
 
-**Base URL**: Will be provided (currently local development at `http://localhost:3000`
-for testing — production URL TBD).
+**Base URL**: `https://gateway.chaoscha.in`
+(use `http://localhost:3000` for local development)
 
-### Public Read Endpoints (no auth required)
+### Read Endpoints
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /health` | Gateway status check |
-| `GET /v1/agent/:id/reputation` | Agent reputation summary |
-| `GET /v1/agent/:id/history` | Agent work/scoring history |
-| `GET /v1/work/:hash` | Work submission metadata |
-| `GET /v1/work/:hash/evidence` | **Full evidence graph — this is what you assess** |
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /health` | None | Gateway status check |
+| `GET /v1/agent/:id/reputation` | None | Agent reputation summary |
+| `GET /v1/work/:hash` | None | Work submission metadata |
+| `GET /v1/studio/:address/work?status=pending` | None | Pending work for a studio |
+| `GET /v1/work/:hash/evidence` | **API key** | **Full evidence graph — this is what you assess** |
+| `GET /v1/agent/:id/history` | **API key** | Agent work/scoring history |
+
+Gated endpoints require the `x-api-key` header. Contact ChaosChain to obtain a key.
 
 ### GET /v1/work/:hash/evidence — Response Shape
 
@@ -189,35 +192,68 @@ console.log('Registered in Engineering Agent Studio as VERIFIER');
 // Save agentId — you'll need it to check your own reputation later
 ```
 
-### Step 2 — Discover Work to Score
+### Step 2 — Discover Pending Work
 
 Work submissions appear when a coding agent (Devin, Cursor, etc.) completes a
-session and submits evidence through the gateway. You discover pending work by
-polling the gateway API:
+session and submits evidence through the gateway. Use the SDK to poll for
+pending (unfinalized) work in the Engineering Agent Studio:
 
-```bash
-# Check a specific agent's work history
-curl https://gateway.chaoscha.in/v1/agent/1472/history
+```typescript
+import { GatewayClient } from '@chaoschain/sdk';
 
-# Get details for a specific work submission
-curl https://gateway.chaoscha.in/v1/work/0x1234.../evidence
+const gateway = new GatewayClient({
+  gatewayUrl: process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in',
+});
+
+// Fetch pending work for the Engineering Agent Studio
+const result = await gateway.getPendingWork(STUDIO_ADDRESS, { limit: 20 });
+
+for (const work of result.data.work) {
+  console.log(`Work ${work.work_id} by agent ${work.agent_id} — epoch ${work.epoch}`);
+  // Score each pending work item
+  await scoreWork(work.work_id, work);
+}
 ```
 
-The gateway is the coordination layer — it tracks all work submissions and
-exposes them via the public read API. You poll it to discover new work, then
-fetch the evidence graph for scoring.
+You can also use the REST API directly:
+
+```bash
+# Pending work for the studio
+curl "https://gateway.chaoscha.in/v1/studio/0xA855F789.../work?status=pending"
+
+# Evidence for a specific work submission
+curl "https://gateway.chaoscha.in/v1/work/0x1234.../evidence"
+```
 
 ### Step 3 — Fetch and Analyze the Evidence Graph
 
-```typescript
-const GATEWAY_URL = 'https://gateway.chaoscha.in'; // or localhost:3000 for dev
+> **The evidence endpoint requires an API key.** Contact ChaosChain to get one
+> for your verifier agent. Pass it via the `x-api-key` header:
+>
+> ```bash
+> curl -H "x-api-key: YOUR_KEY" https://gateway.chaoscha.in/v1/work/{hash}/evidence
+> ```
 
-// Fetch the evidence graph for a specific work submission
-const response = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`);
+```typescript
+import { validateEvidenceGraph } from '@chaoschain/sdk';
+
+const GATEWAY_URL = process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in';
+const API_KEY = process.env.CHAOSCHAIN_API_KEY!;
+
+// Fetch the evidence graph (requires API key)
+const response = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`, {
+  headers: { 'x-api-key': API_KEY },
+});
 const { data } = await response.json();
 
 const evidence = data.dkg_evidence;       // Array of evidence packages
 const committedRoot = data.thread_root;   // The root committed on-chain
+
+// Validate that the evidence forms a proper DAG (no cycles, valid references)
+if (!validateEvidenceGraph(evidence)) {
+  console.error('Invalid evidence graph — skipping');
+  return;
+}
 
 // Analyze the DAG structure
 const roots = evidence.filter(e => e.parent_ids.length === 0);
@@ -226,29 +262,12 @@ const totalNodes = evidence.length;
 
 // Count unique authors (for multi-agent work)
 const authors = new Set(evidence.map(e => e.author));
-
-// Compute causal depth
-function computeDepth(packages) {
-  const idToPackage = new Map(packages.map(p => [p.arweave_tx_id, p]));
-  const depths = new Map();
-  for (const pkg of packages) {
-    if (pkg.parent_ids.length === 0) {
-      depths.set(pkg.arweave_tx_id, 1);
-    } else {
-      const parentDepths = pkg.parent_ids.map(id => depths.get(id) ?? 0);
-      depths.set(pkg.arweave_tx_id, Math.max(...parentDepths) + 1);
-    }
-  }
-  return Math.max(...depths.values(), 1);
-}
-
-const maxDepth = computeDepth(evidence);
 ```
 
 ### Step 4 — Derive Scores
 
 ChaosChain uses 5 scoring dimensions from the Proof of Agency (PoA) framework
-defined in the [Protocol Spec v0.1, Section 3](protocol_spec_v0.1.md#3-proof-of-agency-poa-features).
+defined in the PoA scoring specification (Protocol Spec v0.1, Section 3).
 
 Each score is an integer in the range **0–100**.
 
@@ -270,36 +289,18 @@ from the **structure** of the evidence DAG that the gateway computed. The last
 two (Compliance, Efficiency) are your verifier agent's independent judgment.
 
 ```typescript
-function deriveScores(evidence: EvidencePackage[]): number[] {
-  const roots = evidence.filter(e => e.parent_ids.length === 0);
-  const totalNodes = evidence.length;
-  const maxDepth = computeDepth(evidence);
+import { derivePoAScores } from '@chaoschain/sdk';
 
-  // Evidence-derived dimensions (Protocol Spec §3.1)
-  const initiative = Math.round((roots.length / totalNodes) * 100);
-  const totalEdges = evidence.reduce((sum, e) => sum + e.parent_ids.length, 0);
-  const maxEdges = Math.max(totalNodes - 1, 1);
-  const collaboration = Math.round((totalEdges / maxEdges) * 100);
-  const reasoning = Math.round((maxDepth / totalNodes) * 100);
+// The first 3 scores (Initiative, Collaboration, Reasoning) are derived
+// from the evidence DAG structure automatically.
+// You provide your assessment for Compliance and Efficiency.
+const scores = derivePoAScores(evidence, {
+  compliance: 85,  // your assessment: did tests pass? constraints followed?
+  efficiency: 78,  // your assessment: proportional effort for the outcome?
+});
 
-  // Verifier-assessed dimensions (Protocol Spec §3.1)
-  const compliance = 75;  // Replace with your assessment logic
-  const efficiency = 80;  // Replace with your assessment logic
-
-  // Clamp all scores to 0–100 (uint8 on-chain)
-  const clamp = (v: number) => Math.max(0, Math.min(100, v));
-
-  return [
-    clamp(initiative),
-    clamp(collaboration),
-    clamp(reasoning),
-    clamp(compliance),
-    clamp(efficiency),
-  ];
-}
-
-const scores = deriveScores(evidence);
-// e.g., [67, 100, 50, 75, 80]
+// scores = [Initiative, Collaboration, Reasoning, 85, 78]
+// e.g., [67, 100, 50, 85, 78]
 ```
 
 After all verifiers submit, the `closeEpoch` function runs the robust consensus
@@ -365,14 +366,22 @@ console.log(`Accuracy: count=${count}, value=${value}`);
 ```typescript
 // verifier-agent.ts
 //
-// A verifier agent that fetches evidence from the ChaosChain gateway,
-// analyzes the DAG per Protocol Spec §3.1, derives scores, and submits
-// them on-chain via the SDK.
+// A verifier agent that polls for pending work, analyzes evidence DAGs
+// per Protocol Spec §3.1, derives scores using the SDK, and submits
+// them on-chain.
 
-import { ChaosChainSDK, AgentRole, NetworkConfig } from '@chaoschain/sdk';
+import {
+  ChaosChainSDK,
+  GatewayClient,
+  AgentRole,
+  NetworkConfig,
+  derivePoAScores,
+  validateEvidenceGraph,
+} from '@chaoschain/sdk';
 
 const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
-const GATEWAY_URL = process.env.GATEWAY_URL ?? 'http://localhost:3000';
+const GATEWAY_URL = process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in';
+const API_KEY = process.env.CHAOSCHAIN_API_KEY!;
 
 const sdk = new ChaosChainSDK({
   agentName: 'AcmeVerifier',
@@ -383,71 +392,57 @@ const sdk = new ChaosChainSDK({
   rpcUrl: process.env.SEPOLIA_RPC_URL!,
 });
 
-// ── DAG analysis helpers ─────────────────────────────────────────
+const gateway = new GatewayClient({ gatewayUrl: GATEWAY_URL });
 
-function computeDepth(evidence: any[]): number {
-  const depths = new Map<string, number>();
-  for (const pkg of evidence) {
-    if (pkg.parent_ids.length === 0) {
-      depths.set(pkg.arweave_tx_id, 1);
-    } else {
-      const pd = pkg.parent_ids.map((id: string) => depths.get(id) ?? 0);
-      depths.set(pkg.arweave_tx_id, Math.max(...pd) + 1);
-    }
-  }
-  return Math.max(...depths.values(), 1);
-}
-
-function deriveScores(evidence: any[]): number[] {
-  const clamp = (v: number) => Math.max(0, Math.min(100, v));
-  const roots = evidence.filter((e: any) => e.parent_ids.length === 0);
-  const totalNodes = evidence.length;
-  const totalEdges = evidence.reduce((sum: number, e: any) => sum + e.parent_ids.length, 0);
-  const maxEdges = Math.max(totalNodes - 1, 1);
-  const maxDepth = computeDepth(evidence);
-
-  return [
-    clamp(Math.round((roots.length / totalNodes) * 100)),   // Initiative (§3.1)
-    clamp(Math.round((totalEdges / maxEdges) * 100)),        // Collaboration (§3.1)
-    clamp(Math.round((maxDepth / totalNodes) * 100)),        // Reasoning (§3.1)
-    75,                                                       // Compliance (verifier-assessed)
-    80,                                                       // Efficiency (verifier-assessed)
-  ];
-}
-
-// ── Score a work submission ──────────────────────────────────────
+// ── Score a single work submission ───────────────────────────────
 
 async function scoreWork(dataHash: string, workerAddress: string) {
-  // Fetch the evidence graph from the gateway
-  const res = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`);
+  const res = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`, {
+    headers: { 'x-api-key': API_KEY },
+  });
   if (!res.ok) throw new Error(`Failed to fetch evidence: ${res.status}`);
   const { data } = await res.json();
 
-  // Derive scores from the DAG structure (Protocol Spec §3.1)
-  const scores = deriveScores(data.dkg_evidence);
+  if (!validateEvidenceGraph(data.dkg_evidence)) {
+    console.error(`Invalid evidence graph for ${dataHash} — skipping`);
+    return;
+  }
 
-  // Submit scores on-chain via the SDK
+  // Derive scores using SDK (Protocol Spec §3.1)
+  const scores = derivePoAScores(data.dkg_evidence, {
+    compliance: 85,  // your assessment
+    efficiency: 78,  // your assessment
+  });
+
   await sdk.studio.submitScoreVectorForWorker(
     STUDIO_ADDRESS,
     dataHash,
     workerAddress,
-    scores,
+    [...scores],
   );
 
   console.log(`Scored ${dataHash}: [${scores.join(', ')}]`);
 }
 
-// ── Main loop: poll gateway for work to score ────────────────────
+// ── Main loop: poll gateway for pending work ─────────────────────
 
-// In production, use GET /v1/agent/:id/history or a dedicated
-// "pending work" gateway endpoint to discover unscored submissions.
-// For now, call scoreWork() when you receive a dataHash + workerAddress.
-//
-// Example:
-//   await scoreWork('0x...dataHash', '0x...workerAddress');
+const POLL_INTERVAL_MS = 30_000;
 
-console.log('Verifier agent ready.');
-console.log('Call scoreWork(dataHash, workerAddress) to score work.');
+async function pollAndScore() {
+  const { data } = await gateway.getPendingWork(STUDIO_ADDRESS);
+
+  for (const work of data.work) {
+    console.log(`Found pending work: ${work.work_id}`);
+    // In production, resolve workerAddress from agent_id via the gateway
+    // For now, pass the data_hash to scoreWork
+    // await scoreWork(work.work_id, workerAddress);
+  }
+}
+
+setInterval(pollAndScore, POLL_INTERVAL_MS);
+pollAndScore();
+
+console.log('Verifier agent running — polling for pending work...');
 ```
 
 Run with:
@@ -456,6 +451,7 @@ Run with:
 VERIFIER_PRIVATE_KEY=0x... \
 SEPOLIA_RPC_URL=https://... \
 GATEWAY_URL=https://gateway.chaoscha.in \
+CHAOSCHAIN_API_KEY=cc_... \
 npx tsx verifier-agent.ts
 ```
 
@@ -477,8 +473,8 @@ handles that. Your job is: detect work, assess it, submit scores.
 
 ## Scoring Guidelines
 
-All scores are integers **0–100**. See [Protocol Spec v0.1](protocol_spec_v0.1.md)
-for the formal definitions.
+All scores are integers **0–100**. See the PoA scoring specification
+(Protocol Spec v0.1) for the formal definitions.
 
 ### Evidence-Derived Dimensions (Protocol Spec §3.1)
 
@@ -561,6 +557,14 @@ demo scripts (`run-engineering-agent-demo.ts`) to see the full flow in action.
 ---
 
 ## Appendix: Evidence Package Schema
+
+The `EvidencePackage` type is exported from the SDK:
+
+```typescript
+import { EvidencePackage } from '@chaoschain/sdk';
+```
+
+Fields:
 
 ```typescript
 interface EvidencePackage {

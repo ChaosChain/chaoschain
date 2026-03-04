@@ -321,6 +321,49 @@ export class PostgresWorkflowPersistence implements WorkflowPersistence {
     return result.rows.length > 0;
   }
 
+  async findPendingWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const countQuery = `
+      SELECT COUNT(*) AS cnt FROM workflows w
+      WHERE w.type = 'WorkSubmission'
+        AND w.state = 'COMPLETED'
+        AND LOWER(w.input->>'studio_address') = LOWER($1)
+        AND NOT EXISTS (
+          SELECT 1 FROM workflows ce
+          WHERE ce.type = 'CloseEpoch'
+            AND ce.state = 'COMPLETED'
+            AND LOWER(ce.input->>'studio_address') = LOWER($1)
+            AND (ce.input->>'epoch')::int = (w.input->>'epoch')::int
+        )
+    `;
+    const countResult = await this.pool.query(countQuery, [studioAddress]);
+    const total = parseInt(countResult.rows[0]?.cnt ?? '0', 10);
+
+    const query = `
+      SELECT w.id, w.type, w.created_at, w.updated_at,
+             w.state, w.step, w.step_attempts,
+             w.input, w.progress, w.error, w.signer
+      FROM workflows w
+      WHERE w.type = 'WorkSubmission'
+        AND w.state = 'COMPLETED'
+        AND LOWER(w.input->>'studio_address') = LOWER($1)
+        AND NOT EXISTS (
+          SELECT 1 FROM workflows ce
+          WHERE ce.type = 'CloseEpoch'
+            AND ce.state = 'COMPLETED'
+            AND LOWER(ce.input->>'studio_address') = LOWER($1)
+            AND (ce.input->>'epoch')::int = (w.input->>'epoch')::int
+        )
+      ORDER BY w.created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+    const result = await this.pool.query(query, [studioAddress, limit, offset]);
+    return { records: result.rows.map((row) => this.rowToRecord(row)), total };
+  }
+
   // ===========================================================================
   // PRIVATE: Row mapping
   // ===========================================================================
