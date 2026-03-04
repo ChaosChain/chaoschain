@@ -1,9 +1,9 @@
 # Stage 1: Build
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
+COPY packages/gateway/package*.json ./
 RUN npm ci --include=dev
-COPY . .
+COPY packages/gateway/ .
 RUN npm run build
 
 # Stage 2: Production runtime

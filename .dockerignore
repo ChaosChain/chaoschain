@@ -1,0 +1,12 @@
+.git
+docs
+packages/sdk
+packages/contracts
+packages/gateway/node_modules
+packages/gateway/dist
+packages/gateway/test
+packages/gateway/scripts
+packages/gateway/reports
+packages/gateway/demo-data
+packages/gateway/.env*
+**/*.test.ts
