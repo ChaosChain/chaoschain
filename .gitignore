@@ -147,3 +147,4 @@ debug_reputation.py
 register_logic_module.py
 # ClawHub local artifacts
 .clawhub/
+packages/gateway/demo-data
