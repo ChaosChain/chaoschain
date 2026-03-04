@@ -33,7 +33,6 @@ import { createPublicApiRoutes } from './routes/public-api.js';
 import { ReputationReader } from './services/reputation-reader.js';
 import { WorkDataReader } from './services/work-data-reader.js';
 import {
-  trackWorkflowCreated,
   trackWorkflowCompleted,
   trackWorkflowFailed,
   startMetricsServer,
@@ -322,6 +321,7 @@ export class Gateway {
       provider: await this.createProvider(),
       identityRegistryAddress: this.config.identityRegistryAddress,
       reputationRegistryAddress: this.config.reputationRegistryAddress,
+      network: process.env.NETWORK_NAME ?? 'base-sepolia',
     });
     const workDataReader = new WorkDataReader(
       persistence as any,
@@ -334,6 +334,7 @@ export class Gateway {
         network: process.env.NETWORK_NAME ?? 'base-sepolia',
         identityRegistryAddress: this.config.identityRegistryAddress,
         reputationRegistryAddress: this.config.reputationRegistryAddress,
+        apiKeys,
       }),
     );
 
