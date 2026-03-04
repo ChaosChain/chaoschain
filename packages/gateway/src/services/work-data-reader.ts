@@ -10,8 +10,6 @@ import type {
   WorkSubmissionInput,
   WorkSubmissionProgress,
   ScoreSubmissionInput,
-  ScoreSubmissionProgress,
-  CloseEpochInput,
 } from '../workflows/types.js';
 import type { EvidencePackage } from '../services/dkg/types.js';
 
@@ -64,12 +62,30 @@ export interface AgentHistoryResult {
 // PERSISTENCE QUERY INTERFACE (read-only subset)
 // =============================================================================
 
+export interface PendingWorkItem {
+  work_id: string;
+  agent_id: number;
+  epoch: number | null;
+  submitted_at: string;
+  evidence_anchor: string | null;
+  derivation_root: string | null;
+}
+
+export interface PendingWorkResult {
+  studio: string;
+  work: PendingWorkItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface WorkflowQuerySource {
   findWorkByDataHash(dataHash: string): Promise<WorkflowRecord | null>;
   findLatestCompletedWorkForAgent(agentAddress: string): Promise<WorkflowRecord | null>;
   findAllCompletedWorkflowsForAgent(agentAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
   hasCompletedScoreForDataHash(dataHash: string): Promise<boolean>;
   hasCompletedCloseEpoch(studioAddress: string, epoch: number): Promise<boolean>;
+  findPendingWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
 }
 
 // =============================================================================
@@ -186,6 +202,44 @@ export class WorkDataReader {
     });
 
     return { agent_id: agentId, entries, total, limit, offset };
+  }
+
+  async getPendingWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<PendingWorkResult> {
+    const { records, total } = await this.querySource.findPendingWorkForStudio(
+      studioAddress.toLowerCase(),
+      limit,
+      offset,
+    );
+
+    const work: PendingWorkItem[] = [];
+    for (const record of records) {
+      const input = record.input as WorkSubmissionInput;
+      const progress = record.progress as WorkSubmissionProgress;
+
+      let agentId = 0;
+      if (this.agentIdResolver) {
+        try {
+          agentId = await this.agentIdResolver(input.agent_address);
+        } catch {
+          // Resolver unavailable
+        }
+      }
+
+      work.push({
+        work_id: input.data_hash,
+        agent_id: agentId,
+        epoch: input.epoch ?? null,
+        submitted_at: new Date(record.created_at).toISOString(),
+        evidence_anchor: progress.arweave_tx_id ?? null,
+        derivation_root: progress.dkg_thread_root ?? null,
+      });
+    }
+
+    return { studio: studioAddress, work, total, limit, offset };
   }
 
   private async deriveStatus(

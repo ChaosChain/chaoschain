@@ -230,6 +230,37 @@ export class InMemoryWorkflowPersistence implements WorkflowPersistence {
     return false;
   }
 
+  async findPendingWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const addr = studioAddress.toLowerCase();
+    const closedEpochs = new Set<number>();
+
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'CloseEpoch' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.studio_address as string)?.toLowerCase() === addr) {
+        closedEpochs.add(input.epoch as number);
+      }
+    }
+
+    const pending: WorkflowRecord[] = [];
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'WorkSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.studio_address as string)?.toLowerCase() !== addr) continue;
+      if (closedEpochs.has(input.epoch as number)) continue;
+      pending.push(record);
+    }
+
+    pending.sort((a, b) => b.created_at - a.created_at);
+    const total = pending.length;
+    const sliced = pending.slice(offset, offset + limit).map(r => structuredClone(r));
+    return { records: sliced, total };
+  }
+
   // For testing: clear all data
   clear(): void {
     this.workflows.clear();

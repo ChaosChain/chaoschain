@@ -128,6 +128,7 @@ packages/sdk/chaoschain_wallets.json
 !docs/X402_INTEGRATION_GUIDE.md
 !docs/MERCHANT_GUIDE.md
 !packages/openclaw-skill/**/SKILL.md
+!docs/VERIFIER_INTEGRATION_GUIDE.md
 
 packages/contracts-v1/IMPLEMENTATION_ROADMAP.md
 packages/contracts/deploy_rewards_only.sh
@@ -146,3 +147,4 @@ debug_reputation.py
 register_logic_module.py
 # ClawHub local artifacts
 .clawhub/
+packages/gateway/demo-data

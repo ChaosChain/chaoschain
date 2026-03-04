@@ -19,7 +19,6 @@ import {
   zeroPadValue,
   getAddress,
   formatUnits,
-  parseUnits,
   MaxUint256,
   ZeroAddress,
   type Provider,

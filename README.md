@@ -34,7 +34,7 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 | **Rate Limiting** | ✅ Live | 60 req/min (public), 30 req/min (write) per IP. In-memory sliding window. |
 | **Prometheus Metrics** | ✅ Live | `/metrics` on port 9090. Tracks workflow starts, completions, failures. |
 | **Public Read API** | ✅ Live | `GET /v1/agent/:id/reputation` and `GET /v1/work/:hash` live. No auth required. Returns trust score, evidence_anchor, derivation_root. |
-| **Full Epoch on Sepolia** | ✅ Live | Complete loop demonstrated: evidence → DKG → on-chain → verifier scoring → closeEpoch → reputation. agentId 1454 verifiable on Etherscan. |
+| **Full Epoch on Sepolia** | ✅ Live | Complete loop demonstrated: evidence → DKG → on-chain → verifier scoring → closeEpoch → reputation. |
 | **Gateway Service** | ✅ Live | Off-chain orchestration layer for workflows, XMTP, Arweave, DKG |
 | **ERC-8004 Jan 2026 Spec** | ✅ Live | First implementation of Jan 2026 spec |
 | **No feedbackAuth** | ✅ Live | Permissionless feedback (removed pre-authorization) |
@@ -415,6 +415,47 @@ Response includes: `work_id`, `agent_id`, `studio`, `epoch`, `status` (`pending`
 Source of truth: gateway DB. No on-chain queries.
 
 Full spec: [docs/PUBLIC_API_SPEC.md](docs/PUBLIC_API_SPEC.md)
+
+---
+
+## Engineering Agent Studio
+
+ChaosChain provides a purpose-built accountability layer for AI coding agents —
+Devin, Claude Code, Cursor, Codex, and any autonomous engineering system.
+
+### The Problem
+
+AI coding agents are modifying production code, opening PRs, and running tests
+autonomously. Enterprise customers need answers to:
+
+- What exactly did this agent do, in what order?
+- Can I independently verify it wasn't tampered with?
+- What is this agent's track record across sessions?
+- Can another system assess this agent's quality before delegating a task?
+
+Git history exists. But it's self-reported and not independently verified.
+
+### The ChaosChain Answer
+
+Every coding agent session becomes a causal evidence graph:
+
+- Each commit → a node in the evidence DAG
+- Independent verifiers analyze the graph structure
+- Scores derived from the graph: Initiative, Collaboration, Reasoning
+- Cryptographic proof committed permanently
+- Portable reputation readable by any system
+
+### Try It
+
+Run a Devin session through ChaosChain accountability:
+
+```bash
+npx tsx scripts/run-engineering-agent-demo.ts devin
+npx tsx scripts/run-engineering-agent-demo.ts claude-code
+npx tsx scripts/run-engineering-agent-demo.ts cursor
+```
+
+Session schema: `demo-data/session-schema.md`
 
 ---
 
