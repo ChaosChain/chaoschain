@@ -25,7 +25,7 @@ import {
   DefaultValidatorRegistrationEncoder 
 } from './workflows/score-submission.js';
 import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
-import { PostgresWorkflowPersistence } from './persistence/postgres/index.js';
+import { PostgresWorkflowPersistence, runMigrations } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
 import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
 import { createRoutes, errorHandler, apiKeyAuth, parseApiKeys, rateLimit, InMemoryRateLimiter } from './http/index.js';
@@ -128,6 +128,11 @@ export class Gateway {
    */
   async start(): Promise<void> {
     this.logger.info({}, 'Starting Gateway...');
+
+    // Run database migrations (idempotent — safe on every startup)
+    this.logger.info({}, 'Running database migrations...');
+    await runMigrations(this.pool);
+    this.logger.info({}, 'Database schema ready');
 
     // Initialize persistence
     const persistence = new PostgresWorkflowPersistence(this.pool);

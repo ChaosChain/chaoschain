@@ -2,9 +2,9 @@
 FROM node:20-alpine AS builder
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
-COPY package*.json ./
+COPY packages/gateway/package*.json ./
 RUN npm ci --include=dev
-COPY . .
+COPY packages/gateway/ .
 RUN npm run build
 
 # Stage 2: Production runtime
