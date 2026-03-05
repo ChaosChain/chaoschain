@@ -142,7 +142,7 @@ export class WorkflowEngine {
 
     // Ensure initial state
     record.state = 'CREATED';
-    record.step = definition.initialStep;
+    record.step = record.step || definition.initialStep;
     record.step_attempts = 0;
     record.created_at = Date.now();
     record.updated_at = Date.now();

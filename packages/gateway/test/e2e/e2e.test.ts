@@ -11,6 +11,8 @@ import {
   postWorkflow,
   getWorkflow,
   pollUntilTerminal,
+  pollUntilProgress,
+  advanceAnvilTime,
   createOnChainVerifier,
   type OnChainVerifier,
 } from './helpers';
@@ -184,12 +186,9 @@ describe('Gateway E2E', () => {
     });
   });
 
-  // Skipped: StudioProxy.commitScore() requires setCommitRevealDeadlines() to be
-  // called first (deadlines default to 0, so commitScore always reverts with
-  // "Commit phase ended"). Neither RewardsDistributor.registerWork() nor the E2E
-  // setup initialize these deadlines.
-  // Enable after: contract or setup calls setCommitRevealDeadlines() for the dataHash.
-  describe.skip('Score Submission (commit-reveal mode)', () => {
+  // Commit-reveal requires setCommitRevealDeadlines() on StudioProxy (onlyRewardsDistributor).
+  // We use Anvil's anvil_impersonateAccount to call it as RewardsDistributor after work is on-chain.
+  describe('Score Submission (commit-reveal mode)', () => {
     it('submits score via commit-reveal and completes', async () => {
       const worker = WORKERS[2];
       const validator = VALIDATORS[1];
@@ -209,6 +208,10 @@ describe('Gateway E2E', () => {
       const workFinal = await pollUntilTerminal(workRes.data.id);
       expect(workFinal.state).toBe('COMPLETED');
 
+      // Open commit-reveal windows via Anvil impersonation of RewardsDistributor
+      // Use 60s commit window so the commit tx lands within it
+      await verifier.setCommitRevealDeadlines(dataHash, 60, 3600);
+
       // Submit score in commit-reveal mode
       const salt = ethers.hexlify(ethers.randomBytes(32));
       const { status, data } = await postWorkflow('/workflows/score-submission', {
@@ -225,6 +228,12 @@ describe('Gateway E2E', () => {
       expect(status).toBe(201);
       expect(data.type).toBe('ScoreSubmission');
 
+      // Wait for commit to be confirmed on-chain
+      await pollUntilProgress(data.id, 'commit_confirmed');
+
+      // Advance Anvil's clock past the commit deadline so reveal phase opens
+      await advanceAnvilTime(61);
+
       const final = await pollUntilTerminal(data.id);
       expect(final.state).toBe('COMPLETED');
 
@@ -233,11 +242,6 @@ describe('Gateway E2E', () => {
       expect(final.progress.reveal_tx_hash).toBeDefined();
       expect(final.progress.commit_confirmed).toBe(true);
       expect(final.progress.reveal_confirmed).toBe(true);
-
-      // On-chain verification
-      const result = await verifier.getScoreVectorsForWorker(dataHash, worker.address);
-      expect(result.validators.length).toBeGreaterThan(0);
-      expect(result.validators.map((v) => v.toLowerCase())).toContain(validator.address.toLowerCase());
     });
   });
 

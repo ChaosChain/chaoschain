@@ -83,6 +83,7 @@ export function getAddresses(): Record<string, string> {
 const STUDIO_PROXY_ABI = [
   'function getWorkSubmitter(bytes32 dataHash) external view returns (address submitter)',
   'function getScoreVectorsForWorker(bytes32 dataHash, address worker) external view returns (address[] validators, bytes[] scoreVectors)',
+  'function setCommitRevealDeadlines(bytes32 dataHash, uint256 commitWindow, uint256 revealWindow) external',
 ];
 
 export interface OnChainVerifier {
@@ -91,6 +92,11 @@ export interface OnChainVerifier {
     dataHash: string,
     worker: string,
   ): Promise<{ validators: string[]; scoreVectors: string[] }>;
+  setCommitRevealDeadlines(
+    dataHash: string,
+    commitWindowSecs: number,
+    revealWindowSecs: number,
+  ): Promise<void>;
 }
 
 export function createOnChainVerifier(studioProxyAddress: string): OnChainVerifier {
@@ -107,6 +113,34 @@ export function createOnChainVerifier(studioProxyAddress: string): OnChainVerifi
     ): Promise<{ validators: string[]; scoreVectors: string[] }> {
       const [validators, scoreVectors] = await contract.getScoreVectorsForWorker(dataHash, worker);
       return { validators: [...validators], scoreVectors: [...scoreVectors] };
+    },
+    async setCommitRevealDeadlines(
+      dataHash: string,
+      commitWindowSecs: number,
+      revealWindowSecs: number,
+    ): Promise<void> {
+      const addresses = getAddresses();
+      const rewardsDistributor = addresses.REWARDS_DISTRIBUTOR;
+
+      // Fund and impersonate RewardsDistributor on Anvil (onlyRewardsDistributor modifier)
+      await provider.send('anvil_setBalance', [rewardsDistributor, '0x56BC75E2D63100000']); // 100 ETH
+      await provider.send('anvil_impersonateAccount', [rewardsDistributor]);
+
+      const impersonatedSigner = await provider.getSigner(rewardsDistributor);
+      const impersonatedContract = new ethers.Contract(
+        studioProxyAddress,
+        STUDIO_PROXY_ABI,
+        impersonatedSigner,
+      );
+
+      const tx = await impersonatedContract.setCommitRevealDeadlines(
+        dataHash,
+        commitWindowSecs,
+        revealWindowSecs,
+      );
+      await tx.wait();
+
+      await provider.send('anvil_stopImpersonatingAccount', [rewardsDistributor]);
     },
   };
 }
@@ -138,6 +172,37 @@ export async function postWorkflow(
 export async function getWorkflow(id: string): Promise<WorkflowResponse> {
   const res = await fetch(`${GATEWAY_URL}/workflows/${id}`);
   return res.json();
+}
+
+/**
+ * Advance Anvil's block timestamp by the given number of seconds.
+ * Mines a single block at the new timestamp.
+ */
+export async function advanceAnvilTime(seconds: number): Promise<void> {
+  const provider = new ethers.JsonRpcProvider(RPC_URL);
+  await provider.send('evm_increaseTime', [seconds]);
+  await provider.send('evm_mine', []);
+}
+
+/**
+ * Poll a workflow until a specific progress field is truthy.
+ */
+export async function pollUntilProgress(
+  workflowId: string,
+  field: string,
+  maxWaitMs = 90_000,
+  intervalMs = 2_000,
+): Promise<WorkflowResponse> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const wf = await getWorkflow(workflowId);
+    if (wf.progress[field]) return wf;
+    if (['FAILED', 'STALLED'].includes(wf.state)) {
+      throw new Error(`Workflow ${workflowId} reached ${wf.state} while waiting for ${field}`);
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error(`Workflow ${workflowId}: progress.${field} not set within ${maxWaitMs}ms`);
 }
 
 export async function pollUntilTerminal(
