@@ -26,8 +26,8 @@ services:
 
   gateway:
     build:
-      context: ./packages/gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: packages/gateway/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy

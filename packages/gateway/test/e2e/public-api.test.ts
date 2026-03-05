@@ -10,28 +10,25 @@ import {
 } from './helpers';
 
 let studioProxy: string;
+/** Shared dataHash from a single work submission, used by multiple read tests. */
+let submittedDataHash: string;
 
 beforeAll(async () => {
   const res = await fetch(`${GATEWAY_URL}/health`);
   expect(res.status).toBe(200);
   const addresses = getAddresses();
   studioProxy = addresses.STUDIO_PROXY;
-});
 
-/**
- * Submit work via the workflow engine and wait for completion.
- * Returns the dataHash used so callers can query the public API.
- */
-async function submitWorkAndWait(): Promise<string> {
+  // Submit work once and reuse across tests that need on-chain data
   const worker = WORKERS[0];
-  const dataHash = randomDataHash();
+  submittedDataHash = randomDataHash();
   const evidence = Buffer.from('public-api e2e evidence').toString('base64');
 
   const { status, data } = await postWorkflow('/workflows/work-submission', {
     studio_address: studioProxy,
     epoch: 1,
     agent_address: worker.address,
-    data_hash: dataHash,
+    data_hash: submittedDataHash,
     dkg_evidence: createDkgEvidence([worker]),
     evidence_content: evidence,
     signer_address: worker.address,
@@ -40,9 +37,7 @@ async function submitWorkAndWait(): Promise<string> {
   expect(status).toBe(201);
   const final = await pollUntilTerminal(data.id);
   expect(final.state).toBe('COMPLETED');
-
-  return dataHash;
-}
+}, 120_000);
 
 describe('Public API E2E', () => {
   // ─── GET /v1/work/:hash ──────────────────────────────────────────────
@@ -68,9 +63,7 @@ describe('Public API E2E', () => {
     });
 
     it('returns work metadata after submission', async () => {
-      const dataHash = await submitWorkAndWait();
-
-      const res = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}`);
+      const res = await fetch(`${GATEWAY_URL}/v1/work/${submittedDataHash}`);
       const body = await res.json();
 
       // The work data reader may or may not have indexed the work yet.
@@ -131,9 +124,7 @@ describe('Public API E2E', () => {
     });
 
     it('returns evidence after work submission', async () => {
-      const dataHash = await submitWorkAndWait();
-
-      const res = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`);
+      const res = await fetch(`${GATEWAY_URL}/v1/work/${submittedDataHash}/evidence`);
       const body = await res.json();
 
       // Accept 200 (evidence found) or 404 (not yet indexed).

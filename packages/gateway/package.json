@@ -11,7 +11,7 @@
     "dev": "tsx watch src/app.ts",
     "test": "vitest run",
     "test:e2e": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --config vitest.e2e.config.ts",
-    "e2e:up": "docker compose -f ../../docker-compose.e2e.yml up -d",
+    "e2e:up": "docker compose -f ../../docker-compose.e2e.yml up -d --wait",
     "e2e:setup": "NODE_PATH=$(pwd)/node_modules npx tsx ../../e2e/setup.ts",
     "e2e:down": "docker compose -f ../../docker-compose.e2e.yml down",
     "test:watch": "vitest",

@@ -9,7 +9,7 @@ RUN npm run build
 
 # Stage 2: Production runtime
 FROM node:20-alpine AS runner
-RUN apk add --no-cache postgresql-client wget
+RUN apk add --no-cache wget
 WORKDIR /app
 RUN addgroup -g 1001 -S chaoschain && adduser -S gateway -u 1001 -G chaoschain
 COPY --from=builder /app/dist ./dist
