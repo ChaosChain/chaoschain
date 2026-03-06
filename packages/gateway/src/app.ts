@@ -28,8 +28,9 @@ import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workf
 import { PostgresWorkflowPersistence, runMigrations } from './persistence/postgres/index.js';
 import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
 import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
-import { createRoutes, errorHandler, apiKeyAuth, parseApiKeys, rateLimit, InMemoryRateLimiter } from './http/index.js';
+import { createRoutes, errorHandler, apiKeyAuth, rateLimit, InMemoryRateLimiter } from './http/index.js';
 import { createPublicApiRoutes } from './routes/public-api.js';
+import { ApiKeyStore, createAdminRoutes } from './routes/admin-api.js';
 import { ReputationReader } from './services/reputation-reader.js';
 import { WorkDataReader } from './services/work-data-reader.js';
 import {
@@ -291,21 +292,36 @@ export class Gateway {
     // Setup HTTP server
     this.app.use(express.json({ limit: '10mb' }));
 
-    // Rate limiting (in-memory, per-IP)
-    const readLimiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 60 });
+    // Initialize API key store (Postgres-backed with in-memory cache)
+    const keyStore = new ApiKeyStore(this.pool);
+    await keyStore.initialize();
+    await keyStore.seedFromEnv(process.env.CHAOSCHAIN_API_KEYS);
+    this.logger.info({ keys: keyStore.asSet().size }, 'API key store initialized');
+
+    // Rate limiting: 100 req/min per IP for reads, 30 req/min for writes
+    const readLimiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 100 });
     const writeLimiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 30 });
 
-    // API key auth for write endpoints
-    const apiKeys = parseApiKeys(process.env.CHAOSCHAIN_API_KEYS);
+    // API key auth for write endpoints (uses live key store)
+    const apiKeys = keyStore.asSet();
     if (apiKeys.size > 0) {
       this.app.post('/workflows/*', apiKeyAuth({ keys: apiKeys }));
       this.logger.info({ count: apiKeys.size }, 'API key auth enabled for write endpoints');
     } else {
-      this.logger.warn({}, 'No CHAOSCHAIN_API_KEYS configured — write endpoints are unauthenticated');
+      this.logger.warn({}, 'No API keys configured — write endpoints are unauthenticated');
     }
 
     // Write endpoint rate limiting (POST /workflows/*)
     this.app.post('/workflows/*', rateLimit(writeLimiter));
+
+    // Admin routes (key management)
+    const adminKey = process.env.ADMIN_KEY;
+    if (adminKey) {
+      this.app.use(createAdminRoutes({ adminKey, keyStore }));
+      this.logger.info({}, 'Admin key management enabled (POST /admin/keys)');
+    } else {
+      this.logger.warn({}, 'No ADMIN_KEY configured — admin routes disabled');
+    }
 
     // Workflow routes
     this.app.use(createRoutes(this.engine, persistence, this.logger));
