@@ -317,8 +317,8 @@ export class Gateway {
     // Admin routes (key management)
     const adminKey = process.env.ADMIN_KEY;
     if (adminKey) {
-      this.app.use(createAdminRoutes({ adminKey, keyStore }));
-      this.logger.info({}, 'Admin key management enabled (POST /admin/keys)');
+      this.app.use(createAdminRoutes({ adminKey, keyStore, pool: this.pool }));
+      this.logger.info({}, 'Admin key management enabled (POST /admin/keys, POST /admin/seed-demo)');
     } else {
       this.logger.warn({}, 'No ADMIN_KEY configured — admin routes disabled');
     }

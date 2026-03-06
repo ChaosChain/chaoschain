@@ -153,11 +153,12 @@ function adminAuth(adminKey: string) {
 export interface AdminApiConfig {
   adminKey: string;
   keyStore: ApiKeyStore;
+  pool: Pool;
 }
 
 export function createAdminRoutes(config: AdminApiConfig): Router {
   const router = Router();
-  const { keyStore } = config;
+  const { keyStore, pool } = config;
   const requireAdmin = adminAuth(config.adminKey);
 
   // POST /admin/keys — generate a new key
@@ -223,6 +224,132 @@ export function createAdminRoutes(config: AdminApiConfig): Router {
         error: 'INTERNAL_ERROR',
         message: 'Failed to revoke key',
       });
+    }
+  });
+
+  // POST /admin/seed-demo — insert demo workflow records for testing
+  router.post('/admin/seed-demo', requireAdmin, async (req: Request, res: Response) => {
+    const studioAddress = (req.body?.studio_address as string)
+      ?? '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+
+    try {
+      const now = Date.now();
+      const sessions = [
+        {
+          name: 'devin-session-001',
+          agent: 'Devin',
+          task: 'Refactor authentication middleware to support JWT verification and role-based access control',
+          repo: 'github.com/acme-corp/enterprise-api',
+          epoch: 1,
+          commits: [
+            { sha: 'a1b2c3d', msg: 'Add JWT validation core logic', files: ['src/auth/jwt-validator.ts', 'src/auth/types.ts'], parents: [] },
+            { sha: 'e4f5g6h', msg: 'Add role-based access control middleware', files: ['src/auth/middleware.ts', 'src/auth/rbac.ts'], parents: [] },
+            { sha: 'i7j8k9l', msg: 'Add integration tests and fix edge cases', files: ['tests/auth/middleware.test.ts', 'tests/auth/rbac.test.ts'], parents: ['a1b2c3d', 'e4f5g6h'] },
+          ],
+        },
+        {
+          name: 'claude-code-session-001',
+          agent: 'Claude Code',
+          task: 'Optimize database query performance for the analytics dashboard',
+          repo: 'github.com/acme-corp/data-pipeline',
+          epoch: 2,
+          commits: [
+            { sha: 'b2c3d4e', msg: 'Add query result caching layer', files: ['src/db/cache.ts', 'src/db/query-builder.ts'], parents: [] },
+            { sha: 'f5g6h7i', msg: 'Add database indexes for frequent query patterns', files: ['migrations/add_analytics_indexes.sql'], parents: [] },
+            { sha: 'j8k9l0m', msg: 'Benchmark and validate performance improvements', files: ['tests/performance/dashboard.bench.ts'], parents: ['b2c3d4e', 'f5g6h7i'] },
+          ],
+        },
+        {
+          name: 'cursor-session-001',
+          agent: 'Cursor',
+          task: 'Add retry logic and circuit breaker to payment processor',
+          repo: 'github.com/acme-corp/payments-service',
+          epoch: 3,
+          commits: [
+            { sha: 'c3d4e5f', msg: 'Implement exponential backoff retry logic', files: ['src/payments/retry.ts'], parents: [] },
+            { sha: 'g6h7i8j', msg: 'Add circuit breaker pattern', files: ['src/payments/circuit-breaker.ts', 'src/payments/processor.ts'], parents: ['c3d4e5f'] },
+            { sha: 'k9l0m1n', msg: 'Add failure simulation tests', files: ['tests/payments/resilience.test.ts'], parents: ['g6h7i8j'] },
+          ],
+        },
+      ];
+
+      const inserted: string[] = [];
+
+      for (const session of sessions) {
+        const agentAddress = '0x' + crypto.randomBytes(20).toString('hex');
+        const dataHash = '0x' + crypto.createHash('sha256')
+          .update(`${session.name}-${studioAddress}-${session.epoch}`)
+          .digest('hex');
+        const threadRoot = '0x' + crypto.createHash('sha256')
+          .update(`thread-${session.name}`)
+          .digest('hex');
+        const evidenceRoot = '0x' + crypto.createHash('sha256')
+          .update(`evidence-${session.name}`)
+          .digest('hex');
+
+        const dkgEvidence = session.commits.map((c, i) => ({
+          arweave_tx_id: `demo_${session.name}_${c.sha}`,
+          author: agentAddress,
+          timestamp: now - (session.commits.length - i) * 60_000,
+          parent_ids: c.parents.map(p => `demo_${session.name}_${p}`),
+          payload_hash: '0x' + crypto.createHash('sha256').update(JSON.stringify(c)).digest('hex'),
+          artifact_ids: c.files,
+          signature: '0xdemo_signature',
+        }));
+
+        const workflowId = crypto.randomUUID();
+        const createdAt = now - 3600_000 + session.epoch * 1000;
+
+        await pool.query(`
+          INSERT INTO workflows (id, type, created_at, updated_at, state, step, step_attempts, input, progress, error, signer)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          ON CONFLICT (id) DO NOTHING
+        `, [
+          workflowId,
+          'WorkSubmission',
+          createdAt,
+          createdAt + 30_000,
+          'COMPLETED',
+          'REGISTER_WORK',
+          0,
+          JSON.stringify({
+            studio_address: studioAddress,
+            epoch: session.epoch,
+            agent_address: agentAddress,
+            data_hash: dataHash,
+            dkg_evidence: dkgEvidence,
+            signer_address: agentAddress,
+          }),
+          JSON.stringify({
+            dkg_thread_root: threadRoot,
+            dkg_evidence_root: evidenceRoot,
+            arweave_tx_id: `demo_evidence_${session.name}`,
+            arweave_confirmed: true,
+            onchain_tx_hash: '0x' + crypto.randomBytes(32).toString('hex'),
+            onchain_confirmed: true,
+            register_tx_hash: '0x' + crypto.randomBytes(32).toString('hex'),
+            register_confirmed: true,
+            session_name: session.name,
+            agent_name: session.agent,
+            task: session.task,
+            repository: session.repo,
+          }),
+          null,
+          agentAddress,
+        ]);
+
+        inserted.push(`${session.agent} (${session.name}) → epoch ${session.epoch}`);
+      }
+
+      res.status(201).json({
+        seeded: inserted.length,
+        studio: studioAddress,
+        sessions: inserted,
+        query: `GET /v1/studio/${studioAddress}/work`,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      res.status(500).json({ error: 'SEED_FAILED', message: msg });
     }
   });
 
