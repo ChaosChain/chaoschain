@@ -522,8 +522,7 @@ consensus algorithm:
 4. Consensus = stake-weighted average of inlier scores
 
 Verifiers whose scores are close to consensus get high accuracy scores
-(VALIDATOR_ACCURACY). Verifiers far from consensus get lower accuracy — this is
-permanent reputation (Protocol Spec §2.3).
+(VALIDATOR_ACCURACY). Verifiers far from consensus get lower accuracy — this is permanent reputation (Protocol Spec §2.3).
 
 ---
 
