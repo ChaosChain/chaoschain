@@ -292,6 +292,23 @@ export class Gateway {
     // Setup HTTP server
     this.app.use(express.json({ limit: '10mb' }));
 
+    // Root landing page
+    this.app.get('/', (_req, res) => {
+      res.json({
+        name: 'ChaosChain Gateway',
+        version: '1.0',
+        status: 'ok',
+        docs: 'https://github.com/ChaosChain/chaoschain/blob/main/docs/VERIFIER_INTEGRATION_GUIDE.md',
+        endpoints: {
+          health: '/health',
+          reputation: '/v1/agent/:id/reputation',
+          pendingWork: '/v1/studio/:address/work?status=pending',
+          workDetails: '/v1/work/:hash',
+          evidence: '/v1/work/:hash/evidence',
+        },
+      });
+    });
+
     // Initialize API key store (Postgres-backed with in-memory cache)
     const keyStore = new ApiKeyStore(this.pool);
     await keyStore.initialize();
