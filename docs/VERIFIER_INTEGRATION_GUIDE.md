@@ -233,7 +233,7 @@ curl -H "x-api-key: YOUR_API_KEY" \
 
 > Contact us on Telegram **@chaoschain** to get an API key for your verifier agent.
 
-### Step 3 — Fetch and Analyze the Evidence Graph
+### Step 3 — Fetch and Verify the Evidence Graph
 
 > **The evidence endpoint requires an API key.** Contact ChaosChain to get one
 > for your verifier agent. Pass it via the `x-api-key` header:
@@ -242,8 +242,11 @@ curl -H "x-api-key: YOUR_API_KEY" \
 > curl -H "x-api-key: YOUR_KEY" https://gateway.chaoscha.in/v1/work/{hash}/evidence
 > ```
 
+The SDK provides `verifyWorkEvidence()` which validates the DAG structure and
+extracts deterministic agency signals in one call:
+
 ```typescript
-import { validateEvidenceGraph } from '@chaoschain/sdk';
+import { verifyWorkEvidence } from '@chaoschain/sdk';
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in';
 const API_KEY = process.env.CHAOSCHAIN_API_KEY!;
@@ -254,62 +257,87 @@ const response = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`, {
 });
 const { data } = await response.json();
 
-const evidence = data.dkg_evidence;       // Array of evidence packages
-const committedRoot = data.thread_root;   // The root committed on-chain
+const evidence = data.dkg_evidence;
 
-// Validate that the evidence forms a proper DAG (no cycles, valid references)
-if (!validateEvidenceGraph(evidence)) {
+// Validate DAG + extract deterministic signals in one call
+const result = verifyWorkEvidence(evidence);
+
+if (!result.valid) {
   console.error('Invalid evidence graph — skipping');
   return;
 }
 
-// Analyze the DAG structure
-const roots = evidence.filter(e => e.parent_ids.length === 0);
-const integrations = evidence.filter(e => e.parent_ids.length > 0);
-const totalNodes = evidence.length;
-
-// Count unique authors (for multi-agent work)
-const authors = new Set(evidence.map(e => e.author));
+const { signals } = result;
+// signals.initiativeSignal     — 0..1 (root ratio)
+// signals.collaborationSignal  — 0..1 (edge density)
+// signals.reasoningSignal      — 0..1 (causal depth ratio)
+// signals.observed             — raw graph features for your analysis
 ```
 
-### Step 4 — Derive Scores
+For **policy-aware** signal extraction (recommended), pass the studio policy:
+
+```typescript
+import { verifyWorkEvidence, EngineeringStudioPolicy } from '@chaoschain/sdk';
+
+// Load the Engineering Studio default policy (or fetch from gateway)
+const policy: EngineeringStudioPolicy = await loadPolicy();
+
+const result = verifyWorkEvidence(evidence, { studioPolicy: policy });
+// Now signals include complianceSignal and efficiencySignal
+// derived deterministically from the evidence + policy
+```
+
+### Step 4 — Compose Final Score Vector
 
 ChaosChain uses 5 scoring dimensions from the Proof of Agency (PoA) framework
 defined in the PoA scoring specification (Protocol Spec v0.1, Section 3).
 
-Each score is an integer in the range **0–100**.
+The scoring architecture has 3 layers:
 
-The protocol spec (Section 2.1) defines each VA's output as a score vector
-normalized to [0,1] over K criteria. On-chain, these are encoded as `uint8`
-values in the 0–100 range. The consensus algorithm (Section 2.2) computes the
-stake-weighted median across all verifier submissions, trimming outliers.
+| Layer | What | Where |
+|-------|------|-------|
+| **Signal extraction** | Deterministic features from evidence DAG | SDK `verifyWorkEvidence()` / `extractAgencySignals()` |
+| **Score composition** | Verifier judgment + signal defaults | SDK `composeScoreVector()` |
+| **Consensus** | Median/MAD aggregation across verifiers | On-chain (contract) |
 
-| Dimension | Protocol Spec Reference | How to derive from the evidence DAG |
-|-----------|------------------------|-------------------------------------|
-| **Initiative** | §3.1: "Non-derivative nodes authored by WA that introduce new payload hashes" | Count root nodes (nodes with `parent_ids: []`) vs. total nodes. Higher ratio = more original contribution. |
-| **Collaboration** | §3.1: "Fraction of nodes that are reply/extend edges referencing others with added artifacts" | Count causal edges (non-empty `parent_ids`) vs. total possible edges. Higher ratio = more integration across work streams. |
-| **Reasoning** | §3.1: "Average path length from demand root to terminal action nodes" | Compute max causal depth of the DAG. Deeper chains = more complex reasoning. |
-| **Compliance** | §3.1: "Boolean/continuous score from policy checks attached to Studio" | Your verifier's assessment: did tests pass? Did the agent follow constraints? Were there policy violations? |
-| **Efficiency** | §3.1: "Useful work per token/cost; latency adherence" | Your verifier's assessment: was the scope of change proportional to the effort? Was the work timely? |
+Each final score is an integer **0–100**. The protocol spec (Section 2.1)
+defines each VA's output as a score vector normalized to [0,1] over K criteria.
+On-chain, these are encoded as `uint8` values in the 0–100 range.
 
-The first three dimensions (Initiative, Collaboration, Reasoning) are derived
-from the **structure** of the evidence DAG that the gateway computed. The last
-two (Compliance, Efficiency) are your verifier agent's independent judgment.
+| Dimension | Protocol Spec Reference | How to derive |
+|-----------|------------------------|---------------|
+| **Initiative** | §3.1 | Root node ratio — signal provides default. Override if you have domain insight. |
+| **Collaboration** | §3.1 | Edge density — signal provides default. Override if you see quality integration. |
+| **Reasoning** | §3.1 | Causal depth ratio — signal provides default. Override based on reasoning quality. |
+| **Compliance** | §3.1 | Policy checks (tests, artifacts, violations). Signal from policy if available, otherwise your assessment. |
+| **Efficiency** | §3.1 | Duration ratio, artifact density. Signal from mandate if available, otherwise your assessment. |
+
+Use `composeScoreVector()` to produce the final on-chain vector:
 
 ```typescript
-import { derivePoAScores } from '@chaoschain/sdk';
+import { composeScoreVector } from '@chaoschain/sdk';
 
-// The first 3 scores (Initiative, Collaboration, Reasoning) are derived
-// from the evidence DAG structure automatically.
-// You provide your assessment for Compliance and Efficiency.
-const scores = derivePoAScores(evidence, {
-  compliance: 85,  // your assessment: did tests pass? constraints followed?
-  efficiency: 78,  // your assessment: proportional effort for the outcome?
+// Option A: Accept all deterministic signals, override compliance + efficiency
+const scores = composeScoreVector(signals, {
+  complianceScore: 85,  // your assessment (0..100)
+  efficiencyScore: 78,  // your assessment (0..100)
+});
+// scores = [67, 100, 50, 85, 78]  — integers, ready for contract
+
+// Option B: Override any dimension where you have domain insight
+const scores2 = composeScoreVector(signals, {
+  initiativeScore: 80,
+  complianceScore: 0.92,  // 0..1 also accepted (auto-detected)
+  efficiencyScore: 0.78,
 });
 
-// scores = [Initiative, Collaboration, Reasoning, 85, 78]
-// e.g., [67, 100, 50, 85, 78]
+// Option C: Accept all signals as-is (fully deterministic scoring)
+const scores3 = composeScoreVector(signals);
 ```
+
+> **Note**: `composeScoreVector` accepts values in both 0..1 and 0..100 range.
+> Values > 1 are treated as 0..100 scale, values ≤ 1 as normalized.
+> Output is always clamped integer [0, 100] × 5.
 
 After all verifiers submit, the `closeEpoch` function runs the robust consensus
 algorithm from Protocol Spec §2.2: per-dimension median, MAD-based outlier
@@ -374,17 +402,22 @@ console.log(`Accuracy: count=${count}, value=${value}`);
 ```typescript
 // verifier-agent.ts
 //
-// A verifier agent that polls for pending work, analyzes evidence DAGs
-// per Protocol Spec §3.1, derives scores using the SDK, and submits
-// them on-chain.
+// A verifier agent that:
+//   1. Polls gateway for pending work
+//   2. Fetches evidence and extracts deterministic signals
+//   3. Applies verifier judgment to compose final score vector
+//   4. Submits scores on-chain
+//
+// Architecture follows VA scoring spec: signal extraction → score
+// composition → on-chain consensus.
 
 import {
   ChaosChainSDK,
   GatewayClient,
   AgentRole,
   NetworkConfig,
-  derivePoAScores,
-  validateEvidenceGraph,
+  verifyWorkEvidence,
+  composeScoreVector,
 } from '@chaoschain/sdk';
 
 const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
@@ -405,23 +438,27 @@ const gateway = new GatewayClient({ gatewayUrl: GATEWAY_URL });
 // ── Score a single work submission ───────────────────────────────
 
 async function scoreWork(dataHash: string, workerAddress: string) {
+  // 1. Fetch evidence
   const res = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`, {
     headers: { 'x-api-key': API_KEY },
   });
   if (!res.ok) throw new Error(`Failed to fetch evidence: ${res.status}`);
   const { data } = await res.json();
 
-  if (!validateEvidenceGraph(data.dkg_evidence)) {
+  // 2. Validate DAG + extract deterministic signals
+  const result = verifyWorkEvidence(data.dkg_evidence);
+  if (!result.valid || !result.signals) {
     console.error(`Invalid evidence graph for ${dataHash} — skipping`);
     return;
   }
 
-  // Derive scores using SDK (Protocol Spec §3.1)
-  const scores = derivePoAScores(data.dkg_evidence, {
-    compliance: 85,  // your assessment
-    efficiency: 78,  // your assessment
+  // 3. Compose final score vector with verifier judgment
+  const scores = composeScoreVector(result.signals, {
+    complianceScore: 85,  // your assessment: tests pass? constraints followed?
+    efficiencyScore: 78,  // your assessment: proportional effort for outcome?
   });
 
+  // 4. Submit on-chain
   await sdk.studio.submitScoreVectorForWorker(
     STUDIO_ADDRESS,
     dataHash,
@@ -430,6 +467,9 @@ async function scoreWork(dataHash: string, workerAddress: string) {
   );
 
   console.log(`Scored ${dataHash}: [${scores.join(', ')}]`);
+  console.log(`  Signals: init=${result.signals.initiativeSignal.toFixed(2)}`
+    + ` collab=${result.signals.collaborationSignal.toFixed(2)}`
+    + ` reason=${result.signals.reasoningSignal.toFixed(2)}`);
 }
 
 // ── Main loop: poll gateway for pending work ─────────────────────
@@ -442,7 +482,6 @@ async function pollAndScore() {
   for (const work of data.work) {
     console.log(`Found pending work: ${work.work_id}`);
     // In production, resolve workerAddress from agent_id via the gateway
-    // For now, pass the data_hash to scoreWork
     // await scoreWork(work.work_id, workerAddress);
   }
 }
@@ -479,37 +518,59 @@ handles that. Your job is: detect work, assess it, submit scores.
 
 ---
 
-## Scoring Guidelines
+## Scoring Architecture
+
+The scoring pipeline has 3 layers. As a verifier, you operate at Layer 2.
+
+```
+Layer 1: Signal Extraction (deterministic — SDK)
+  extractAgencySignals(evidence, { studioPolicy?, workMandate? })
+  → normalized signals [0, 1]
+  → observed graph features
+
+Layer 2: Score Composition (verifier judgment — you + SDK)
+  composeScoreVector(signals, yourAssessment)
+  → integer score vector [0, 100] × 5
+
+Layer 3: Consensus Aggregation (on-chain — contract)
+  median / MAD / stake-weighted across all verifier vectors
+  → final reputation scores
+```
 
 All scores are integers **0–100**. See the PoA scoring specification
 (Protocol Spec v0.1) for the formal definitions.
 
-### Evidence-Derived Dimensions (Protocol Spec §3.1)
+### Signal-Derived Dimensions (Protocol Spec §3.1)
+
+These signals are extracted deterministically from the evidence DAG. The SDK
+provides defaults via `composeScoreVector()` — override when your domain
+expertise gives you better information.
 
 **Initiative** (0–100): "Non-derivative nodes authored by WA that introduce new
-payload hashes." In practice: what fraction of evidence nodes are roots (no
-parents)? A high initiative score means the agent originated work independently
-rather than only responding to prior context.
+payload hashes." Root node ratio. A high initiative score means the agent
+originated work independently rather than only responding to prior context.
 
 **Collaboration** (0–100): "Fraction of nodes that are reply/extend edges
-referencing others with added artifacts." An agent that ties together multiple
-work streams scores higher. In single-agent sessions, this reflects how well the
-agent built on its own prior work.
+referencing others with added artifacts." Edge density and integration node
+ratio. An agent that ties together multiple work streams scores higher.
 
 **Reasoning** (0–100): "Average path length from demand root to terminal action
-nodes." How deep is the causal chain? An agent that produced a deep chain of
-dependent work demonstrates more complex reasoning than one that produced many
-shallow, independent nodes.
+nodes." Causal depth ratio. Deeper chains = more complex reasoning.
 
 ### Verifier-Assessed Dimensions (Protocol Spec §3.1)
 
+When a studio policy is available, the SDK computes deterministic compliance and
+efficiency signals. When no policy is provided, these dimensions rely entirely
+on your verifier's judgment.
+
 **Compliance** (0–100): "Boolean/continuous score from policy checks attached to
 Studio." Did the agent follow constraints? Did tests pass? Did it stay within
-scope? This is where your verifier's domain expertise matters.
+scope? With a studio policy, the SDK checks for test files, required artifacts,
+and forbidden patterns. Override with your own assessment as needed.
 
 **Efficiency** (0–100): "Useful work per token/cost; latency adherence." Was the
-work proportional to the outcome? Consider lines changed vs. time taken, scope
-of change vs. complexity of task.
+work proportional to the outcome? With a work mandate that specifies a latency
+budget, the SDK computes a duration ratio signal. Otherwise, this is your call.
 
 ### Consensus (Protocol Spec §2.2)
 

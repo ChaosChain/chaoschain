@@ -1,0 +1,72 @@
+[
+  {
+    "taskId": "mandate-bugfix-001",
+    "title": "Fix broken-line recovery ordering",
+    "objective": "Fix inconsistent serialization in handler module causing data loss on recovery",
+    "taskType": "bugfix",
+    "constraints": {
+      "mustPassTests": true,
+      "requiredArtifacts": ["test"],
+      "forbiddenPatterns": ["disabled-test"],
+      "latencyBudgetMs": 900000
+    },
+    "overrides": {
+      "initiative": {
+        "rootRatio": { "min": 0.1, "target": 0.4, "max": 0.7 }
+      },
+      "reasoning": {
+        "depthRatio": { "min": 0.2, "target": 0.5, "max": 0.8 }
+      }
+    },
+    "verifierPrompt": "Reward correctness, test discipline, and minimal-scope fixes. Penalize over-engineering or unnecessary refactoring beyond the bug scope."
+  },
+  {
+    "taskId": "mandate-feature-001",
+    "title": "Add JWT verification and role-based access control",
+    "objective": "Implement authentication middleware supporting JWT validation and RBAC for API endpoints",
+    "taskType": "feature",
+    "constraints": {
+      "mustPassTests": true,
+      "requiredArtifacts": ["test", "middleware"],
+      "forbiddenPatterns": ["secret-commit", "hardcoded-key"]
+    },
+    "overrides": {
+      "initiative": {
+        "rootRatio": { "min": 0.3, "target": 0.7, "max": 1.0 }
+      },
+      "collaboration": {
+        "edgeDensity": { "min": 0.3, "target": 0.8, "max": 1.0 },
+        "integrationRatio": { "min": 0.1, "target": 0.4, "max": 0.8 },
+        "weights": { "edgeDensity": 0.5, "integrationRatio": 0.5 }
+      },
+      "reasoning": {
+        "depthRatio": { "min": 0.3, "target": 0.7, "max": 1.0 }
+      }
+    },
+    "verifierPrompt": "Reward independent initiative in structuring the feature. Value integration across auth components. Expect deeper causal chains showing multi-step feature design."
+  },
+  {
+    "taskId": "mandate-refactor-001",
+    "title": "Refactor database query layer for performance",
+    "objective": "Restructure query builder and add caching layer without changing external API behavior",
+    "taskType": "refactor",
+    "constraints": {
+      "mustPassTests": true,
+      "requiredArtifacts": ["test"],
+      "forbiddenPatterns": ["broken-build"]
+    },
+    "overrides": {
+      "initiative": {
+        "rootRatio": { "min": 0.2, "target": 0.5, "max": 0.8 }
+      },
+      "reasoning": {
+        "depthRatio": { "min": 0.4, "target": 0.7, "max": 1.0 }
+      },
+      "efficiency": {
+        "artifactCountRatio": { "min": 0.5, "target": 0.9, "max": 1.0 },
+        "weights": { "artifactCountRatio": 1.0 }
+      }
+    },
+    "verifierPrompt": "Reward deep reasoning chains showing systematic restructuring. Value efficiency — the refactor should touch the right files proportionally. Penalize unnecessary scope creep."
+  }
+]

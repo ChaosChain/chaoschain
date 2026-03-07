@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "studioName": "Engineering Agent Studio",
+  "scoring": {
+    "initiative": {
+      "rootRatio": { "min": 0.2, "target": 0.6, "max": 1.0 }
+    },
+    "collaboration": {
+      "edgeDensity": { "min": 0.2, "target": 0.8, "max": 1.0 },
+      "integrationRatio": { "min": 0.0, "target": 0.3, "max": 0.7 },
+      "weights": {
+        "edgeDensity": 0.6,
+        "integrationRatio": 0.4
+      }
+    },
+    "reasoning": {
+      "depthRatio": { "min": 0.2, "target": 0.6, "max": 1.0 }
+    },
+    "compliance": {
+      "requiredChecks": ["tests_present"],
+      "forbiddenPatterns": ["secret-commit", "disabled-tests", "broken-build"],
+      "requiredArtifacts": ["code-change"],
+      "weights": {
+        "testsPresent": 0.4,
+        "requiredArtifactsPresent": 0.3,
+        "noPolicyViolations": 0.3
+      }
+    },
+    "efficiency": {
+      "artifactCountRatio": { "min": 0.2, "target": 1.0, "max": 2.0 },
+      "weights": {
+        "artifactCountRatio": 1.0
+      }
+    }
+  },
+  "verifierInstructions": {
+    "initiative": "Reward independently originated, meaningful work. Penalize trivial root spam.",
+    "collaboration": "Reward useful integration across work streams, files, or steps. Penalize disconnected fragments.",
+    "reasoning": "Reward appropriate causal depth for the task. Penalize shallow work and unnecessary over-complexity.",
+    "compliance": "Reward adherence to constraints, presence of required tests, and absence of policy violations.",
+    "efficiency": "Reward proportionate effort and low waste relative to task scope and expected output."
+  }
+}
