@@ -42,6 +42,7 @@ services:
       CHAIN_ID: "31337"
       CONFIRMATION_BLOCKS: "1"
       USE_MOCK_ARWEAVE: "true"
+      ADMIN_KEY: "e2e-admin-test-key"
       LOG_LEVEL: info
       PORT: "3000"
       HOST: 0.0.0.0

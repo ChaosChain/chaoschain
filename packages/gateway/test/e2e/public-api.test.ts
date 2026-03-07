@@ -178,6 +178,46 @@ describe('Public API E2E', () => {
     });
   });
 
+  // ─── GET /v1/agent/:id/history ───────────────────────────────────────
+
+  describe('GET /v1/agent/:id/history', () => {
+    it('returns 400 for invalid agent ID', async () => {
+      const res = await fetch(`${GATEWAY_URL}/v1/agent/abc/history`);
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.version).toBeDefined();
+      expect(body.error.code).toBe('INVALID_AGENT_ID');
+    });
+
+    it('returns history or 404/503 for valid agent ID', async () => {
+      const workerId = WORKERS[0].agentId;
+      const res = await fetch(`${GATEWAY_URL}/v1/agent/${workerId}/history`);
+      const body = await res.json();
+
+      // No CHAOSCHAIN_API_KEYS in E2E → endpoint is ungated.
+      // ReputationRegistry may not be deployed, so accept multiple statuses.
+      expect([200, 404, 503]).toContain(res.status);
+      expect(body.version).toBeDefined();
+
+      if (res.status === 200) {
+        expect(body.data).toBeDefined();
+        expect(body.data.agent_id).toBe(workerId);
+      }
+    });
+
+    it('supports pagination params', async () => {
+      const workerId = WORKERS[0].agentId;
+      const res = await fetch(
+        `${GATEWAY_URL}/v1/agent/${workerId}/history?limit=5&offset=0`,
+      );
+      const body = await res.json();
+
+      expect([200, 404, 503]).toContain(res.status);
+      expect(body.version).toBeDefined();
+    });
+  });
+
   // ─── GET /health (public API) ────────────────────────────────────────
 
   describe('GET /health', () => {

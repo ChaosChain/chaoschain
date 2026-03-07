@@ -12,6 +12,9 @@ export const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3333';
 // Anvil RPC — exposed on host port 8546
 export const RPC_URL = process.env.RPC_URL || 'http://localhost:8546';
 
+// Admin key — must match ADMIN_KEY in docker-compose.e2e.yml
+export const ADMIN_KEY = process.env.ADMIN_KEY || 'e2e-admin-test-key';
+
 // Anvil deterministic accounts (addresses only — keys live in e2e/.env.anvil)
 export const DEPLOYER = {
   address: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
@@ -79,7 +82,7 @@ export function getAddresses(): Record<string, string> {
 }
 
 // ─── On-Chain Verification ────────────────────────────────────────────
-
+// This section must be updated in case contracts or their ABIs change. It provides direct access to critical on-chain data for E2E tests, bypassing the public API and work data reader.
 const STUDIO_PROXY_ABI = [
   'function getWorkSubmitter(bytes32 dataHash) external view returns (address submitter)',
   'function getScoreVectorsForWorker(bytes32 dataHash, address worker) external view returns (address[] validators, bytes[] scoreVectors)',
