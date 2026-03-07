@@ -195,7 +195,7 @@ describe('Public API E2E', () => {
       const res = await fetch(`${GATEWAY_URL}/v1/agent/${workerId}/history`);
       const body = await res.json();
 
-      // No CHAOSCHAIN_API_KEYS in E2E → endpoint is ungated.
+      // No CHAOSCHAIN_API_KEYS in E2E -> endpoint is ungated.
       // ReputationRegistry may not be deployed, so accept multiple statuses.
       expect([200, 404, 503]).toContain(res.status);
       expect(body.version).toBeDefined();

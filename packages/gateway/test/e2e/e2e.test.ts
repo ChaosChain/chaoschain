@@ -73,7 +73,7 @@ describe('Gateway E2E', () => {
       expect(final.progress.arweave_tx_id).toBeDefined();
       expect(final.progress.register_confirmed).toBe(true);
 
-      // On-chain verification: work IS recorded in StudioProxy despite workflow STALL
+      // On-chain verification: work is recorded in StudioProxy
       const submitter = await verifier.getWorkSubmitter(dataHash);
       expect(submitter.toLowerCase()).toBe(worker.address.toLowerCase());
     });
