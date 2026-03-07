@@ -7,3 +7,5 @@ reports/
 demo-data/
 .env*
 *.md
+vitest.config.ts
+vitest.e2e.config.ts

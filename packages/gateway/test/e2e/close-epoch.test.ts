@@ -124,27 +124,16 @@ function castCall(to: string, sig: string, args: string[] = []): string {
 // ---------------------------------------------------------------------------
 
 /**
- * SKIPPED: CloseEpoch E2E (Anvil)
+ * CloseEpoch E2E (Anvil)
  *
- * Root cause: The vitest worker process is OOM-killed (exit code 137) when
- * running with the default threads pool, or crashes with "Worker exited
- * unexpectedly" when using the forks pool. This is caused by heavy `forge
- * create` (8 contract deployments) and `cast send` (~18 transactions)
- * subprocess calls consuming excessive memory within the vitest worker.
+ * Spawns its own Anvil, deploys 8 contracts via forge create, and runs ~18
+ * cast send transactions. This causes the vitest worker to OOM when run
+ * alongside other E2E tests (even with pool=forks and 4GB heap).
  *
- * When run with the forks pool and sufficient memory (--max-old-space-size=4096),
- * all assertions pass — worker/verifier reputation counts are non-zero, feedback
- * events are emitted, and rewards are correctly distributed. The test logic is
- * verified correct.
- *
- * To run manually:
+ * To run standalone:
  *   NODE_OPTIONS="--max-old-space-size=4096" npx vitest run test/e2e/close-epoch.test.ts --pool=forks
  *
- * Blocked by:
- *   - vitest worker memory limits with heavy Foundry subprocess calls
- *   - Requires dedicated E2E runner with higher memory allocation
- *
- * Last verified: Feb 2026 — all assertions pass when worker has enough memory.
+ * Last verified: Feb 2026 — all assertions pass when run in isolation.
  */
 describe.skip('CloseEpoch E2E (Anvil)', () => {
   let anvil: ChildProcess;

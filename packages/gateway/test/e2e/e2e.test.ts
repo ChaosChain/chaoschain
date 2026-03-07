@@ -1,0 +1,329 @@
+import { ethers } from 'ethers';
+import { describe, it, expect, beforeAll } from 'vitest';
+import {
+  GATEWAY_URL,
+  WORKERS,
+  VALIDATORS,
+  UNREGISTERED,
+  randomDataHash,
+  createDkgEvidence,
+  getAddresses,
+  postWorkflow,
+  getWorkflow,
+  pollUntilTerminal,
+  pollUntilProgress,
+  advanceAnvilTime,
+  createOnChainVerifier,
+  type OnChainVerifier,
+} from './helpers';
+
+let studioProxy: string;
+let verifier: OnChainVerifier;
+
+beforeAll(async () => {
+  // Verify gateway is healthy
+  const res = await fetch(`${GATEWAY_URL}/health`);
+  expect(res.status).toBe(200);
+  const health = await res.json();
+  expect(health.status).toBe('ok');
+
+  const addresses = getAddresses();
+  studioProxy = addresses.STUDIO_PROXY;
+  verifier = createOnChainVerifier(studioProxy);
+});
+
+describe('Gateway E2E', () => {
+  describe('Health', () => {
+    it('GET /health returns ok', async () => {
+      const res = await fetch(`${GATEWAY_URL}/health`);
+      const data = await res.json();
+      expect(res.status).toBe(200);
+      expect(data.status).toBe('ok');
+    });
+  });
+
+  describe('Work Submission', () => {
+    it('submits work on-chain and completes full golden path', async () => {
+      const worker = WORKERS[0];
+      const dataHash = randomDataHash();
+      const evidence = Buffer.from('e2e test evidence content').toString('base64');
+
+      const { status, data } = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: worker.address,
+        data_hash: dataHash,
+        dkg_evidence: createDkgEvidence([worker]),
+        evidence_content: evidence,
+        signer_address: worker.address,
+      });
+
+      expect(status).toBe(201);
+      expect(data.id).toBeDefined();
+      expect(data.type).toBe('WorkSubmission');
+      expect(data.state).toBe('CREATED');
+
+      // Poll until terminal state
+      const final = await pollUntilTerminal(data.id);
+
+      // Full golden path: workflow reaches COMPLETED (admin signer handles registerWork)
+      expect(final.state).toBe('COMPLETED');
+
+      // Verify progress: all steps completed
+      expect(final.progress.arweave_tx_id).toBeDefined();
+      expect(final.progress.register_confirmed).toBe(true);
+
+      // On-chain verification: work is recorded in StudioProxy
+      const submitter = await verifier.getWorkSubmitter(dataHash);
+      expect(submitter.toLowerCase()).toBe(worker.address.toLowerCase());
+    });
+
+    it('rejects invalid input (missing data_hash)', async () => {
+      const { status } = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: WORKERS[0].address,
+        // data_hash intentionally missing
+        dkg_evidence: createDkgEvidence([WORKERS[0]]),
+        evidence_content: Buffer.from('test').toString('base64'),
+        signer_address: WORKERS[0].address,
+      });
+
+      expect(status).toBe(400);
+    });
+  });
+
+  describe('Work Submission (multi-agent)', () => {
+    it('submits multi-agent work with DKG evidence and completes', async () => {
+      const author0 = WORKERS[0];
+      const author1 = WORKERS[1];
+      const dataHash = randomDataHash();
+      const evidence = Buffer.from('multi-agent e2e evidence').toString('base64');
+
+      const dkgEvidence = createDkgEvidence([author0, author1]);
+
+      const { status, data } = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: author0.address,
+        data_hash: dataHash,
+        dkg_evidence: dkgEvidence,
+        evidence_content: evidence,
+        signer_address: author0.address,
+      });
+
+      expect(status).toBe(201);
+      expect(data.type).toBe('WorkSubmission');
+
+      const final = await pollUntilTerminal(data.id);
+      expect(final.state).toBe('COMPLETED');
+
+      // DKG computation ran: thread_root and evidence_root were derived
+      expect(final.progress.dkg_thread_root).toBeDefined();
+      expect(final.progress.dkg_evidence_root).toBeDefined();
+
+      // On-chain verification
+      const submitter = await verifier.getWorkSubmitter(dataHash);
+      // Multi-agent submit still records a submitter (the primary agent)
+      expect(submitter).not.toBe(ethers.ZeroAddress);
+    });
+  });
+
+  describe('Score Submission (direct mode)', () => {
+    it('submits score for existing work and completes full golden path', async () => {
+      const worker = WORKERS[1];
+      const validator = VALIDATORS[0];
+      const dataHash = randomDataHash();
+
+      // Step 1: Submit work first — the contract requires work to exist before scoring
+      const workRes = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: worker.address,
+        data_hash: dataHash,
+        dkg_evidence: createDkgEvidence([worker]),
+        evidence_content: Buffer.from('work for scoring').toString('base64'),
+        signer_address: worker.address,
+      });
+      expect(workRes.status).toBe(201);
+      const workFinal = await pollUntilTerminal(workRes.data.id);
+      expect(workFinal.state).toBe('COMPLETED');
+
+      // Confirm work is on-chain before scoring
+      const submitter = await verifier.getWorkSubmitter(dataHash);
+      expect(submitter.toLowerCase()).toBe(worker.address.toLowerCase());
+
+      // Step 2: Submit score for that work
+      const { status, data } = await postWorkflow('/workflows/score-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        validator_address: validator.address,
+        data_hash: dataHash,
+        scores: [8000, 7500, 9000],
+        signer_address: validator.address,
+        worker_address: worker.address,
+        mode: 'direct',
+      });
+
+      expect(status).toBe(201);
+      expect(data.type).toBe('ScoreSubmission');
+      expect(data.state).toBe('CREATED');
+
+      // Full golden path: workflow reaches COMPLETED (admin signer handles registerValidator)
+      const final = await pollUntilTerminal(data.id);
+      expect(final.state).toBe('COMPLETED');
+
+      // Verify progress: all steps completed
+      expect(final.progress.score_tx_hash).toBeDefined();
+      expect(final.progress.score_confirmed).toBe(true);
+      expect(final.progress.register_validator_confirmed).toBe(true);
+
+      // On-chain verification: score IS recorded in StudioProxy
+      const result = await verifier.getScoreVectorsForWorker(dataHash, worker.address);
+      expect(result.validators.length).toBeGreaterThan(0);
+      expect(result.validators.map((v) => v.toLowerCase())).toContain(validator.address.toLowerCase());
+      expect(result.scoreVectors.length).toBe(result.validators.length);
+    });
+  });
+
+  // Commit-reveal requires setCommitRevealDeadlines() on StudioProxy (onlyRewardsDistributor).
+  // We use Anvil's anvil_impersonateAccount to call it as RewardsDistributor after work is on-chain.
+  describe('Score Submission (commit-reveal mode)', () => {
+    it('submits score via commit-reveal and completes', async () => {
+      const worker = WORKERS[2];
+      const validator = VALIDATORS[1];
+      const dataHash = randomDataHash();
+
+      // Submit work first
+      const workRes = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: worker.address,
+        data_hash: dataHash,
+        dkg_evidence: createDkgEvidence([worker]),
+        evidence_content: Buffer.from('work for commit-reveal scoring').toString('base64'),
+        signer_address: worker.address,
+      });
+      expect(workRes.status).toBe(201);
+      const workFinal = await pollUntilTerminal(workRes.data.id);
+      expect(workFinal.state).toBe('COMPLETED');
+
+      // Open commit-reveal windows via Anvil impersonation of RewardsDistributor
+      // Use 60s commit window so the commit tx lands within it
+      await verifier.setCommitRevealDeadlines(dataHash, 60, 3600);
+
+      // Submit score in commit-reveal mode
+      const salt = ethers.hexlify(ethers.randomBytes(32));
+      const { status, data } = await postWorkflow('/workflows/score-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        validator_address: validator.address,
+        data_hash: dataHash,
+        scores: [8500, 7000, 9200],
+        signer_address: validator.address,
+        salt,
+        mode: 'commit_reveal',
+      });
+
+      expect(status).toBe(201);
+      expect(data.type).toBe('ScoreSubmission');
+
+      // Wait for commit to be confirmed on-chain
+      await pollUntilProgress(data.id, 'commit_confirmed');
+
+      // Advance Anvil's clock past the commit deadline so reveal phase opens
+      await advanceAnvilTime(61);
+
+      const final = await pollUntilTerminal(data.id);
+      expect(final.state).toBe('COMPLETED');
+
+      // Verify commit-reveal progress fields
+      expect(final.progress.commit_tx_hash).toBeDefined();
+      expect(final.progress.reveal_tx_hash).toBeDefined();
+      expect(final.progress.commit_confirmed).toBe(true);
+      expect(final.progress.reveal_confirmed).toBe(true);
+    });
+  });
+
+  describe('Score Submission (negative cases)', () => {
+    it('fails when scoring work that was never submitted', async () => {
+      const validator = VALIDATORS[0];
+      // Random dataHash that was never submitted as work
+      const bogusDataHash = randomDataHash();
+
+      const { status, data } = await postWorkflow('/workflows/score-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        validator_address: validator.address,
+        data_hash: bogusDataHash,
+        scores: [5000, 5000, 5000],
+        signer_address: validator.address,
+        worker_address: WORKERS[0].address,
+        mode: 'direct',
+      });
+
+      if (status === 201) {
+        // Gateway accepted — workflow should fail on-chain
+        const final = await pollUntilTerminal(data.id);
+        expect(['FAILED', 'STALLED']).toContain(final.state);
+      } else {
+        // Gateway rejected immediately
+        expect([400, 422]).toContain(status);
+      }
+    });
+  });
+
+  describe('Workflow Status', () => {
+    it('GET /workflows/:id returns workflow details', async () => {
+      const { data } = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: WORKERS[2].address,
+        data_hash: randomDataHash(),
+        dkg_evidence: createDkgEvidence([WORKERS[2]]),
+        evidence_content: Buffer.from('status test').toString('base64'),
+        signer_address: WORKERS[2].address,
+      });
+
+      const wf = await getWorkflow(data.id);
+      expect(wf.id).toBe(data.id);
+      expect(wf.type).toBe('WorkSubmission');
+      expect(['CREATED', 'RUNNING', 'STALLED', 'COMPLETED', 'FAILED']).toContain(wf.state);
+    });
+
+    it('GET /workflows/:id returns 404 for unknown ID', async () => {
+      const res = await fetch(`${GATEWAY_URL}/workflows/00000000-0000-0000-0000-000000000000`);
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('On-chain state verification', () => {
+    it('unsubmitted dataHash returns zero address', async () => {
+      const unknownHash = ethers.keccak256(ethers.toUtf8Bytes('never-submitted'));
+      const submitter = await verifier.getWorkSubmitter(unknownHash);
+      expect(submitter).toBe(ethers.ZeroAddress);
+    });
+  });
+
+  describe('Unregistered agent', () => {
+    it('workflow fails for unregistered signer', async () => {
+      const { status, data } = await postWorkflow('/workflows/work-submission', {
+        studio_address: studioProxy,
+        epoch: 1,
+        agent_address: UNREGISTERED.address,
+        data_hash: randomDataHash(),
+        dkg_evidence: createDkgEvidence([UNREGISTERED]),
+        evidence_content: Buffer.from('should fail').toString('base64'),
+        signer_address: UNREGISTERED.address,
+      });
+
+      // Gateway may reject immediately (400) or create and fail later
+      if (status === 201) {
+        const final = await pollUntilTerminal(data.id);
+        expect(['FAILED', 'STALLED']).toContain(final.state);
+      } else {
+        expect(status).toBe(400);
+      }
+    });
+  });
+});
