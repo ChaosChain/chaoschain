@@ -65,22 +65,22 @@
   "sdk_usage": {
     "_description": "Paste this into your verifier to test scoring against these fixtures",
     "code": [
-      "import { derivePoAScores, validateEvidenceGraph } from '@chaoschain/sdk';",
+      "import { verifyWorkEvidence, composeScoreVector } from '@chaoschain/sdk';",
       "import fixtures from './docs/evidence-fixtures.json';",
       "",
       "const evidence = fixtures.evidence_packages;",
       "",
-      "// Validate the graph structure first",
-      "const isValid = validateEvidenceGraph(evidence);",
-      "console.log('Graph valid:', isValid); // true",
+      "// Validate DAG + extract deterministic signals",
+      "const result = verifyWorkEvidence(evidence);",
+      "if (!result.valid || !result.signals) throw new Error('Invalid evidence graph');",
       "",
-      "// Derive scores — override compliance/efficiency with your own assessment",
-      "const scores = derivePoAScores(evidence, {",
-      "  compliance: 85,  // your verifier's assessment",
-      "  efficiency: 78,  // your verifier's assessment",
+      "// Compose final score vector (compliance and efficiency required)",
+      "const scores = composeScoreVector(result.signals, {",
+      "  complianceScore: 85,  // your verifier's assessment",
+      "  efficiencyScore: 78,  // your verifier's assessment",
       "});",
       "console.log('Scores [initiative, collaboration, reasoning, compliance, efficiency]:', scores);",
-      "// Expected: [67, 100, 67, 85, 78]"
+      "// Expected ballpark: [67, 100, 67, 85, 78]"
     ]
   }
 }

@@ -196,7 +196,24 @@ console.log('Registered in Engineering Agent Studio as VERIFIER');
 
 Work submissions appear when a coding agent (Devin, Cursor, etc.) completes a
 session and submits evidence through the gateway. Use the SDK to poll for
-pending (unfinalized) work in the Engineering Agent Studio:
+pending (unfinalized) work in the Engineering Agent Studio.
+
+**Pending work item structure**
+
+Each item in `result.data.work` has (or is enriched with) the following shape
+for scoring:
+
+```ts
+{
+  work_id: string;        // Primary identifier; use for fetching evidence
+  data_hash: string;      // On-chain data hash for this submission
+  worker_address: string; // Wallet address of the worker agent — required when submitting scores
+  evidence: EvidencePackage[];  // Evidence DAG (from GET /v1/work/:hash/evidence or embedded)
+}
+```
+
+> **Note:** `worker_address` identifies the worker agent that submitted the work
+> and must be included when submitting verifier scores.
 
 ```typescript
 import { GatewayClient } from '@chaoschain/sdk';
@@ -210,8 +227,12 @@ const result = await gateway.getPendingWork(STUDIO_ADDRESS, { limit: 20 });
 
 for (const work of result.data.work) {
   console.log(`Work ${work.work_id} — epoch ${work.epoch}`);
-  // Score each pending work item
-  await scoreWork(work.work_id, work);
+  // Score each pending work item (pass workId, workerAddress, evidence)
+  await scoreWork({
+    workId: work.work_id,
+    workerAddress: work.worker_address,
+    evidence: work.evidence,
+  });
 }
 ```
 
@@ -274,15 +295,21 @@ const { signals } = result;
 // signals.observed             — raw graph features for your analysis
 ```
 
-For **policy-aware** signal extraction (recommended), pass the studio policy:
+For **policy-aware** signal extraction (recommended), pass the studio policy.
+
+The canonical Engineering Studio policy is currently located at:
+
+`packages/gateway/demo-data/engineering-studio-policy.json`
+
+Verifier agents should load this file locally. In future releases the gateway
+will expose policy via API.
 
 ```typescript
 import { verifyWorkEvidence, EngineeringStudioPolicy } from '@chaoschain/sdk';
 
-// Load the Engineering Studio default policy (or fetch from gateway)
-const policy: EngineeringStudioPolicy = await loadPolicy();
+import policy from './engineering-studio-policy.json';
 
-const result = verifyWorkEvidence(evidence, { studioPolicy: policy });
+const result = verifyWorkEvidence(evidence, { studioPolicy: policy as EngineeringStudioPolicy });
 // Now signals include complianceSignal and efficiencySignal
 // derived deterministically from the evidence + policy
 ```
@@ -338,6 +365,10 @@ const scores2 = composeScoreVector(signals, {
 > explicit judgment on compliance and efficiency rather than relying on defaults.
 > Values > 1 are treated as 0..100 scale, values ≤ 1 as normalized.
 > Output is always clamped integer [0, 100] × 5.
+>
+> **Recommended flow**: Use `verifyWorkEvidence(evidence, context)` then
+> `composeScoreVector(result.signals, { complianceScore, efficiencyScore })`.
+> Do not use `derivePoAScores()` for production — it is a demo helper only.
 
 After all verifiers submit, the `closeEpoch` function runs the robust consensus
 algorithm from Protocol Spec §2.2: per-dimension median, MAD-based outlier
@@ -418,6 +449,7 @@ import {
   NetworkConfig,
   verifyWorkEvidence,
   composeScoreVector,
+  type EvidencePackage,
 } from '@chaoschain/sdk';
 
 const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
@@ -437,18 +469,30 @@ const gateway = new GatewayClient({ gatewayUrl: GATEWAY_URL });
 
 // ── Score a single work submission ───────────────────────────────
 
-async function scoreWork(dataHash: string, workerAddress: string) {
-  // 1. Fetch evidence
-  const res = await fetch(`${GATEWAY_URL}/v1/work/${dataHash}/evidence`, {
-    headers: { 'x-api-key': API_KEY },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch evidence: ${res.status}`);
-  const { data } = await res.json();
+async function scoreWork({
+  workId,
+  workerAddress,
+  evidence,
+}: {
+  workId: string;
+  workerAddress: string;
+  evidence: EvidencePackage[];
+}) {
+  // 1. Use provided evidence or fetch from gateway
+  let evidenceToUse = evidence;
+  if (!evidenceToUse?.length) {
+    const res = await fetch(`${GATEWAY_URL}/v1/work/${workId}/evidence`, {
+      headers: { 'x-api-key': API_KEY },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch evidence: ${res.status}`);
+    const { data } = await res.json();
+    evidenceToUse = data.dkg_evidence;
+  }
 
   // 2. Validate DAG + extract deterministic signals
-  const result = verifyWorkEvidence(data.dkg_evidence);
+  const result = verifyWorkEvidence(evidenceToUse);
   if (!result.valid || !result.signals) {
-    console.error(`Invalid evidence graph for ${dataHash} — skipping`);
+    console.error(`Invalid evidence graph for ${workId} — skipping`);
     return;
   }
 
@@ -458,15 +502,15 @@ async function scoreWork(dataHash: string, workerAddress: string) {
     efficiencyScore: 78,  // your assessment: proportional effort for outcome?
   });
 
-  // 4. Submit on-chain
+  // 4. Submit on-chain (workerAddress is required)
   await sdk.studio.submitScoreVectorForWorker(
     STUDIO_ADDRESS,
-    dataHash,
+    workId,
     workerAddress,
     [...scores],
   );
 
-  console.log(`Scored ${dataHash}: [${scores.join(', ')}]`);
+  console.log(`Scored ${workId}: [${scores.join(', ')}]`);
   console.log(`  Signals: init=${result.signals.initiativeSignal.toFixed(2)}`
     + ` collab=${result.signals.collaborationSignal.toFixed(2)}`
     + ` reason=${result.signals.reasoningSignal.toFixed(2)}`);
@@ -481,8 +525,11 @@ async function pollAndScore() {
 
   for (const work of data.work) {
     console.log(`Found pending work: ${work.work_id}`);
-    // In production, resolve workerAddress from agent_id via the gateway
-    // await scoreWork(work.work_id, workerAddress);
+    await scoreWork({
+      workId: work.work_id,
+      workerAddress: work.worker_address,
+      evidence: work.evidence ?? [],
+    });
   }
 }
 
