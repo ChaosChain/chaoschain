@@ -26,7 +26,7 @@ from chaoschain_sdk.gateway_client import (
 )
 
 
-GATEWAY_URL = "http://localhost:3000"
+GATEWAY_URL = "http://localhost:39999"
 
 
 @pytest.fixture
@@ -101,8 +101,15 @@ class TestWorkSubmission:
             epoch=1,
             agent_address="0xAgent",
             data_hash="0x" + "ab" * 32,
-            thread_root="0x" + "cd" * 32,
-            evidence_root="0x" + "ef" * 32,
+            dkg_evidence=[{
+                "arweave_tx_id": "test-ev-1",
+                "author": "0xAgent",
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x" + "cd" * 32,
+                "artifact_ids": [],
+                "signature": "0x" + "00" * 65,
+            }],
             evidence_content=b"test evidence",
             signer_address="0xSigner"
         )
@@ -142,8 +149,15 @@ class TestWorkSubmission:
             epoch=1,
             agent_address="0xAgent",
             data_hash="0x" + "ab" * 32,
-            thread_root="0x" + "cd" * 32,
-            evidence_root="0x" + "ef" * 32,
+            dkg_evidence=[{
+                "arweave_tx_id": "test-ev-1",
+                "author": "0xAgent",
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x" + "cd" * 32,
+                "artifact_ids": [],
+                "signature": "0x" + "00" * 65,
+            }],
             evidence_content=b"test evidence",
             signer_address="0xSigner"
         )
@@ -401,8 +415,15 @@ class TestErrorHandling:
                 epoch=1,
                 agent_address="0xAgent",
                 data_hash="0x" + "ab" * 32,
-                thread_root="0x" + "cd" * 32,
-                evidence_root="0x" + "ef" * 32,
+                dkg_evidence=[{
+                    "arweave_tx_id": "test-ev-1",
+                    "author": "0xAgent",
+                    "timestamp": 1234567890,
+                    "parent_ids": [],
+                    "payload_hash": "0x" + "cd" * 32,
+                    "artifact_ids": [],
+                    "signature": "0x" + "00" * 65,
+                }],
                 evidence_content=b"test",
                 signer_address="0xSigner"
             )
@@ -480,8 +501,15 @@ class TestBoundaryInvariants:
             epoch=1,
             agent_address="0xAgent",
             data_hash="0x" + "ab" * 32,
-            thread_root="0x" + "cd" * 32,
-            evidence_root="0x" + "ef" * 32,
+            dkg_evidence=[{
+                "arweave_tx_id": "test-ev-1",
+                "author": "0xAgent",
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x" + "cd" * 32,
+                "artifact_ids": [],
+                "signature": "0x" + "00" * 65,
+            }],
             evidence_content=b"test",
             signer_address="0xSigner"
         )
