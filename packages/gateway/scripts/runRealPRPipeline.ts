@@ -37,7 +37,7 @@ import type { EvidencePackage as GatewayEvidencePackage } from '../src/services/
 // SDK imports for Phase 3 scoring pipeline
 import {
   verifyWorkEvidence,
-  composeScoreVector,
+  composeScoreVectorWithDefaults,
   type EvidencePackage as SDKEvidencePackage,
   type AgencySignals,
 } from '../../../../chaoschain-sdk-ts/src/evidence.ts';
@@ -471,7 +471,7 @@ async function main() {
 
   // ── Step 5: Compose score vector ─────────────────────────────────────────
   console.log('\n── Step 4: Compose Score Vector ──');
-  const scoreVector = composeScoreVector(signals);
+  const scoreVector = composeScoreVectorWithDefaults(signals);
 
   console.log(`  Score vector: [${scoreVector.join(', ')}]`);
   console.log(`    Initiative:    ${scoreVector[0]}`);

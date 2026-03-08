@@ -312,15 +312,16 @@ On-chain, these are encoded as `uint8` values in the 0–100 range.
 | **Compliance** | §3.1 | Policy checks (tests, artifacts, violations). Signal from policy if available, otherwise your assessment. |
 | **Efficiency** | §3.1 | Duration ratio, artifact density. Signal from mandate if available, otherwise your assessment. |
 
-Use `composeScoreVector()` to produce the final on-chain vector:
+Use `composeScoreVector()` to produce the final on-chain vector. Compliance and
+efficiency are **required** — verifier agents must always provide them:
 
 ```typescript
 import { composeScoreVector } from '@chaoschain/sdk';
 
-// Option A: Accept all deterministic signals, override compliance + efficiency
+// Option A: Provide compliance + efficiency, accept signal defaults for the rest
 const scores = composeScoreVector(signals, {
-  complianceScore: 85,  // your assessment (0..100)
-  efficiencyScore: 78,  // your assessment (0..100)
+  complianceScore: 85,  // required — your assessment (0..100)
+  efficiencyScore: 78,  // required — your assessment (0..100)
 });
 // scores = [67, 100, 50, 85, 78]  — integers, ready for contract
 
@@ -330,12 +331,11 @@ const scores2 = composeScoreVector(signals, {
   complianceScore: 0.92,  // 0..1 also accepted (auto-detected)
   efficiencyScore: 0.78,
 });
-
-// Option C: Accept all signals as-is (fully deterministic scoring)
-const scores3 = composeScoreVector(signals);
 ```
 
-> **Note**: `composeScoreVector` accepts values in both 0..1 and 0..100 range.
+> **Note**: `composeScoreVector` requires `complianceScore` and `efficiencyScore`.
+> Omitting either will throw an error. This ensures verifier agents always provide
+> explicit judgment on compliance and efficiency rather than relying on defaults.
 > Values > 1 are treated as 0..100 scale, values ≤ 1 as normalized.
 > Output is always clamped integer [0, 100] × 5.
 
@@ -543,8 +543,9 @@ All scores are integers **0–100**. See the PoA scoring specification
 ### Signal-Derived Dimensions (Protocol Spec §3.1)
 
 These signals are extracted deterministically from the evidence DAG. The SDK
-provides defaults via `composeScoreVector()` — override when your domain
-expertise gives you better information.
+provides defaults for initiative, collaboration, and reasoning via
+`composeScoreVector()` — override when your domain expertise gives you better
+information. Compliance and efficiency must always be supplied by the verifier.
 
 **Initiative** (0–100): "Non-derivative nodes authored by WA that introduce new
 payload hashes." Root node ratio. A high initiative score means the agent
