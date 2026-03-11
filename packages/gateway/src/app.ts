@@ -320,7 +320,8 @@ export class Gateway {
 
     // Serve agent skill files as static assets (public, no auth)
     const appFileUrl = fileURLToPath(import.meta.url);
-    const skillsDir = resolve(dirname(appFileUrl), '../../../chaoschain-skills');
+    const skillsDir =
+      process.env.SKILLS_DIR ? resolve(process.env.SKILLS_DIR) : resolve(dirname(appFileUrl), '../../../chaoschain-skills');
     this.app.use('/skills', express.static(skillsDir));
     this.logger.info({ path: skillsDir }, 'Skill files mounted at /skills');
 

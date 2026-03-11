@@ -4,6 +4,8 @@ WORKDIR /app
 COPY packages/gateway/package*.json ./
 RUN npm ci --include=dev
 COPY packages/gateway/ .
+# Copy skill files from repo root (build context is repo root)
+COPY chaoschain-skills ./chaoschain-skills
 RUN npm run build
 
 # Stage 2: Production runtime
@@ -12,6 +14,8 @@ WORKDIR /app
 RUN addgroup -g 1001 -S chaoschain && adduser -S gateway -u 1001 -G chaoschain
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/chaoschain-skills ./chaoschain-skills
+ENV SKILLS_DIR=/app/chaoschain-skills
 RUN npm ci --omit=dev
 USER gateway
 EXPOSE 3000
