@@ -102,6 +102,11 @@ export interface WorkSubmissionInput {
   dkg_evidence: DKGEvidencePackage[];
   evidence_content: Buffer;   // Raw evidence bytes
   signer_address: string;     // Which key signs on-chain txs
+
+  // Scoring context (gateway metadata — not on-chain)
+  studio_policy_version?: string;
+  work_mandate_id?: string;
+  task_type?: string;
 }
 
 // =============================================================================

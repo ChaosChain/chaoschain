@@ -132,6 +132,33 @@ class MockWorkflowQuerySource implements WorkflowQuerySource {
     const total = pending.length;
     return { records: pending.slice(offset, offset + limit), total };
   }
+
+  async findAllWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const addr = studioAddress.toLowerCase();
+    const matching: WorkflowRecord[] = [];
+    for (const record of this.allRecords) {
+      if (record.type !== 'WorkSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.studio_address as string)?.toLowerCase() !== addr) continue;
+      matching.push(record);
+    }
+    matching.sort((a, b) => b.created_at - a.created_at);
+    return { records: matching.slice(offset, offset + limit), total: matching.length };
+  }
+
+  async findScoresForDataHash(dataHash: string): Promise<WorkflowRecord[]> {
+    const results: WorkflowRecord[] = [];
+    for (const record of this.allRecords) {
+      if (record.type !== 'ScoreSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if (input.data_hash === dataHash) results.push(record);
+    }
+    return results;
+  }
 }
 
 // =============================================================================
@@ -1169,6 +1196,267 @@ describe('Public API — GET /v1/studio/:address/work', () => {
 });
 
 // =============================================================================
+// Tests — GET /v1/work/:hash/context
+// =============================================================================
+
+describe('Public API — GET /v1/work/:hash/context', () => {
+  const API_KEY = 'cc_test_ctx_key';
+  const KEYS = new Set([API_KEY]);
+
+  function buildContextApp(workInput?: Record<string, unknown>) {
+    const reader = new MockReputationReader();
+    reader.addAgent(WORKER_AGENT);
+    const qs = new MockWorkflowQuerySource();
+    qs.addWork(WORK_HASH, makeWorkRecord({ input: workInput }));
+    const workDataReader = new WorkDataReader(qs);
+    return buildApp(reader, workDataReader, KEYS);
+  }
+
+  it('returns full context with evidence, policy, and mandate', async () => {
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      dkg_evidence: SAMPLE_DKG_EVIDENCE,
+      signer_address: AGENT_ADDRESS,
+      studio_policy_version: 'engineering-studio-default-v1',
+      work_mandate_id: 'mandate-feature-001',
+      task_type: 'feature',
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    expect(body.version).toBe('1.0');
+
+    const data = body.data as Record<string, unknown>;
+    expect(data.work_id).toBe(WORK_HASH);
+    expect(data.data_hash).toBe(WORK_HASH);
+    expect(data.worker_address).toBe(AGENT_ADDRESS);
+    expect(data.studio_address).toBe(STUDIO_ADDRESS);
+    expect(data.task_type).toBe('feature');
+    expect(data.studio_policy_version).toBe('engineering-studio-default-v1');
+    expect(data.work_mandate_id).toBe('mandate-feature-001');
+
+    const evidence = data.evidence as unknown[];
+    expect(Array.isArray(evidence)).toBe(true);
+    expect(evidence.length).toBe(2);
+
+    expect(data.studioPolicy).not.toBeNull();
+    const policy = data.studioPolicy as Record<string, unknown>;
+    expect(policy.studioName).toBe('Engineering Agent Studio');
+
+    expect(data.workMandate).not.toBeNull();
+    const mandate = data.workMandate as Record<string, unknown>;
+    expect(mandate.taskId).toBe('mandate-feature-001');
+    expect(mandate.taskType).toBe('feature');
+  });
+
+  it('returns 401 without API key', async () => {
+    const app = buildContextApp();
+    const { status, body } = await get(app, `/v1/work/${WORK_HASH}/context`);
+    expect(status).toBe(401);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('UNAUTHORIZED');
+  });
+
+  it('returns 200 with valid API key', async () => {
+    const app = buildContextApp();
+    const { status } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+    expect(status).toBe(200);
+  });
+
+  it('returns 400 for invalid hash format', async () => {
+    const app = buildContextApp();
+    const { status, body } = await get(
+      app,
+      '/v1/work/not-a-hash/context',
+      { 'x-api-key': API_KEY },
+    );
+    expect(status).toBe(400);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('INVALID_WORK_ID');
+  });
+
+  it('returns 404 for missing hash', async () => {
+    const app = buildContextApp();
+    const missingHash = '0x' + '00'.repeat(32);
+    const { status, body } = await get(
+      app,
+      `/v1/work/${missingHash}/context`,
+      { 'x-api-key': API_KEY },
+    );
+    expect(status).toBe(404);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('WORK_NOT_FOUND');
+  });
+
+  it('returns generic-task mandate object when mandate is missing', async () => {
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      dkg_evidence: SAMPLE_DKG_EVIDENCE,
+      signer_address: AGENT_ADDRESS,
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.work_mandate_id).toBe('generic-task');
+
+    const mandate = data.workMandate as Record<string, unknown>;
+    expect(mandate).not.toBeNull();
+    expect(mandate.taskId).toBe('generic-task');
+    expect(mandate.taskType).toBe('general');
+  });
+
+  it('returns generic-task mandate for unknown mandate ID', async () => {
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      dkg_evidence: SAMPLE_DKG_EVIDENCE,
+      signer_address: AGENT_ADDRESS,
+      work_mandate_id: 'mandate-nonexistent-999',
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.work_mandate_id).toBe('mandate-nonexistent-999');
+
+    const mandate = data.workMandate as Record<string, unknown>;
+    expect(mandate).not.toBeNull();
+    expect(mandate.taskId).toBe('generic-task');
+  });
+
+  it('returns default policy when version is unknown', async () => {
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      dkg_evidence: SAMPLE_DKG_EVIDENCE,
+      signer_address: AGENT_ADDRESS,
+      studio_policy_version: 'unknown-policy-v99',
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.studio_policy_version).toBe('unknown-policy-v99');
+
+    const policy = data.studioPolicy as Record<string, unknown>;
+    expect(policy).not.toBeNull();
+    expect(policy.studioName).toBe('Engineering Agent Studio');
+  });
+
+  it('handles empty evidence array', async () => {
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      signer_address: AGENT_ADDRESS,
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.evidence).toEqual([]);
+  });
+
+  it('handles large evidence DAG without error', async () => {
+    const largeEvidence = [];
+    for (let i = 0; i < 200; i++) {
+      largeEvidence.push({
+        arweave_tx_id: `arweave_tx_${String(i).padStart(3, '0')}`,
+        author: AGENT_ADDRESS,
+        timestamp: 1700000000 + i * 1000,
+        parent_ids: i > 0 ? [`arweave_tx_${String(i - 1).padStart(3, '0')}`] : [],
+        payload_hash: '0x' + i.toString(16).padStart(64, '0'),
+        artifact_ids: [`file_${i}.ts`],
+        signature: '0x' + '00'.repeat(65),
+      });
+    }
+
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      dkg_evidence: largeEvidence,
+      signer_address: AGENT_ADDRESS,
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    const evidence = data.evidence as unknown[];
+    expect(evidence.length).toBe(200);
+  });
+
+  it('defaults task_type to "general" when not stored', async () => {
+    const app = buildContextApp({
+      studio_address: STUDIO_ADDRESS,
+      epoch: 1,
+      agent_address: AGENT_ADDRESS,
+      data_hash: WORK_HASH,
+      dkg_evidence: SAMPLE_DKG_EVIDENCE,
+      signer_address: AGENT_ADDRESS,
+    });
+
+    const { status, body } = await get(
+      app,
+      `/v1/work/${WORK_HASH}/context`,
+      { 'x-api-key': API_KEY },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.task_type).toBe('general');
+    expect(data.studio_policy_version).toBe('engineering-studio-default-v1');
+  });
+});
+
+// =============================================================================
 // Tests — Evidence endpoint auth gating
 // =============================================================================
 
@@ -1243,6 +1531,164 @@ describe('Public API — Evidence Auth Gating', () => {
     const app = buildApp(reader, workDataReader, KEYS);
     const studioAddr = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
     const { status } = await get(app, `/v1/studio/${studioAddr}/work`);
+    expect(status).toBe(200);
+  });
+});
+
+// =============================================================================
+// Tests — GET /v1/studio/:address/leaderboard
+// =============================================================================
+
+describe('Public API — GET /v1/studio/:address/leaderboard', () => {
+  const STUDIO = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
+
+  it('returns leaderboard with agent submissions', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addWork(WORK_HASH, makeWorkRecord());
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    const { status, body } = await get(app, `/v1/studio/${STUDIO}/leaderboard`);
+
+    expect(status).toBe(200);
+    expect(body.version).toBe('1.0');
+    const data = body.data as Record<string, unknown>;
+    expect(data.studio).toBe(STUDIO);
+    const entries = data.entries as Array<Record<string, unknown>>;
+    expect(entries.length).toBe(1);
+    expect(entries[0].worker_address).toBe(AGENT_ADDRESS.toLowerCase());
+    expect(entries[0].submissions).toBe(1);
+  });
+
+  it('returns empty leaderboard for studio with no work', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    const otherStudio = '0x' + '11'.repeat(20);
+    const { status, body } = await get(app, `/v1/studio/${otherStudio}/leaderboard`);
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.total).toBe(0);
+    expect((data.entries as unknown[]).length).toBe(0);
+  });
+
+  it('returns 400 for invalid studio address', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    const { status, body } = await get(app, '/v1/studio/not-an-address/leaderboard');
+    expect(status).toBe(400);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('INVALID_STUDIO_ADDRESS');
+  });
+
+  it('leaderboard is public (no auth required)', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addWork(WORK_HASH, makeWorkRecord());
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader, new Set(['some_key']));
+
+    const { status } = await get(app, `/v1/studio/${STUDIO}/leaderboard`);
+    expect(status).toBe(200);
+  });
+});
+
+// =============================================================================
+// Tests — GET /v1/work/:hash/viewer
+// =============================================================================
+
+describe('Public API — GET /v1/work/:hash/viewer', () => {
+  it('returns HTML by default', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addWork(WORK_HASH, makeWorkRecord());
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    // Use raw fetch since we need to check content-type
+    const result = await new Promise<{ status: number; contentType: string; body: string }>((resolve, reject) => {
+      const server = app.listen(0, () => {
+        const addr = server.address();
+        if (!addr || typeof addr === 'string') { server.close(); reject(new Error('no addr')); return; }
+        fetch(`http://127.0.0.1:${addr.port}/v1/work/${WORK_HASH}/viewer`)
+          .then(async (res) => {
+            const body = await res.text();
+            server.close();
+            resolve({ status: res.status, contentType: res.headers.get('content-type') ?? '', body });
+          })
+          .catch((err) => { server.close(); reject(err); });
+      });
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.contentType).toContain('text/html');
+    expect(result.body).toContain('Evidence DAG');
+    expect(result.body).toContain('ROOT');
+    expect(result.body).toContain(WORK_HASH.slice(0, 14));
+  });
+
+  it('returns JSON when format=json', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addWork(WORK_HASH, makeWorkRecord());
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    const { status, body } = await get(app, `/v1/work/${WORK_HASH}/viewer?format=json`);
+
+    expect(status).toBe(200);
+    expect(body.version).toBe('1.0');
+    const data = body.data as Record<string, unknown>;
+    expect(data.work_id).toBe(WORK_HASH);
+    expect(data.worker_address).toBe(AGENT_ADDRESS);
+    const nodes = data.nodes as Array<Record<string, unknown>>;
+    expect(nodes.length).toBe(2);
+    expect(nodes[0].type).toBe('root');
+    expect(nodes[1].type).toBe('child');
+    const edges = data.edges as Array<Record<string, unknown>>;
+    expect(edges.length).toBe(1);
+  });
+
+  it('returns 404 for missing hash', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    const missingHash = '0x' + '00'.repeat(32);
+    const { status, body } = await get(app, `/v1/work/${missingHash}/viewer?format=json`);
+    expect(status).toBe(404);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('WORK_NOT_FOUND');
+  });
+
+  it('returns 400 for invalid hash', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader);
+
+    const { status, body } = await get(app, '/v1/work/bad-hash/viewer');
+    expect(status).toBe(400);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('INVALID_WORK_ID');
+  });
+
+  it('viewer is public (no auth required)', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addWork(WORK_HASH, makeWorkRecord());
+    const workDataReader = new WorkDataReader(qs);
+    const app = buildApp(reader, workDataReader, new Set(['some_key']));
+
+    const { status } = await get(app, `/v1/work/${WORK_HASH}/viewer?format=json`);
     expect(status).toBe(200);
   });
 });

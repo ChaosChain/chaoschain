@@ -261,6 +261,36 @@ export class InMemoryWorkflowPersistence implements WorkflowPersistence {
     return { records: sliced, total };
   }
 
+  async findAllWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const addr = studioAddress.toLowerCase();
+    const matching: WorkflowRecord[] = [];
+
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'WorkSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.studio_address as string)?.toLowerCase() !== addr) continue;
+      matching.push(record);
+    }
+
+    matching.sort((a, b) => b.created_at - a.created_at);
+    const total = matching.length;
+    return { records: matching.slice(offset, offset + limit).map(r => structuredClone(r)), total };
+  }
+
+  async findScoresForDataHash(dataHash: string): Promise<WorkflowRecord[]> {
+    const results: WorkflowRecord[] = [];
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'ScoreSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if (input.data_hash === dataHash) results.push(structuredClone(record));
+    }
+    return results;
+  }
+
   // For testing: clear all data
   clear(): void {
     this.workflows.clear();

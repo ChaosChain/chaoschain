@@ -11,6 +11,8 @@ import { ethers } from 'ethers';
 
 const IDENTITY_ABI = [
   'function ownerOf(uint256 tokenId) view returns (address)',
+  'function balanceOf(address owner) view returns (uint256)',
+  'function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)',
 ] as const;
 
 const REPUTATION_ABI = [
@@ -84,6 +86,21 @@ export class ReputationReader {
       return owner.toLowerCase();
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Resolve a wallet address to its agentId via ERC-721 Enumerable.
+   * Returns 0 if the address owns no identity token.
+   */
+  async resolveAgentId(address: string): Promise<number> {
+    try {
+      const balance: bigint = await this.identity.balanceOf(address);
+      if (balance === 0n) return 0;
+      const tokenId: bigint = await this.identity.tokenOfOwnerByIndex(address, 0);
+      return Number(tokenId);
+    } catch {
+      return 0;
     }
   }
 

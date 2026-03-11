@@ -39,6 +39,10 @@ import {
   startMetricsServer,
 } from './metrics/index.js';
 import { createLogger, Logger } from './utils/index.js';
+import { computeDKG } from './services/dkg/index.js';
+import { createWorkSubmissionWorkflow } from './workflows/work-submission.js';
+import type { EvidencePackage as DKGEvidencePackage } from './services/dkg/types.js';
+
 
 // =============================================================================
 // CONFIGURATION
@@ -152,11 +156,12 @@ export class Gateway {
     
     // Primary signer
     const signerPrivateKey = process.env.SIGNER_PRIVATE_KEY;
+    let primarySignerAddress: string | undefined;
     if (signerPrivateKey) {
       const wallet = new ethers.Wallet(signerPrivateKey, provider);
-      const signerAddress = await wallet.getAddress();
-      chainAdapter.registerSigner(signerAddress.toLowerCase(), wallet);
-      this.logger.info({ address: signerAddress }, 'Signer registered from SIGNER_PRIVATE_KEY');
+      primarySignerAddress = await wallet.getAddress();
+      chainAdapter.registerSigner(primarySignerAddress.toLowerCase(), wallet);
+      this.logger.info({ address: primarySignerAddress }, 'Signer registered from SIGNER_PRIVATE_KEY');
     } else {
       this.logger.warn({}, 'No SIGNER_PRIVATE_KEY configured - workflows requiring tx submission will fail');
     }
@@ -352,7 +357,9 @@ export class Gateway {
     });
     const workDataReader = new WorkDataReader(
       persistence as any,
+      (address: string) => reputationReader.resolveAgentId(address),
     );
+
     this.app.use(
       rateLimit(readLimiter),
       createPublicApiRoutes({
@@ -362,6 +369,19 @@ export class Gateway {
         identityRegistryAddress: this.config.identityRegistryAddress,
         reputationRegistryAddress: this.config.reputationRegistryAddress,
         apiKeys,
+        prIngestion: primarySignerAddress ? {
+          signerAddress: primarySignerAddress,
+          computeDKG: (evidence: unknown[]) => {
+            const result = computeDKG(evidence as DKGEvidencePackage[]);
+            return { thread_root: result.thread_root, evidence_root: result.evidence_root };
+          },
+          submitWork: async (input: Record<string, unknown>) => {
+            const workflow = createWorkSubmissionWorkflow(input as any);
+            await this.engine.createWorkflow(workflow);
+            this.engine.startWorkflow(workflow.id).catch(() => {/* engine logs errors */});
+            return { id: workflow.id };
+          },
+        } : undefined,
       }),
     );
 

@@ -418,6 +418,50 @@ export class PostgresWorkflowPersistence implements WorkflowPersistence {
     return { records: result.rows.map((row) => this.rowToRecord(row)), total };
   }
 
+  async findAllWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const countQuery = `
+      SELECT COUNT(*) AS cnt FROM workflows w
+      WHERE w.type = 'WorkSubmission'
+        AND w.state = 'COMPLETED'
+        AND LOWER(w.input->>'studio_address') = LOWER($1)
+    `;
+    const countResult = await this.pool.query(countQuery, [studioAddress]);
+    const total = parseInt(countResult.rows[0]?.cnt ?? '0', 10);
+
+    const query = `
+      SELECT w.id, w.type, w.created_at, w.updated_at,
+             w.state, w.step, w.step_attempts,
+             w.input, w.progress, w.error, w.signer
+      FROM workflows w
+      WHERE w.type = 'WorkSubmission'
+        AND w.state = 'COMPLETED'
+        AND LOWER(w.input->>'studio_address') = LOWER($1)
+      ORDER BY w.created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+    const result = await this.pool.query(query, [studioAddress, limit, offset]);
+    return { records: result.rows.map((row) => this.rowToRecord(row)), total };
+  }
+
+  async findScoresForDataHash(dataHash: string): Promise<WorkflowRecord[]> {
+    const query = `
+      SELECT id, type, created_at, updated_at,
+             state, step, step_attempts,
+             input, progress, error, signer
+      FROM workflows
+      WHERE type = 'ScoreSubmission'
+        AND state = 'COMPLETED'
+        AND input->>'data_hash' = $1
+      ORDER BY created_at DESC
+    `;
+    const result = await this.pool.query(query, [dataHash]);
+    return result.rows.map((row) => this.rowToRecord(row));
+  }
+
   // ===========================================================================
   // PRIVATE: Row mapping
   // ===========================================================================
