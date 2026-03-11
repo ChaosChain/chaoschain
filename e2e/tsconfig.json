@@ -1,0 +1,17 @@
+{
+  // This tsconfig exists only to suppress IDE errors (e.g. "Cannot find module 'ethers'").
+  // It is NOT used by the build or by the e2e runner (setup.ts runs via tsx with NODE_PATH).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "ethers": ["../packages/gateway/node_modules/ethers"]
+    }
+  },
+  "include": ["*.ts"]
+}

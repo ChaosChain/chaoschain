@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {ChaosCore} from "../src/ChaosCore.sol";
 import {StudioProxyFactory} from "../src/StudioProxyFactory.sol";
-import {FinanceStudioLogic} from "../src/logic/FinanceStudioLogic.sol";
+import {FinanceStudioLogic} from "../src/examples/FinanceStudioLogic.sol";
 
 /**
  * @title DeployFactoryCore
