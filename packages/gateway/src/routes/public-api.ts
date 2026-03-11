@@ -500,6 +500,32 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
   );
 
   // =========================================================================
+  // GET /v1/skills — skill discovery (public, no auth)
+  // =========================================================================
+
+  router.get('/v1/skills', (_req: Request, res: Response) => {
+    res.json({
+      version: API_VERSION,
+      data: {
+        skills: [
+          {
+            name: 'chaoschain-engineering-studio',
+            description: 'Evaluate AI coding agent work on ChaosChain Engineering Studio',
+            version: '1.0',
+            files: [
+              '/skills/engineering-studio/SKILL.md',
+              '/skills/engineering-studio/SUBMIT-WORK.md',
+              '/skills/engineering-studio/VERIFY-WORK.md',
+              '/skills/engineering-studio/REPUTATION.md',
+            ],
+            install_guide: 'https://gateway.chaoscha.in/skills/engineering-studio/SKILL.md',
+          },
+        ],
+      },
+    });
+  });
+
+  // =========================================================================
   // POST /v1/engineering/pr (gated — requires API key)
   // =========================================================================
 

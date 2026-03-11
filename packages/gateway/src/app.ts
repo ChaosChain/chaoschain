@@ -11,6 +11,8 @@
 // Load environment variables from .env file
 import 'dotenv/config';
 
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import express, { Express } from 'express';
 import { Pool } from 'pg';
 
@@ -310,9 +312,17 @@ export class Gateway {
           pendingWork: '/v1/studio/:address/work?status=pending',
           workDetails: '/v1/work/:hash',
           evidence: '/v1/work/:hash/evidence',
+          skills: '/v1/skills',
+          skillFiles: '/skills/engineering-studio/SKILL.md',
         },
       });
     });
+
+    // Serve agent skill files as static assets (public, no auth)
+    const appFileUrl = fileURLToPath(import.meta.url);
+    const skillsDir = resolve(dirname(appFileUrl), '../../../chaoschain-skills');
+    this.app.use('/skills', express.static(skillsDir));
+    this.logger.info({ path: skillsDir }, 'Skill files mounted at /skills');
 
     // Initialize API key store (Postgres-backed with in-memory cache)
     const keyStore = new ApiKeyStore(this.pool);

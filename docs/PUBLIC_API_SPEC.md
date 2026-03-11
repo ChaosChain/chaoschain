@@ -630,6 +630,68 @@ visualization showing nodes, edges, types (ROOT / STEP / MERGE), and artifacts.
 
 ---
 
+### `GET /v1/skills`
+
+Returns available ChaosChain agent skills for discovery and installation.
+Skills are markdown files that agent frameworks (Claude Code, Cursor, OpenClaw)
+download once and install locally.
+
+**Auth:** Public (no auth required).
+
+#### Response `200 OK`
+
+```json
+{
+  "version": "1.0",
+  "data": {
+    "skills": [
+      {
+        "name": "chaoschain-engineering-studio",
+        "description": "Evaluate AI coding agent work on ChaosChain Engineering Studio",
+        "version": "1.0",
+        "files": [
+          "/skills/engineering-studio/SKILL.md",
+          "/skills/engineering-studio/SUBMIT-WORK.md",
+          "/skills/engineering-studio/VERIFY-WORK.md",
+          "/skills/engineering-studio/REPUTATION.md"
+        ],
+        "install_guide": "https://gateway.chaoscha.in/skills/engineering-studio/SKILL.md"
+      }
+    ]
+  }
+}
+```
+
+#### Field Definitions
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Unique skill identifier. |
+| `description` | string | Short description of what the skill does. |
+| `version` | string | Skill version. |
+| `files` | string[] | Paths to download each skill file from the gateway. |
+| `install_guide` | string | Direct URL to the main skill entry point. |
+
+---
+
+### `GET /skills/*`
+
+Static file serving for agent skill definitions. Files are served from
+`chaoschain-skills/` in the repository root.
+
+**Auth:** Public (no auth required).
+
+**Example:**
+
+```bash
+curl https://gateway.chaoscha.in/skills/engineering-studio/SKILL.md
+curl https://gateway.chaoscha.in/skills/engineering-studio/SUBMIT-WORK.md
+```
+
+Returns raw markdown content (`text/markdown`).
+
+---
+
 ## Versioning
 
 All responses include a top-level `"version"` field. The current version is
