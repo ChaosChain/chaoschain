@@ -1,0 +1,36 @@
+{
+  "name": "@chaoschain/contracts",
+  "version": "0.1.0",
+  "description": "Solidity base contracts and interfaces for building ChaosChain LogicModules",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ChaosChain/chaoschain",
+    "directory": "packages/contracts"
+  },
+  "files": [
+    "src/base/LogicModule.sol",
+    "src/interfaces/IChaosCore.sol",
+    "src/interfaces/IStudioProxy.sol",
+    "src/interfaces/IRewardsDistributor.sol",
+    "src/interfaces/IERC8004IdentityV1.sol",
+    "src/interfaces/IERC8004Reputation.sol",
+    "src/interfaces/IERC8004Validation.sol",
+    "src/interfaces/IChaosChainRegistry.sol",
+    "src/libraries/ProtocolConstants.sol",
+    "src/libraries/Scoring.sol",
+    "foundry.toml",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@openzeppelin/contracts": "^5.0.0"
+  },
+  "keywords": [
+    "solidity",
+    "ethereum",
+    "chaoschain",
+    "logic-module",
+    "erc-8004",
+    "proof-of-agency"
+  ]
+}

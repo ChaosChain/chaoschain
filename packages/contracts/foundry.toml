@@ -16,6 +16,7 @@ via_ir = true
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/contracts/",
     "@erc8004/=src/ERC-8004-v1/",
+    "@chaoschain/contracts/=src/",
     "@chaoschain/=src/"
 ]
 

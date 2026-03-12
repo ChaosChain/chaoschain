@@ -198,6 +198,47 @@ The ChaosChain SDK (in `../sdk`) provides a Python interface for:
 
 See: `../sdk/README.md`
 
+## 📦 Using as an npm Package
+
+Install the package to build your own LogicModules without copying files:
+
+```bash
+yarn add @chaoschain/contracts
+```
+
+Add a remapping so Solidity resolves the imports:
+
+**Foundry** (`remappings.txt` or `foundry.toml`):
+```
+@chaoschain/contracts/=node_modules/@chaoschain/contracts/src/
+```
+
+**Hardhat** (with `hardhat-foundry` or `@nomicfoundation/hardhat-toolbox`): resolves automatically via `node_modules`.
+
+Then import and extend:
+
+```solidity
+import {LogicModule} from "@chaoschain/contracts/base/LogicModule.sol";
+import {ProtocolConstants} from "@chaoschain/contracts/libraries/ProtocolConstants.sol";
+
+contract MyStudioLogic is LogicModule {
+    bool private _initialized;
+
+    function initialize(bytes calldata params) external override {
+        require(!_initialized, "Already initialized");
+        _initialized = true;
+    }
+
+    function getStudioType() external pure override returns (string memory) {
+        return "MyStudio";
+    }
+
+    function getVersion() external pure override returns (string memory) {
+        return "1.0.0";
+    }
+}
+```
+
 ## 🛠️ Development
 
 ### Adding a New Logic Module
@@ -213,15 +254,15 @@ contract MyCustomLogic is LogicModule {
     function initialize(bytes calldata params) external override {
         // Custom initialization
     }
-    
+
     function getStudioType() external pure override returns (string memory) {
         return "MyCustomType";
     }
-    
+
     function getVersion() external pure override returns (string memory) {
         return "1.0.0";
     }
-    
+
     // Add custom business logic functions
 }
 ```
