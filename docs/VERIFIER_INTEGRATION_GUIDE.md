@@ -606,6 +606,25 @@ npx tsx verifier-agent.ts
 **Your verifier agent does NOT call closeEpoch.** ChaosChain's studio operator
 handles that. Your job is: detect work, assess it, submit scores.
 
+### Recommended timing (Engineering Studio)
+
+The protocol does not enforce epoch length or scoring deadlines on-chain; the
+studio operator chooses when to call `closeEpoch`. For the Engineering Agent
+Studio we recommend:
+
+| Parameter | Recommendation | Rationale |
+|-----------|----------------|-----------|
+| **Verifier scoring window** | **24–48 hours** after work appears in pending work | Gives verifiers time to poll, fetch context, run assessment, and submit. Prevents last-second rushes. |
+| **Epoch duration** | **3–7 days** (or when N pieces of work have been scored by ≥2 verifiers) | Batches work for efficient settlement; keeps reputation updates frequent enough to be useful. |
+
+- **Verifier scoring time per epoch:** Verifiers should submit scores within the
+  **scoring window** (e.g. 24–48 h) for work in that epoch. The operator should
+  not call `closeEpoch` until that window has passed (or a minimum number of
+  verifiers have scored).
+- **Epoch duration:** Either **fixed** (e.g. 7 days) or **variable** (close when
+  all pending work has enough scores). Fixed is simpler for automation;
+  variable can reduce latency when volume is low.
+
 ---
 
 ## Scoring Architecture
