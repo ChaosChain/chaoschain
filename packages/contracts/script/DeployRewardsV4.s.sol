@@ -17,6 +17,7 @@ contract DeployRewardsV4 is Script {
         
         vm.startBroadcast(deployerPrivateKey);
         
+        // Default: ChaosChain treasury. Override via TREASURY env var to use a different address.
         address treasury = vm.envOr("TREASURY", 0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70);
         RewardsDistributor rewardsDistributor = new RewardsDistributor(registry, treasury);
         console.log("RewardsDistributor V4:", address(rewardsDistributor));

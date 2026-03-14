@@ -76,6 +76,7 @@ contract DeployCore is Script {
         
         // Step 2: Deploy RewardsDistributor
         console.log("Step 2/7: Deploying RewardsDistributor...");
+        // Default: ChaosChain treasury. Override via TREASURY env var to use a different address.
         address treasury = vm.envOr("TREASURY", 0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70);
         rewardsDistributor = new RewardsDistributor(address(registry), treasury);
         console.log("  RewardsDistributor deployed at:", address(rewardsDistributor));
