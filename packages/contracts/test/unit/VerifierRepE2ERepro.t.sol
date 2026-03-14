@@ -41,7 +41,7 @@ contract VerifierRepE2EReproTest is Test {
         valReg = new SimpleValidationRegistry();
 
         registry = new ChaosChainRegistry(address(idReg), address(repReg), address(valReg));
-        rd = new RewardsDistributor(address(registry));
+        rd = new RewardsDistributor(address(registry), makeAddr("treasury"));
         factory = new StudioProxyFactory();
         chaosCore = new ChaosCore(address(registry), address(factory));
         predictionLogic = new PredictionMarketLogic();
