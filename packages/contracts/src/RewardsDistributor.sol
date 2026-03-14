@@ -115,7 +115,7 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             uint256 workerPool = totalBudget - orchestratorFee - validatorPool;
 
             // Transfer orchestrator fee to treasury
-            if (orchestratorFee > 0 && treasury != address(0)) {
+            if (orchestratorFee > 0) {
                 studioProxy.releaseFunds(treasury, orchestratorFee, dataHash);
             }
 
