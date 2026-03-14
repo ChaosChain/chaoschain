@@ -97,6 +97,7 @@ contract OrchestratorFeeIntegrationTest is Test {
         StudioProxy(payable(proxy)).deposit{value: 10 ether}();
 
         uint256 totalEscrow = StudioProxy(payable(proxy)).getTotalEscrow();
+        // Orchestrator fee formula from RewardsDistributor.sol:113
         uint256 expectedFee = (totalEscrow * 5) / 100;
 
         // Submit work + scores
@@ -150,5 +151,52 @@ contract OrchestratorFeeIntegrationTest is Test {
     function test_constructor_rejects_zero_treasury() public {
         vm.expectRevert("Invalid treasury");
         new RewardsDistributor(address(registry), address(0));
+    }
+
+    /**
+     * @notice After setTreasury, the new treasury receives the 5% fee
+     */
+    function test_setTreasury_redirects_fee_to_new_address() public {
+        address newTreasury = makeAddr("newTreasury");
+        rewardsDistributor.setTreasury(newTreasury);
+
+        // Create studio, register agents, fund escrow
+        vm.prank(studioOwner);
+        (address proxy, ) = chaosCore.createStudio("Treasury Redirect Studio", address(predictionLogic));
+
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).registerAgent{value: 1 ether}(workerAgentId, StudioProxy.AgentRole.WORKER);
+
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).registerAgent{value: 1 ether}(validatorAgentId, StudioProxy.AgentRole.VERIFIER);
+
+        vm.prank(studioOwner);
+        StudioProxy(payable(proxy)).deposit{value: 10 ether}();
+
+        uint256 totalEscrow = StudioProxy(payable(proxy)).getTotalEscrow();
+        // Orchestrator fee formula from RewardsDistributor.sol:113
+        uint256 expectedFee = (totalEscrow * 5) / 100;
+
+        // Submit work + scores
+        bytes32 dataHash = keccak256("treasury_redirect_work");
+        vm.prank(workerAgent);
+        StudioProxy(payable(proxy)).submitWork(dataHash, bytes32(uint256(1)), bytes32(uint256(2)), new bytes(65));
+
+        rewardsDistributor.registerWork(proxy, 1, dataHash);
+
+        bytes memory scores = abi.encode(uint8(85), uint8(90), uint8(80), uint8(75), uint8(88));
+        vm.prank(validatorAgent);
+        StudioProxy(payable(proxy)).submitScoreVectorForWorker(dataHash, workerAgent, scores);
+        rewardsDistributor.registerValidator(dataHash, validatorAgent);
+
+        // Close epoch
+        rewardsDistributor.closeEpoch(proxy, 1);
+
+        // New treasury receives the fee, old treasury gets nothing
+        uint256 newTreasuryBalance = StudioProxy(payable(proxy)).getWithdrawableBalance(newTreasury);
+        uint256 oldTreasuryBalance = StudioProxy(payable(proxy)).getWithdrawableBalance(treasury);
+
+        assertEq(newTreasuryBalance, expectedFee, "New treasury must receive 5% fee");
+        assertEq(oldTreasuryBalance, 0, "Old treasury must receive nothing");
     }
 }
