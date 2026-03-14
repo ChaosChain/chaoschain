@@ -69,7 +69,7 @@ contract CloseEpochIntegrationTest is Test {
             address(0x1003)  // Validation registry (not tested here)
         );
         
-        rewardsDistributor = new RewardsDistributor(address(registry));
+        rewardsDistributor = new RewardsDistributor(address(registry), makeAddr("treasury"));
         factory = new StudioProxyFactory();
         chaosCore = new ChaosCore(address(registry), address(factory));
         predictionLogic = new PredictionMarketLogic();

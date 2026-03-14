@@ -117,6 +117,11 @@ interface IRewardsDistributor {
         string reason
     );
 
+    /**
+     * @dev Emitted when the treasury address is updated
+     */
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+
 
     // ============ Core Functions ============
     
@@ -160,5 +165,11 @@ interface IRewardsDistributor {
         uint256 kappa,
         uint256 tau
     ) external;
+
+    /**
+     * @notice Set the treasury address for orchestrator fee distribution
+     * @param treasury_ The new treasury address
+     */
+    function setTreasury(address treasury_) external;
 }
 
