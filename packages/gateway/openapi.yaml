@@ -1,8 +1,13 @@
 openapi: 3.0.3
 info:
-  title: ChaosChain Gateway API
+  title: ChaosChain Gateway API (Workflow endpoints)
   description: |
-    Workflow orchestration API for ChaosChain protocol.
+    **Workflow-only subset.** This file documents the HTTP workflow endpoints
+    (work-submission, score-submission, close-epoch, workflow status).
+    
+    For the full public API (reputation, work metadata, context, evidence, skills,
+    leaderboard) and the Engineering Studio Session API (POST/GET /v1/sessions/*),
+    see the canonical spec: **docs/PUBLIC_API_SPEC.md** in the repo root.
     
     The Gateway manages workflow execution for:
     - Work submission to studios
@@ -11,10 +16,12 @@ info:
     
     Workflows are state machines with reconciliation-based crash recovery.
   version: 0.1.0
-  
+
 servers:
   - url: http://localhost:3000
     description: Local development
+  - url: https://gateway.chaoscha.in
+    description: Production
 
 paths:
   /health:
@@ -228,6 +235,13 @@ components:
         - salt
         - signer_address
       properties:
+        worker_address:
+          type: string
+          description: "Required for mode=direct. Ethereum address of the worker being scored."
+        mode:
+          type: string
+          enum: [direct, commit_reveal]
+          description: "Default direct."
         studio_address:
           type: string
           description: Ethereum address of the studio

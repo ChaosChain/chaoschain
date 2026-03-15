@@ -1,5 +1,6 @@
 # Stage 1: Build
 FROM node:20-alpine AS builder
+RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY packages/gateway/package*.json ./
 RUN npm ci --include=dev
@@ -15,8 +16,10 @@ RUN addgroup -g 1001 -S chaoschain && adduser -S gateway -u 1001 -G chaoschain
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/chaoschain-skills ./chaoschain-skills
+COPY --from=builder /app/demo-data ./demo-data
 ENV SKILLS_DIR=/app/chaoschain-skills
-RUN npm ci --omit=dev
+# --ignore-scripts avoids building optional native deps (e.g. bufferutil) that need Python in runner
+RUN npm ci --omit=dev --ignore-scripts
 USER gateway
 EXPOSE 3000
 EXPOSE 9090

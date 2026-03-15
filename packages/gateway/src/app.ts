@@ -33,6 +33,7 @@ import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adap
 import { createRoutes, errorHandler, apiKeyAuth, rateLimit, InMemoryRateLimiter } from './http/index.js';
 import { createPublicApiRoutes } from './routes/public-api.js';
 import { ApiKeyStore, createAdminRoutes } from './routes/admin-api.js';
+import { SessionStore, createSessionRoutes } from './sessions/index.js';
 import { ReputationReader } from './services/reputation-reader.js';
 import { WorkDataReader } from './services/work-data-reader.js';
 import {
@@ -314,6 +315,13 @@ export class Gateway {
           evidence: '/v1/work/:hash/evidence',
           skills: '/v1/skills',
           skillFiles: '/skills/engineering-studio/SKILL.md',
+          sessions: {
+            create: 'POST /v1/sessions',
+            appendEvents: 'POST /v1/sessions/:id/events',
+            complete: 'POST /v1/sessions/:id/complete',
+            context: 'GET /v1/sessions/:id/context',
+            evidence: 'GET /v1/sessions/:id/evidence',
+          },
         },
       });
     });
@@ -355,6 +363,32 @@ export class Gateway {
     } else {
       this.logger.warn({}, 'No ADMIN_KEY configured — admin routes disabled');
     }
+
+    // Session API (Engineering Studio — Postgres-backed)
+    const sessionStore = new SessionStore(this.pool);
+    const sessionSubmitWork = primarySignerAddress
+      ? async (input: Record<string, unknown>) => {
+          const workflow = createWorkSubmissionWorkflow(input as any);
+          await this.engine.createWorkflow(workflow);
+          this.engine.startWorkflow(workflow.id).catch(() => {/* engine logs errors */});
+          return { id: workflow.id };
+        }
+      : undefined;
+
+    this.app.use(
+      rateLimit(writeLimiter),
+      createSessionRoutes({
+        store: sessionStore,
+        apiKeys,
+        submitWork: sessionSubmitWork,
+        signerAddress: primarySignerAddress,
+        logger: this.logger,
+      }),
+    );
+    this.logger.info(
+      { hasSubmitWork: !!sessionSubmitWork },
+      'Session API mounted (/v1/sessions)',
+    );
 
     // Workflow routes
     this.app.use(createRoutes(this.engine, persistence, this.logger));

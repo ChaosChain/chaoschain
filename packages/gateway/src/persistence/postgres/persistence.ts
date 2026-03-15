@@ -65,12 +65,57 @@ VALUES (1)
 ON CONFLICT (version) DO NOTHING;
 `;
 
+const MIGRATION_V2_SQL = `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 2) THEN
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      session_id     VARCHAR(255) PRIMARY KEY,
+      session_root_event_id VARCHAR(255),
+      studio_address VARCHAR(255) NOT NULL,
+      studio_policy_version VARCHAR(255) NOT NULL,
+      work_mandate_id VARCHAR(255) NOT NULL,
+      task_type      VARCHAR(64)  NOT NULL,
+      agent_address  VARCHAR(255) NOT NULL,
+      status         VARCHAR(32)  NOT NULL,
+      started_at     TIMESTAMPTZ  NOT NULL,
+      completed_at   TIMESTAMPTZ,
+      event_count    INTEGER      NOT NULL DEFAULT 0,
+      workflow_id    VARCHAR(255),
+      data_hash      VARCHAR(255),
+      created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions (status);
+    CREATE INDEX IF NOT EXISTS idx_sessions_studio ON sessions (studio_address);
+    CREATE INDEX IF NOT EXISTS idx_sessions_agent  ON sessions (agent_address);
+
+    CREATE TABLE IF NOT EXISTS session_events (
+      id            SERIAL PRIMARY KEY,
+      session_id    VARCHAR(255) NOT NULL REFERENCES sessions(session_id),
+      event_id      VARCHAR(255) NOT NULL,
+      event_type    VARCHAR(64)  NOT NULL,
+      received_at   TIMESTAMPTZ  NOT NULL,
+      event_payload JSONB        NOT NULL,
+      created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events (session_id);
+    CREATE INDEX IF NOT EXISTS idx_session_events_ts
+      ON session_events ((event_payload->>'timestamp'), received_at);
+
+    INSERT INTO schema_migrations (version) VALUES (2);
+  END IF;
+END $$;
+`;
+
 /**
  * Ensure the database schema exists. Idempotent — safe to call on every startup.
  * Uses CREATE TABLE IF NOT EXISTS so it's a no-op on an already-initialized DB.
  */
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(SCHEMA_SQL);
+  await pool.query(MIGRATION_V2_SQL);
 }
 
 // =============================================================================
