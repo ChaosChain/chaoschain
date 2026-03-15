@@ -4,6 +4,5 @@ dist
 test/
 scripts/
 reports/
-demo-data/
 .env*
 *.md

@@ -898,6 +898,8 @@ See the [Credit Studio README](../chaoschain-studios/credit-studio/) and [demo s
 ## Documentation
 
 - **[Protocol Specification v0.1](docs/protocol_spec_v0.1.md)** — Formal math for DKG, consensus, PoA, rewards
+- **[Public API Spec](docs/PUBLIC_API_SPEC.md)** — HTTP API for reputation, work, context, evidence, Session API (Phase A+B+C)
+- **[Verifier Integration Guide](docs/VERIFIER_INTEGRATION_GUIDE.md)** — Build verifier agents for the Engineering Agent Studio
 - **[SDK Reference](packages/sdk/README.md)** — Complete API documentation
 - **[Quick Start Guide](docs/QUICK_START.md)** — Get started in 5 minutes
 
