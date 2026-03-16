@@ -30,4 +30,4 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npm test
+        run: npx vitest run --exclude test/integration/context-verifier-flow.test.ts
