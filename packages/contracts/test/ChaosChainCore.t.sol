@@ -155,7 +155,7 @@ contract ChaosChainCoreTest is Test {
         );
         
         // Deploy RewardsDistributor
-        rewardsDistributor = new RewardsDistributor(address(registry));
+        rewardsDistributor = new RewardsDistributor(address(registry), makeAddr("treasury"));
         
         // Deploy StudioProxyFactory
         StudioProxyFactory factory = new StudioProxyFactory();
