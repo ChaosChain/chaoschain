@@ -258,7 +258,7 @@ paths:
           description: Filter by workflow type (requires state parameter)
           schema:
             type: string
-            enum: [WorkSubmission, ScoreSubmission, CloseEpoch]
+            enum: [WorkSubmission, ScoreSubmission, CloseEpoch, AgentRegistration, StudioCreation]
       responses:
         '200':
           description: Workflows list
@@ -662,38 +662,9 @@ paths:
   # PUBLIC READ API — Health (enhanced)
   # ===========================================================================
 
-  /v1/health:
-    get:
-      summary: Health check (public API)
-      description: Enhanced health check with contract addresses and API version.
-      operationId: publicHealthCheck
-      tags: [Health]
-      responses:
-        '200':
-          description: Service is healthy
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
-                  version:
-                    type: string
-                    example: '1.0'
-                  chain:
-                    type: string
-                    example: base-sepolia
-                  contracts:
-                    type: object
-                    properties:
-                      identity_registry:
-                        type: string
-                        example: '0x8004A818BFB912233c491871b3d84c89A494BD9e'
-                      reputation_registry:
-                        type: string
-                        example: '0x8004B663056A597Dffe9eCcC1965A193B7388713'
+  # Note: public-api.ts also registers a /health route with enhanced fields
+  # (version, chain, contracts), but it is shadowed by the /health in routes.ts
+  # which is mounted first. The effective /health response is the one documented above.
 
   # ===========================================================================
   # ADMIN
@@ -1141,7 +1112,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [WorkSubmission, ScoreSubmission, CloseEpoch]
+          enum: [WorkSubmission, ScoreSubmission, CloseEpoch, AgentRegistration, StudioCreation]
         state:
           type: string
           enum: [CREATED, RUNNING, STALLED, COMPLETED, FAILED]
@@ -1158,26 +1129,24 @@ components:
           description: Unix timestamp in milliseconds
         progress:
           type: object
-          description: Step-specific progress data
-          properties:
-            dkg_thread_root:
-              type: string
-            dkg_evidence_root:
-              type: string
-            arweave_tx_id:
-              type: string
-            arweave_confirmed:
-              type: boolean
-            onchain_tx_hash:
-              type: string
-            onchain_confirmed:
-              type: boolean
-            onchain_block:
-              type: integer
-            register_tx_hash:
-              type: string
-            register_confirmed:
-              type: boolean
+          additionalProperties: true
+          description: |
+            Step-specific progress data. Shape varies by workflow type:
+
+            **WorkSubmission**: `dkg_thread_root`, `dkg_evidence_root`, `dkg_weights`,
+            `arweave_tx_id`, `arweave_confirmed`, `arweave_confirmed_at`,
+            `onchain_tx_hash`, `onchain_confirmed`, `onchain_block`, `onchain_confirmed_at`,
+            `register_tx_hash`, `register_confirmed`, `register_confirmed_at`
+
+            **ScoreSubmission (direct)**: `score_tx_hash`, `score_confirmed`, `score_block`, `score_confirmed_at`,
+            `register_validator_tx_hash`, `register_validator_confirmed`, `register_validator_confirmed_at`
+
+            **ScoreSubmission (commit-reveal)**: `commit_hash`, `commit_tx_hash`, `commit_confirmed`, `commit_block`, `commit_confirmed_at`,
+            `reveal_tx_hash`, `reveal_confirmed`, `reveal_block`, `reveal_confirmed_at`,
+            `register_validator_tx_hash`, `register_validator_confirmed`, `register_validator_confirmed_at`
+
+            **CloseEpoch**: `preconditions_checked`, `preconditions_checked_at`,
+            `close_tx_hash`, `close_confirmed`, `close_block`, `close_confirmed_at`
         error:
           type: object
           properties:
@@ -1302,6 +1271,7 @@ components:
                 $ref: '#/components/schemas/DKGEvidencePackage'
             thread_root:
               type: string
+              nullable: true
 
     VersionedResponse_WorkContext:
       type: object
@@ -1332,9 +1302,11 @@ components:
                 $ref: '#/components/schemas/DKGEvidencePackage'
             studioPolicy:
               type: object
+              nullable: true
               description: Studio policy document
             workMandate:
               type: object
+              nullable: true
               description: Work mandate document
 
     VersionedResponse_EvidenceViewer:
@@ -1485,15 +1457,18 @@ components:
       properties:
         epoch:
           type: integer
+          nullable: true
         studio:
           $ref: '#/components/schemas/EthereumAddress'
         role:
           type: string
-          enum: [worker, validator]
+          enum: [worker, verifier]
         evidence_anchor:
           type: string
+          nullable: true
         derivation_root:
           type: string
+          nullable: true
         submitted_at:
           type: string
           format: date-time
@@ -1511,6 +1486,7 @@ components:
           $ref: '#/components/schemas/EthereumAddress'
         epoch:
           type: integer
+          nullable: true
         status:
           type: string
           enum: [pending, scored, finalized]
@@ -1519,8 +1495,10 @@ components:
           nullable: true
         evidence_anchor:
           type: string
+          nullable: true
         derivation_root:
           type: string
+          nullable: true
         submitted_at:
           type: string
           format: date-time
@@ -1540,13 +1518,16 @@ components:
           $ref: '#/components/schemas/EthereumAddress'
         epoch:
           type: integer
+          nullable: true
         submitted_at:
           type: string
           format: date-time
         evidence_anchor:
           type: string
+          nullable: true
         derivation_root:
           type: string
+          nullable: true
         studio_policy_version:
           type: string
         work_mandate_id:
