@@ -1059,3 +1059,33 @@ deeper inspection of nodes and edges is required.
 ```bash
 curl https://gateway.chaoscha.in/v1/sessions/sess_abc123.../evidence
 ```
+
+---
+
+### `GET /v1/sessions/:id/viewer`
+
+Returns a self-contained HTML page for human inspection of a session: header (session_id, status, agent, studio, task_type, timestamps, workflow_id, data_hash link), evidence timeline (nodes sorted by timestamp with event_type badges, ROOT/TERMINAL markers, parent→child arrows), and footer (merkle_root, node count, roots, terminals). No API key required. Intended for browser use.
+
+#### Path Parameters
+
+| Name | Type | Description |
+|------|------|-------------|
+| `id` | string | Session ID. |
+
+#### Response `200 OK`
+
+- **Content-Type:** `text/html`
+- **Body:** Single HTML document (dark theme, monospace).
+
+#### Error Responses
+
+| Status | Code | When |
+|--------|------|------|
+| `404` | `SESSION_NOT_FOUND` | No session with this ID. |
+
+#### Example
+
+Open in a browser:
+
+- Local: `http://localhost:3000/v1/sessions/<session_id>/viewer`
+- Production: `https://gateway.chaoscha.in/v1/sessions/<session_id>/viewer`

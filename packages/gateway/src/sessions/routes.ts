@@ -5,6 +5,7 @@
  * POST /v1/sessions/:id/events   — Append canonical session events
  * POST /v1/sessions/:id/complete — Mark session complete; bridge to WorkSubmission
  * GET  /v1/sessions/:id/context  — Verifier scoring context (lightweight)
+ * GET  /v1/sessions/:id/viewer   — Self-contained HTML evidence viewer
  * GET  /v1/sessions/:id/evidence — Full Evidence DAG
  */
 
@@ -19,6 +20,7 @@ import type {
   CreateSessionInput,
   CompleteSessionInput,
   SessionMetadata,
+  EvidenceDAG,
 } from './types.js';
 import { CANONICAL_EVENT_TYPES as EVENT_TYPES } from './types.js';
 
@@ -490,6 +492,38 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
   });
 
   // =========================================================================
+  // GET /v1/sessions/:id/viewer — self-contained HTML evidence viewer
+  // =========================================================================
+
+  router.get('/v1/sessions/:id/viewer', async (req: Request, res: Response) => {
+    try {
+      const sessionId = req.params.id;
+      const session = await store.get(sessionId);
+
+      if (!session) {
+        res.status(404).json({
+          version: API_VERSION,
+          error: { code: 'SESSION_NOT_FOUND', message: `Session ${sessionId} not found` },
+        });
+        return;
+      }
+
+      const dag = await store.materializeDAG(sessionId);
+      const html = renderSessionViewerHTML(session, dag);
+      res.status(200).type('html').send(html);
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        res.status(404).json({
+          version: API_VERSION,
+          error: { code: 'SESSION_NOT_FOUND', message: err.message },
+        });
+        return;
+      }
+      throw err;
+    }
+  });
+
+  // =========================================================================
   // GET /v1/sessions/:id/evidence — full Evidence DAG
   // =========================================================================
 
@@ -527,4 +561,170 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
   });
 
   return router;
+}
+
+// =============================================================================
+// Session Viewer — self-contained HTML renderer
+// =============================================================================
+
+const EVENT_CATEGORY: Record<string, string> = {
+  task_received: 'context', mandate_attached: 'context', policy_acknowledged: 'context',
+  plan_created: 'reasoning', design_decision_made: 'reasoning', strategy_revised: 'reasoning',
+  collaborator_selected: 'collab', delegation_created: 'collab', external_input_received: 'collab',
+  tool_invoked: 'execution', file_read: 'execution', file_written: 'execution',
+  artifact_created: 'execution', command_executed: 'execution',
+  test_run: 'validation', test_failed: 'validation', test_passed: 'validation',
+  error_observed: 'validation', debug_step: 'validation', revision_made: 'validation',
+  submission_created: 'terminal', task_completed: 'terminal',
+  verification_started: 'verifier', score_vector_created: 'verifier',
+  outcome_evaluated: 'verifier', verification_completed: 'verifier',
+};
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderSessionViewerHTML(session: SessionMetadata, dag: EvidenceDAG): string {
+  const rootSet = new Set(dag.roots);
+  const terminalSet = new Set(dag.terminals);
+  const childToParents = new Map<string, string[]>();
+  for (const e of dag.edges) {
+    const arr = childToParents.get(e.child_node_id) ?? [];
+    arr.push(e.parent_node_id);
+    childToParents.set(e.child_node_id, arr);
+  }
+
+  const sorted = [...dag.nodes].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+
+  const dataHashLink =
+    session.data_hash && session.data_hash.startsWith('0x')
+      ? `<a href="https://sepolia.etherscan.io/tx/${esc(session.data_hash)}" style="color:#60a5fa;text-decoration:none">${esc(session.data_hash.slice(0, 18))}…</a>`
+      : session.data_hash ? esc(session.data_hash) : '—';
+
+  const workflowDisplay = session.workflow_id ? esc(session.workflow_id) : '—';
+
+  let nodesHtml = '';
+  for (const node of sorted) {
+    const cat = EVENT_CATEGORY[node.event_type] ?? 'execution';
+    const isRoot = rootSet.has(node.node_id);
+    const isTerminal = terminalSet.has(node.node_id);
+
+    const marker = isRoot ? '<span class="marker root-m">ROOT</span>'
+      : isTerminal ? '<span class="marker term-m">TERMINAL</span>'
+      : '';
+
+    const parents = childToParents.get(node.node_id);
+    const arrowHtml = parents && parents.length > 0
+      ? `<div class="arrow">↓ from ${parents.map(p => esc(p.slice(0, 12)) + '…').join(', ')}</div>`
+      : '';
+
+    const metricsHtml = node.metrics
+      ? `<div class="metrics">${
+          node.metrics.duration_ms != null ? `<span>${node.metrics.duration_ms}ms</span>` : ''
+        }${
+          node.metrics.tokens_input != null ? `<span>${node.metrics.tokens_input} tok in</span>` : ''
+        }${
+          node.metrics.tokens_output != null ? `<span>${node.metrics.tokens_output} tok out</span>` : ''
+        }${
+          node.metrics.tool_calls != null ? `<span>${node.metrics.tool_calls} calls</span>` : ''
+        }</div>`
+      : '';
+
+    const artifactCount = node.artifacts.length;
+    const artifactHtml = artifactCount > 0
+      ? `<span class="art-count">${artifactCount} artifact${artifactCount > 1 ? 's' : ''}</span>`
+      : '';
+
+    nodesHtml += `${arrowHtml}<div class="node cat-${cat}${isRoot ? ' is-root' : ''}${isTerminal ? ' is-terminal' : ''}">
+  <div class="node-head">
+    <span class="badge bg-${cat}">${esc(node.event_type)}</span>${marker}
+    <span class="ts">${esc(node.timestamp)}</span>
+  </div>
+  <div class="summary">${esc(node.summary)}</div>
+  <div class="node-meta">
+    <span class="addr">${esc(node.agent_address.slice(0, 10))}…</span>${artifactHtml}
+  </div>${metricsHtml}
+</div>\n`;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Session ${esc(session.session_id.slice(0, 18))}… — ChaosChain</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'SF Mono',SFMono-Regular,ui-monospace,'DejaVu Sans Mono',Menlo,Consolas,monospace;background:#0a0a0a;color:#d4d4d4;line-height:1.5}
+a{color:#60a5fa}
+.wrap{max-width:860px;margin:0 auto;padding:24px 20px}
+
+.hdr{border-bottom:1px solid #1e1e1e;padding-bottom:20px;margin-bottom:24px}
+.hdr h1{font-size:15px;font-weight:600;color:#fff;margin-bottom:10px}
+.hdr-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:12px;color:#888}
+.hdr-grid .label{color:#555}
+.hdr-grid .val{color:#bbb;word-break:break-all}
+.status{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px;font-weight:700;text-transform:uppercase}
+.status-active{background:#1a3a1a;color:#4ade80}
+.status-completed{background:#1a2a3a;color:#60a5fa}
+.status-failed{background:#3a1a1a;color:#f87171}
+
+.timeline{display:flex;flex-direction:column;gap:0}
+.arrow{font-size:11px;color:#444;padding:4px 0 4px 20px}
+.node{border:1px solid #1e1e1e;border-radius:6px;padding:12px 16px;background:#111;margin-bottom:2px}
+.node.is-root{border-left:3px solid #4ade80}
+.node.is-terminal{border-left:3px solid #f59e0b}
+.node-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;white-space:nowrap;text-transform:uppercase;letter-spacing:.5px}
+.bg-context{background:#1a2a1a;color:#86efac}
+.bg-reasoning{background:#2a1a3a;color:#c084fc}
+.bg-collab{background:#1a2a3a;color:#7dd3fc}
+.bg-execution{background:#1e1e1e;color:#a1a1aa}
+.bg-validation{background:#3a2a1a;color:#fbbf24}
+.bg-terminal{background:#2a1a1a;color:#fca5a5}
+.bg-verifier{background:#1a3a3a;color:#5eead4}
+.marker{font-size:9px;font-weight:700;padding:1px 6px;border-radius:2px;letter-spacing:.5px}
+.root-m{background:#1a3a1a;color:#4ade80}
+.term-m{background:#3a2a1a;color:#f59e0b}
+.ts{font-size:11px;color:#555;margin-left:auto}
+.summary{font-size:13px;color:#ccc}
+.node-meta{display:flex;gap:12px;margin-top:6px;font-size:11px;color:#666}
+.art-count{color:#888}
+.metrics{display:flex;gap:10px;margin-top:4px;font-size:10px;color:#555}
+.metrics span{background:#1a1a1a;padding:1px 6px;border-radius:2px}
+
+.footer{border-top:1px solid #1e1e1e;margin-top:24px;padding-top:16px;display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:#666}
+.footer span{color:#888}
+.footer code{color:#999;background:#1a1a1a;padding:1px 6px;border-radius:2px;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <h1>Session Viewer</h1>
+    <div class="hdr-grid">
+      <span class="label">session_id</span><span class="val">${esc(session.session_id)}</span>
+      <span class="label">status</span><span class="val"><span class="status status-${session.status}">${esc(session.status)}</span></span>
+      <span class="label">agent</span><span class="val">${esc(session.agent_address)}</span>
+      <span class="label">studio</span><span class="val">${esc(session.studio_address)}</span>
+      <span class="label">task_type</span><span class="val">${esc(session.task_type)}</span>
+      <span class="label">started_at</span><span class="val">${esc(session.started_at)}</span>
+      <span class="label">completed_at</span><span class="val">${session.completed_at ? esc(session.completed_at) : '—'}</span>
+      <span class="label">workflow_id</span><span class="val">${workflowDisplay}</span>
+      <span class="label">data_hash</span><span class="val">${dataHashLink}</span>
+    </div>
+  </div>
+  <div class="timeline">
+${nodesHtml}  </div>
+  <div class="footer">
+    <span>merkle_root <code>${esc(dag.merkle_root.slice(0, 24))}…</code></span>
+    <span>${dag.nodes.length} nodes</span>
+    <span>${dag.roots.length} roots</span>
+    <span>${dag.terminals.length} terminals</span>
+  </div>
+</div>
+</body>
+</html>`;
 }
