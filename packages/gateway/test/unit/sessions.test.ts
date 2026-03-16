@@ -42,7 +42,7 @@ async function req(
   path: string,
   body?: unknown,
   headers?: Record<string, string>,
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<{ status: number; body: Record<string, unknown>; text: string; headers: Record<string, string> }> {
   return new Promise((resolve, reject) => {
     const server = app.listen(0, () => {
       const addr = server.address();
@@ -60,9 +60,13 @@ async function req(
 
       fetch(url, opts)
         .then(async (res) => {
-          const json = await res.json();
+          const raw = await res.text();
+          const resHeaders: Record<string, string> = {};
+          res.headers.forEach((v, k) => { resHeaders[k] = v; });
+          let json: Record<string, unknown> = {};
+          try { json = JSON.parse(raw) as Record<string, unknown>; } catch { /* non-JSON */ }
           server.close();
-          resolve({ status: res.status, body: json as Record<string, unknown> });
+          resolve({ status: res.status, body: json, text: raw, headers: resHeaders });
         })
         .catch((err) => {
           server.close();
@@ -574,6 +578,46 @@ describe('GET /v1/sessions/:id/evidence', () => {
     expect(summary.roots).toEqual(dag.roots);
     expect(summary.terminals).toEqual(dag.terminals);
     expect(summary.node_count).toBe((dag.nodes as unknown[]).length);
+  });
+});
+
+// =============================================================================
+// GET /v1/sessions/:id/viewer
+// =============================================================================
+
+describe('GET /v1/sessions/:id/viewer', () => {
+  it('returns 200 with Content-Type text/html for an existing session', async () => {
+    const { app } = buildApp();
+    await req(app, 'POST', '/v1/sessions', {
+      session_id: 's1',
+      studio_address: '0xStudio',
+      agent_address: '0xAgent',
+    });
+    await req(app, 'POST', '/v1/sessions/s1/events', [
+      makeEvent({ event_id: 'evt_1' }),
+      makeEvent({
+        event_id: 'evt_2',
+        event_type: 'plan_created',
+        summary: 'Created plan',
+        causality: { parent_event_ids: ['evt_1'] },
+      }),
+    ]);
+
+    const res = await req(app, 'GET', '/v1/sessions/s1/viewer');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/html/);
+    const html = res.text as string;
+    expect(html).toContain('Session Viewer');
+    expect(html).toContain('s1');
+    expect(html).toContain('task_received');
+    expect(html).toContain('plan_created');
+  });
+
+  it('returns 404 for non-existent session', async () => {
+    const { app } = buildApp();
+    const res = await req(app, 'GET', '/v1/sessions/nope/viewer');
+    expect(res.status).toBe(404);
   });
 });
 

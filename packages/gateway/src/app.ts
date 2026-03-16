@@ -320,6 +320,7 @@ export class Gateway {
             appendEvents: 'POST /v1/sessions/:id/events',
             complete: 'POST /v1/sessions/:id/complete',
             context: 'GET /v1/sessions/:id/context',
+            viewer: 'GET /v1/sessions/:id/viewer',
             evidence: 'GET /v1/sessions/:id/evidence',
           },
         },

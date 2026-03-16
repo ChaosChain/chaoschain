@@ -76,7 +76,23 @@ Full loop test passed
 
 > `workflow_id` and `data_hash` are null locally unless `SIGNER_PRIVATE_KEY` is funded on Sepolia. The session API and DAG pipeline work end-to-end without a signer.
 
-### 5. Stop and clean up
+### 5. Test the session viewer
+
+Run the 7-step curl full loop, then open the viewer in a browser:
+
+```bash
+cd packages/gateway
+GATEWAY_URL=http://localhost:3000 API_KEY=cc_agent_gateway_seeder_9b03744c9749c8416f341fe9f81f9d33 ./scripts/full-loop-curl.sh
+```
+
+From the output, copy the `session_id` (e.g. `sess_...`). Then open:
+
+**Local:** `http://localhost:3000/v1/sessions/<session_id>/viewer`  
+**Production:** `https://gateway.chaoscha.in/v1/sessions/<session_id>/viewer`
+
+You should see the session header, timeline with badges and parent→child arrows, and the evidence summary footer. No API key is required for the viewer route.
+
+### 6. Stop and clean up
 
 ```bash
 docker compose down          # stop containers, keep Postgres data
@@ -228,6 +244,12 @@ Mark a session as complete. Materialises a terminal node if needed, triggers the
   }
 }
 ```
+
+---
+
+#### `GET /v1/sessions/:id/viewer`
+
+Self-contained HTML page that shows session metadata, evidence timeline (nodes with badges and parent→child arrows), and evidence summary footer. No API key required. Open in a browser: `http://localhost:3000/v1/sessions/<session_id>/viewer` or `https://gateway.chaoscha.in/v1/sessions/<session_id>/viewer`.
 
 ---
 
