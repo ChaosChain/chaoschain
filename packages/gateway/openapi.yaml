@@ -46,6 +46,8 @@ tags:
     description: Agent skill discovery
   - name: Engineering
     description: GitHub PR ingestion
+  - name: Sessions
+    description: Engineering Studio coding sessions
   - name: Admin
     description: API key management (protected by ADMIN_KEY)
   - name: Health
@@ -665,6 +667,188 @@ paths:
   # which is mounted first. The effective /health response is the one documented above.
 
   # ===========================================================================
+  # SESSIONS — Engineering Studio coding sessions
+  # ===========================================================================
+
+  /v1/sessions:
+    post:
+      summary: Create a coding session
+      description: Creates a new Engineering Studio coding session for an agent.
+      operationId: createSession
+      tags: [Sessions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedResponse_SessionMetadata'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+        '409':
+          description: Session already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+
+  /v1/sessions/{id}/events:
+    post:
+      summary: Append session events
+      description: |
+        Appends one or more canonical events to a running session.
+        Accepts either a single event object or an array of events.
+        Events are validated against the 24 canonical event types.
+      operationId: appendSessionEvents
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/CodingSessionEvent'
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/CodingSessionEvent'
+                  minItems: 1
+      responses:
+        '201':
+          description: Events accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedResponse_EventsAccepted'
+        '400':
+          description: Invalid input or session not running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+
+  /v1/sessions/{id}/complete:
+    post:
+      summary: Complete a session
+      description: |
+        Marks a running session as completed or failed.
+        If the gateway has work submission configured, completing a session
+        triggers automatic work submission to the studio.
+      operationId: completeSession
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteSessionRequest'
+      responses:
+        '200':
+          description: Session completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedResponse_SessionMetadata'
+        '400':
+          description: Session not running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+
+  /v1/sessions/{id}/context:
+    get:
+      summary: Get session scoring context
+      description: |
+        Returns the full context a verifier needs to score a session:
+        session metadata, studio policy, work mandate, and evidence summary.
+      operationId: getSessionContext
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session scoring context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedResponse_SessionContext'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+
+  /v1/sessions/{id}/evidence:
+    get:
+      summary: Get session evidence DAG
+      description: Returns the full evidence DAG for a session with nodes, edges, merkle root.
+      operationId: getSessionEvidence
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Evidence DAG
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedResponse_SessionEvidenceDAG'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+
+  /v1/sessions/{id}/viewer:
+    get:
+      summary: Session evidence viewer
+      description: Returns a self-contained HTML page for visualizing the session evidence DAG.
+      operationId: getSessionViewer
+      tags: [Sessions]
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: HTML evidence viewer
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionedErrorResponse'
+
+  # ===========================================================================
   # ADMIN
   # ===========================================================================
 
@@ -904,6 +1088,14 @@ components:
         type: integer
         minimum: 0
         default: 0
+
+    SessionId:
+      name: id
+      in: path
+      required: true
+      description: Session ID (e.g. sess_abc123)
+      schema:
+        type: string
 
   # ---------------------------------------------------------------------------
   # Reusable Responses
@@ -1607,3 +1799,354 @@ components:
         install_guide:
           type: string
           format: uri
+
+    # ---- Session API Schemas ----
+
+    CreateSessionRequest:
+      type: object
+      required:
+        - studio_address
+        - agent_address
+      properties:
+        studio_address:
+          type: string
+          description: Ethereum address of the studio
+        agent_address:
+          type: string
+          description: Ethereum address of the agent
+        session_id:
+          type: string
+          description: Custom session ID. Auto-generated (sess_<uuid>) if omitted.
+        studio_policy_version:
+          type: string
+          default: engineering-studio-default-v1
+        work_mandate_id:
+          type: string
+          default: generic-task
+        task_type:
+          type: string
+          default: general
+
+    CompleteSessionRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [completed, failed]
+          default: completed
+        summary:
+          type: string
+          description: Summary for the terminal event. Defaults to "Session completed" or "Session failed".
+
+    SessionMetadata:
+      type: object
+      properties:
+        session_id:
+          type: string
+        session_root_event_id:
+          type: string
+          nullable: true
+        studio_address:
+          type: string
+        studio_policy_version:
+          type: string
+        work_mandate_id:
+          type: string
+        task_type:
+          type: string
+        agent_address:
+          type: string
+        status:
+          type: string
+          enum: [running, completed, failed]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        event_count:
+          type: integer
+        workflow_id:
+          type: string
+          nullable: true
+        data_hash:
+          type: string
+          nullable: true
+
+    CodingSessionEvent:
+      type: object
+      required:
+        - event_type
+        - timestamp
+        - summary
+        - studio
+        - task
+        - agent
+        - causality
+      properties:
+        event_id:
+          type: string
+          description: Auto-generated (evt_<uuid>) if omitted
+        event_type:
+          type: string
+          enum:
+            - task_received
+            - mandate_attached
+            - policy_acknowledged
+            - plan_created
+            - design_decision_made
+            - strategy_revised
+            - collaborator_selected
+            - delegation_created
+            - external_input_received
+            - tool_invoked
+            - file_read
+            - file_written
+            - artifact_created
+            - command_executed
+            - test_run
+            - test_failed
+            - test_passed
+            - error_observed
+            - debug_step
+            - revision_made
+            - submission_created
+            - task_completed
+            - verification_started
+            - score_vector_created
+            - outcome_evaluated
+            - verification_completed
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp
+        summary:
+          type: string
+        version:
+          type: string
+          default: '1.0'
+        studio:
+          type: object
+          required: [studio_address]
+          properties:
+            studio_address:
+              type: string
+            studio_policy_version:
+              type: string
+        task:
+          type: object
+          required: [work_mandate_id, task_type]
+          properties:
+            work_mandate_id:
+              type: string
+            task_type:
+              type: string
+            task_id:
+              type: string
+        agent:
+          type: object
+          required: [agent_address, role]
+          properties:
+            agent_address:
+              type: string
+            role:
+              type: string
+              enum: [worker, verifier, collaborator]
+        causality:
+          type: object
+          required: [parent_event_ids]
+          properties:
+            parent_event_ids:
+              type: array
+              items:
+                type: string
+              description: Empty array for root events
+            thread_id:
+              type: string
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventArtifact'
+        metadata:
+          type: object
+          additionalProperties: true
+        metrics:
+          type: object
+          properties:
+            duration_ms:
+              type: number
+            tokens_input:
+              type: number
+            tokens_output:
+              type: number
+            tool_calls:
+              type: number
+
+    EventArtifact:
+      type: object
+      required: [type, id, label]
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+        uri:
+          type: string
+        hash:
+          type: string
+
+    SessionEvidenceDAG:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionEvidenceNode'
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              parent_node_id:
+                type: string
+              child_node_id:
+                type: string
+              relation:
+                type: string
+                enum: [causal]
+        roots:
+          type: array
+          items:
+            type: string
+        terminals:
+          type: array
+          items:
+            type: string
+        merkle_root:
+          type: string
+          description: 0x-prefixed SHA-256 hash
+
+    SessionEvidenceNode:
+      type: object
+      properties:
+        node_id:
+          type: string
+        event_id:
+          type: string
+        session_id:
+          type: string
+        event_type:
+          type: string
+        agent_address:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        parent_ids:
+          type: array
+          items:
+            type: string
+        payload_hash:
+          type: string
+          description: 0x-prefixed SHA-256 hash
+        summary:
+          type: string
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventArtifact'
+        metadata:
+          type: object
+          additionalProperties: true
+        metrics:
+          type: object
+          properties:
+            duration_ms:
+              type: number
+            tokens_input:
+              type: number
+            tokens_output:
+              type: number
+            tool_calls:
+              type: number
+
+    # ---- Session Versioned Responses ----
+
+    VersionedResponse_SessionMetadata:
+      type: object
+      properties:
+        version:
+          type: string
+          example: '1.0'
+        data:
+          $ref: '#/components/schemas/SessionMetadata'
+
+    VersionedResponse_EventsAccepted:
+      type: object
+      properties:
+        version:
+          type: string
+          example: '1.0'
+        data:
+          type: object
+          properties:
+            session_id:
+              type: string
+            events_accepted:
+              type: integer
+            total_events:
+              type: integer
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/CodingSessionEvent'
+
+    VersionedResponse_SessionContext:
+      type: object
+      properties:
+        version:
+          type: string
+          example: '1.0'
+        data:
+          type: object
+          properties:
+            session_metadata:
+              $ref: '#/components/schemas/SessionMetadata'
+            studioPolicy:
+              type: object
+              nullable: true
+            workMandate:
+              type: object
+            evidence_summary:
+              type: object
+              properties:
+                merkle_root:
+                  type: string
+                node_count:
+                  type: integer
+                roots:
+                  type: array
+                  items:
+                    type: string
+                terminals:
+                  type: array
+                  items:
+                    type: string
+                evidence_uri:
+                  type: string
+
+    VersionedResponse_SessionEvidenceDAG:
+      type: object
+      properties:
+        version:
+          type: string
+          example: '1.0'
+        data:
+          type: object
+          properties:
+            evidence_dag:
+              $ref: '#/components/schemas/SessionEvidenceDAG'

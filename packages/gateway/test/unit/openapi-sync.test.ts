@@ -12,6 +12,8 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import { createRoutes } from '../../src/http/routes.js';
 import { createPublicApiRoutes } from '../../src/routes/public-api.js';
+import { createSessionRoutes } from '../../src/sessions/routes.js';
+import { SessionStore } from '../../src/sessions/store.js';
 import { ReputationReader } from '../../src/services/reputation-reader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -136,6 +138,7 @@ describe('OpenAPI Spec Sync', () => {
       identityRegistryAddress: '0x0000000000000000000000000000000000000000',
       reputationRegistryAddress: '0x0000000000000000000000000000000000000000',
     }));
+    app.use(createSessionRoutes({ store: new SessionStore() }));
 
     expressRoutes = extractExpressRoutes(app);
   });
