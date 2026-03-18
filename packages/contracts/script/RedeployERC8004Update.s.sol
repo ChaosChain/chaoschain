@@ -57,7 +57,7 @@ contract RedeployERC8004Update is Script {
         
         // Step 1: Deploy new RewardsDistributor
         console.log("Step 1/4: Deploying RewardsDistributor (updated ABI)...");
-        address treasury = vm.envOr("TREASURY", 0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70);
+        address treasury = 0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70; // ChaosChain treasury
         RewardsDistributor newRewardsDistributor = new RewardsDistributor(existingRegistry, treasury);
         console.log("  RewardsDistributor:", address(newRewardsDistributor));
         console.log("");
