@@ -125,7 +125,7 @@ class ChaosAgent:
                 **_testnet(usdc='0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'),
                 'chaos_registry': '0x7F38C1aFFB24F30500d9174ed565110411E42d50',
                 'chaos_core': '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
-                'rewards_distributor': '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
+                'rewards_distributor': '0x28AF9c02982801D35a23032e0eAFa50669E10ba1',
                 'studio_factory': '0x54Cbf5fa7d10ECBab4f46D71FAD298A230A16aF6',
                 'prediction_logic': '0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3',
             },

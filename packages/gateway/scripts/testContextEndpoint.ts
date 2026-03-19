@@ -27,7 +27,7 @@ config({ path: path.resolve(__dirname, '../.env') });
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'http://localhost:3000';
 const API_KEY = process.env.API_KEY ?? '';
-const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+const STUDIO_ADDRESS = '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 const AGENT_ADDRESS = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 
 function makeHeaders(auth = false): Record<string, string> {

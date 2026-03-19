@@ -67,7 +67,7 @@ const PR_REPO = parsedFromUrl
 const PR_NUMBER = parsedFromUrl
   ? parsedFromUrl.number
   : parseInt(process.env.PR_NUMBER ?? '40', 10);
-const STUDIO_ADDRESS = process.env.STUDIO_ADDRESS ?? '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+const STUDIO_ADDRESS = process.env.STUDIO_ADDRESS ?? '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in';
 const API_KEY = process.env.API_KEY ?? '';
 const RPC_URL = process.env.RPC_URL

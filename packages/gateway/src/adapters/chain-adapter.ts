@@ -393,6 +393,16 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     return true;
   }
 
+  /**
+   * Get withdrawable balance for an account on a StudioProxy (pull-payment pattern).
+   * Used by CloseEpoch workflow to decide whether to call withdraw() for the treasury.
+   */
+  async getWithdrawableBalance(studioAddress: string, account: string): Promise<bigint> {
+    const abi = ['function getWithdrawableBalance(address account) external view returns (uint256)'];
+    const contract = new ethers.Contract(studioAddress, abi, this.provider);
+    return contract.getWithdrawableBalance(account);
+  }
+
   // ===========================================================================
   // RewardsDistributor Work Registration (for reconciliation)
   // ===========================================================================

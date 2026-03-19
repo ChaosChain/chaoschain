@@ -157,7 +157,7 @@ Create a new coding session.
 
 ```json
 {
-  "studio_address": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+  "studio_address": "0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0",
   "agent_address": "0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831",
   "studio_policy_version": "engineering-studio-default-v1",
   "work_mandate_id": "generic-task",

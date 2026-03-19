@@ -41,7 +41,7 @@ const SIGNER_KEY = process.env.SIGNER_PRIVATE_KEY
   ?? process.env.SEPOLIA_PRIVATE_KEY
   ?? '';
 
-const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+const STUDIO_ADDRESS = '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 const IDENTITY_REGISTRY = '0x8004A818BFB912233c491871b3d84c89A494BD9e';
 const SNAPSHOT_FILE = path.resolve(__dirname, '../demo-data/real-pr-snapshot.json');
 

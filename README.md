@@ -845,12 +845,13 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 |----------|---------|-----------|
 | **ChaosChainRegistry** | `0x7F38C1aFFB24F30500d9174ed565110411E42d50` | [View](https://sepolia.etherscan.io/address/0x7F38C1aFFB24F30500d9174ed565110411E42d50) |
 | **ChaosCore** | `0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca` | [View](https://sepolia.etherscan.io/address/0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca) |
-| **RewardsDistributor** | `0x84e4f06598D08D0B88A2758E33A6Da0d621cD517` | [View](https://sepolia.etherscan.io/address/0x84e4f06598D08D0B88A2758E33A6Da0d621cD517) |
+| **RewardsDistributor** | `0x28AF9c02982801D35a23032e0eAFa50669E10ba1` | [View](https://sepolia.etherscan.io/address/0x28AF9c02982801D35a23032e0eAFa50669E10ba1) |
 | **PredictionMarketLogic** | `0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3` | [View](https://sepolia.etherscan.io/address/0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3) |
 | **IdentityRegistry** | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | [View](https://sepolia.etherscan.io/address/0x8004A818BFB912233c491871b3d84c89A494BD9e) |
 | **ReputationRegistry** | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | [View](https://sepolia.etherscan.io/address/0x8004B663056A597Dffe9eCcC1965A193B7388713) |
+| **Engineering Studio v2** | `0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0` | [View](https://sepolia.etherscan.io/address/0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0) |
 
-RewardsDistributor V4 deployed to fix VALIDATOR_ACCURACY feedback publishing. Previous versions passed empty `feedbackUri`/`feedbackHash` which caused the ERC-8004 registry to silently discard verifier reputation entries.
+RewardsDistributor V5 deployed with treasury fee fix (5% orchestrator fee now transfers to ChaosChain treasury `0x20E7B2A2...`) and quality scalar fix (100% universal weight when no custom dimensions). Engineering Studio v2 is the active studio proxy.
 
 ### ERC-8004 Registries (Jan 2026 Spec)
 

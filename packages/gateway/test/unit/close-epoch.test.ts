@@ -24,6 +24,8 @@ import {
   createCloseEpochDefinition,
   EpochChainStateAdapter,
   EpochContractEncoder,
+  WithdrawTreasuryStep,
+  TreasuryWithdrawAdapter,
 } from '../../src/workflows/index.js';
 
 // =============================================================================
@@ -688,5 +690,114 @@ describe('CloseEpoch Preconditions', () => {
     expect(finalWorkflow?.state).toBe('FAILED');
     expect(finalWorkflow?.error?.code).toBe('PRECONDITIONS_NOT_CHECKED');
     expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// E. CLOSE EPOCH DEFINITION (step order includes WITHDRAW_TREASURY)
+// =============================================================================
+
+describe('E. CloseEpoch definition', () => {
+  it('should include WITHDRAW_TREASURY in stepOrder', () => {
+    const epochChainState = createMockEpochChainStateAdapter();
+    const definition = createCloseEpochDefinition(
+      new TxQueue(createMockChainAdapter()),
+      new InMemoryWorkflowPersistence(),
+      createMockEpochEncoder(),
+      epochChainState,
+      null
+    );
+    expect(definition.stepOrder).toContain('WITHDRAW_TREASURY');
+    expect(definition.steps.has('WITHDRAW_TREASURY')).toBe(true);
+  });
+});
+
+// =============================================================================
+// F. WITHDRAW_TREASURY STEP (no-op when no treasury; submits when balance > 0)
+// =============================================================================
+
+describe('F. WithdrawTreasuryStep', () => {
+  let persistence: InMemoryWorkflowPersistence;
+  let chainAdapter: ChainAdapter;
+  let txQueue: TxQueue;
+  let treasuryAdapter: TreasuryWithdrawAdapter | null;
+  let step: WithdrawTreasuryStep;
+
+  beforeEach(() => {
+    persistence = new InMemoryWorkflowPersistence();
+    chainAdapter = createMockChainAdapter();
+    txQueue = new TxQueue(chainAdapter);
+    treasuryAdapter = null;
+    step = new WithdrawTreasuryStep(txQueue, persistence, treasuryAdapter);
+    delete process.env.TREASURY_ADDRESS;
+  });
+
+  it('should no-op and return SUCCESS when TREASURY_ADDRESS is unset', async () => {
+    const workflow = createCloseEpochWorkflow(createTestInput());
+    workflow.progress = { close_confirmed: true };
+    const result = await step.execute(workflow);
+    expect(result.type).toBe('SUCCESS');
+    expect(result.nextStep).toBeNull();
+    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+  });
+
+  it('should no-op and return SUCCESS when treasuryAdapter is null', async () => {
+    process.env.TREASURY_ADDRESS = '0xTreasury';
+    const workflow = createCloseEpochWorkflow(createTestInput());
+    workflow.progress = { close_confirmed: true };
+    const result = await step.execute(workflow);
+    expect(result.type).toBe('SUCCESS');
+    expect(result.nextStep).toBeNull();
+    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+  });
+
+  it('should no-op and return SUCCESS when balance is 0', async () => {
+    process.env.TREASURY_ADDRESS = '0xTreasury';
+    treasuryAdapter = {
+      getWithdrawableBalance: vi.fn().mockResolvedValue(0n),
+    };
+    step = new WithdrawTreasuryStep(txQueue, persistence, treasuryAdapter);
+    const workflow = createCloseEpochWorkflow(createTestInput());
+    workflow.progress = { close_confirmed: true };
+    const result = await step.execute(workflow);
+    expect(result.type).toBe('SUCCESS');
+    expect(result.nextStep).toBeNull();
+    expect(treasuryAdapter.getWithdrawableBalance).toHaveBeenCalledWith('0xStudio', '0xTreasury');
+    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+  });
+
+  it('should submit withdraw and complete when balance > 0', async () => {
+    process.env.TREASURY_ADDRESS = '0xTreasury';
+    treasuryAdapter = {
+      getWithdrawableBalance: vi.fn().mockResolvedValue(1000n),
+    };
+    (chainAdapter.submitTx as ReturnType<typeof vi.fn>).mockResolvedValue({ txHash: '0xwithdrawtx' });
+    (chainAdapter.getTxReceipt as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (chainAdapter.waitForConfirmation as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'confirmed',
+      blockNumber: 9999,
+    } as TxReceipt);
+    const chainAdapterWithSigner = createMockChainAdapter();
+    (chainAdapterWithSigner as any).signers = new Map([['0xtreasury', {}]]);
+    const txQueueWithSigner = new TxQueue(chainAdapter);
+    chainAdapter.submitTx = vi.fn().mockResolvedValue({ txHash: '0xwithdrawtx' });
+    chainAdapter.getNonce = vi.fn().mockResolvedValue(0);
+    chainAdapter.waitForConfirmation = vi.fn().mockResolvedValue({
+      status: 'confirmed',
+      blockNumber: 9999,
+    } as TxReceipt);
+    step = new WithdrawTreasuryStep(txQueue, persistence, treasuryAdapter);
+    const workflow = createCloseEpochWorkflow(createTestInput());
+    workflow.progress = { close_confirmed: true };
+    workflow.input.studio_address = '0xStudio';
+    await persistence.create(workflow);
+    const result = await step.execute(workflow);
+    expect(result.type).toBe('SUCCESS');
+    expect(result.nextStep).toBeNull();
+    expect(treasuryAdapter!.getWithdrawableBalance).toHaveBeenCalledWith('0xStudio', '0xTreasury');
+    expect(chainAdapter.submitTx).toHaveBeenCalled();
+    const finalWorkflow = await persistence.load(workflow.id);
+    expect(finalWorkflow?.progress?.treasury_withdraw_tx_hash).toBe('0xwithdrawtx');
+    expect(finalWorkflow?.progress?.treasury_withdraw_confirmed).toBe(true);
   });
 });

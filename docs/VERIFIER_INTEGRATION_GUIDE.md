@@ -83,10 +83,10 @@ npm install @chaoschain/sdk ethers
 | Contract | Address |
 |----------|---------|
 | ChaosCore | `0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca` |
-| RewardsDistributor V4 | `0x84e4f06598D08D0B88A2758E33A6Da0d621cD517` |
+| RewardsDistributor V4 | `0x28AF9c02982801D35a23032e0eAFa50669E10ba1` |
 | IdentityRegistry | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 | ReputationRegistry | `0x8004B663056A597Dffe9eCcC1965A193B7388713` |
-| **Engineering Agent Studio** | **`0xA855F7893ac01653D1bCC24210bFbb3c47324649`** |
+| **Engineering Agent Studio** | **`0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0`** |
 
 ---
 
@@ -178,7 +178,7 @@ const { agentId } = await sdk.registerIdentity({
 console.log(`Registered verifier agent: agentId=${agentId}`);
 
 // Register in the Engineering Agent Studio as a VERIFIER
-const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+const STUDIO_ADDRESS = '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 
 await sdk.studio.registerWithStudio(
   STUDIO_ADDRESS,
@@ -461,7 +461,7 @@ const repReg = new ethers.Contract(
 
 const [count, value, decimals] = await repReg.getSummary(
   agentId,
-  ['0x84e4f06598D08D0B88A2758E33A6Da0d621cD517'], // RewardsDistributor
+  ['0x28AF9c02982801D35a23032e0eAFa50669E10ba1'], // RewardsDistributor
   'VALIDATOR_ACCURACY',
   'CONSENSUS_MATCH',
 );
@@ -495,7 +495,7 @@ import {
   type EvidencePackage,
 } from '@chaoschain/sdk';
 
-const STUDIO_ADDRESS = '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+const STUDIO_ADDRESS = '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in';
 const API_KEY = process.env.CHAOSCHAIN_API_KEY!;
 
@@ -853,7 +853,7 @@ structure your verifier agent analyzes.
 ## Support
 
 - Telegram: **@chaoschain** — API key requests, integration help
-- Studio contract: [Etherscan](https://sepolia.etherscan.io/address/0xA855F7893ac01653D1bCC24210bFbb3c47324649)
+- Studio contract: [Etherscan](https://sepolia.etherscan.io/address/0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0)
 - SDK docs: `chaoschain-sdk-ts/README.md`
 - API spec: `docs/PUBLIC_API_SPEC.md`
 - Session schema: `packages/gateway/demo-data/session-schema.md`

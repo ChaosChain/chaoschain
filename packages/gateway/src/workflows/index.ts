@@ -118,11 +118,12 @@ export {
 } from './score-submission.js';
 
 // CloseEpoch types
-export type { EpochChainStateAdapter, EpochContractEncoder } from './close-epoch.js';
+export type { EpochChainStateAdapter, EpochContractEncoder, TreasuryWithdrawAdapter } from './close-epoch.js';
 export {
   CheckPreconditionsStep,
   SubmitCloseEpochStep,
   AwaitCloseEpochConfirmStep,
+  WithdrawTreasuryStep,
   createCloseEpochWorkflow,
   createCloseEpochDefinition,
   DefaultEpochContractEncoder,

@@ -89,7 +89,7 @@ export function loadConfigFromEnv(): GatewayConfig {
     confirmationBlocks: parseInt(process.env.CONFIRMATION_BLOCKS ?? '2', 10),
     // ChaosChain contract addresses (Sepolia) - v0.4.31 ERC-8004 Feb 2026 ABI
     chaosCoreAddress: process.env.CHAOS_CORE_ADDRESS ?? '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
-    rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x4bd7c3b53474Ba5894981031b5a9eF70CEA35e53',
+    rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x28AF9c02982801D35a23032e0eAFa50669E10ba1',
     // ERC-8004 registries (Base Sepolia official deployments)
     identityRegistryAddress: process.env.IDENTITY_REGISTRY_ADDRESS ?? '0x8004A818BFB912233c491871b3d84c89A494BD9e',
     reputationRegistryAddress: process.env.REPUTATION_REGISTRY_ADDRESS ?? '0x8004B663056A597Dffe9eCcC1965A193B7388713',
@@ -180,6 +180,16 @@ export class Gateway {
       }
     }
 
+    // Treasury signer (for automated withdraw after closeEpoch)
+    const treasuryPrivateKey = process.env.TREASURY_PRIVATE_KEY;
+    if (treasuryPrivateKey) {
+      const treasuryWallet = new ethers.Wallet(treasuryPrivateKey, provider);
+      const treasuryAddress = await treasuryWallet.getAddress();
+      chainAdapter.registerSigner(treasuryAddress.toLowerCase(), treasuryWallet);
+      process.env.TREASURY_ADDRESS = treasuryAddress;
+      this.logger.info({ address: treasuryAddress }, 'Treasury signer registered from TREASURY_PRIVATE_KEY');
+    }
+
     // Initialize tx queue
     const txQueue = new TxQueue(chainAdapter);
 
@@ -243,12 +253,13 @@ export class Gateway {
       'ScoreSubmission workflow registered (direct + commit-reveal modes, with REGISTER_VALIDATOR step)'
     );
 
-    // 3. CloseEpoch workflow
+    // 3. CloseEpoch workflow (with optional treasury withdraw after closeEpoch)
     const closeEpochDef = createCloseEpochDefinition(
       txQueue,
       persistence,
       epochEncoder,
-      chainAdapter as any // EpochChainStateAdapter
+      chainAdapter as any, // EpochChainStateAdapter
+      chainAdapter as any  // TreasuryWithdrawAdapter (getWithdrawableBalance); used when TREASURY_PRIVATE_KEY set
     );
     this.engine.registerWorkflow(closeEpochDef);
     this.logger.info({}, 'CloseEpoch workflow registered');
@@ -452,7 +463,15 @@ export class Gateway {
     // Setup shutdown handlers
     this.setupShutdownHandlers();
 
-    this.logger.info({}, 'Gateway started successfully');
+    this.logger.info({
+      contracts: {
+        chaosCore: this.config.chaosCoreAddress,
+        rewardsDistributor: this.config.rewardsDistributorAddress,
+        identityRegistry: this.config.identityRegistryAddress,
+        reputationRegistry: this.config.reputationRegistryAddress,
+      },
+      signer: primarySignerAddress ?? 'NOT_CONFIGURED',
+    }, 'Gateway started successfully — resolved addresses');
   }
 
   /**

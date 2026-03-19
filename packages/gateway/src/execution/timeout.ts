@@ -56,6 +56,7 @@ export const DEFAULT_TIMEOUT_CONFIG: TimeoutConfig = {
     },
     CloseEpoch: {
       'AWAIT_TX_CONFIRM': 5 * 60_000,
+      'WITHDRAW_TREASURY': 5 * 60_000,
     },
   },
 };

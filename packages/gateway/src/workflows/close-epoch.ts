@@ -7,6 +7,8 @@
  * 1. CHECK_PRECONDITIONS - Read-only on-chain checks (structural only)
  * 2. SUBMIT_CLOSE_EPOCH - Submit closeEpoch transaction (irreversible)
  * 3. AWAIT_TX_CONFIRM - Wait for blockchain finality
+ * 4. WITHDRAW_TREASURY - If TREASURY_PRIVATE_KEY set, call StudioProxy.withdraw() so the
+ *    orchestrator fee is sent to the treasury wallet (pull payment).
  * 
  * Preconditions verified (structural only, no inference):
  * - Epoch exists
@@ -66,6 +68,15 @@ export interface EpochContractEncoder {
    * @param epoch - The epoch number to close
    */
   encodeCloseEpoch(studioAddress: string, epoch: number): string;
+}
+
+/**
+ * Optional adapter for treasury withdrawal (pull payment) after closeEpoch.
+ * When TREASURY_PRIVATE_KEY is set, the gateway registers the treasury as a signer
+ * and this adapter is used to check balance and trigger withdraw().
+ */
+export interface TreasuryWithdrawAdapter {
+  getWithdrawableBalance(studioAddress: string, account: string): Promise<bigint>;
 }
 
 // =============================================================================
@@ -394,7 +405,9 @@ export class AwaitCloseEpochConfirmStep implements StepExecutor<CloseEpochRecord
             close_block: receipt.blockNumber,
             close_confirmed_at: Date.now(),
           });
-          return { type: 'SUCCESS', nextStep: null }; // COMPLETED
+          // If treasury signer is configured, run withdraw step so fees land in treasury wallet
+          const nextStep = process.env.TREASURY_ADDRESS ? 'WITHDRAW_TREASURY' : null;
+          return { type: 'SUCCESS', nextStep };
 
         case 'reverted':
           return {
@@ -437,6 +450,129 @@ export class AwaitCloseEpochConfirmStep implements StepExecutor<CloseEpochRecord
 }
 
 // =============================================================================
+// Step 4: Withdraw treasury (pull payment — moves credited fee to treasury wallet)
+// =============================================================================
+
+/** Selector for StudioProxy.withdraw() */
+const WITHDRAW_SELECTOR = '0x3ccfd60b';
+
+export class WithdrawTreasuryStep implements StepExecutor<CloseEpochRecord> {
+  private txQueue: TxQueue;
+  private persistence: WorkflowPersistence;
+  private treasuryAdapter: TreasuryWithdrawAdapter | null;
+
+  constructor(
+    txQueue: TxQueue,
+    persistence: WorkflowPersistence,
+    treasuryAdapter: TreasuryWithdrawAdapter | null
+  ) {
+    this.txQueue = txQueue;
+    this.persistence = persistence;
+    this.treasuryAdapter = treasuryAdapter;
+  }
+
+  isIrreversible(): boolean {
+    return true;
+  }
+
+  async execute(workflow: CloseEpochRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+    const treasuryAddress = process.env.TREASURY_ADDRESS;
+
+    if (!treasuryAddress || !this.treasuryAdapter) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    if (progress.treasury_withdraw_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    if (progress.treasury_withdraw_tx_hash) {
+      try {
+        const receipt = await this.txQueue.waitForTx(progress.treasury_withdraw_tx_hash);
+        if (receipt.status === 'confirmed') {
+          await this.persistence.appendProgress(workflow.id, { treasury_withdraw_confirmed: true });
+          return { type: 'SUCCESS', nextStep: null };
+        }
+        if (receipt.status === 'reverted') {
+          return {
+            type: 'FAILED',
+            error: {
+              category: 'PERMANENT',
+              message: `Treasury withdraw reverted: ${receipt.revertReason ?? 'unknown'}`,
+              code: 'TREASURY_WITHDRAW_REVERTED',
+            },
+          };
+        }
+      } catch (err) {
+        return {
+          type: 'RETRY',
+          error: {
+            category: 'TRANSIENT',
+            message: err instanceof Error ? err.message : String(err),
+            code: 'TREASURY_WITHDRAW_WAIT',
+          },
+        };
+      }
+    }
+
+    try {
+      const balance = await this.treasuryAdapter.getWithdrawableBalance(
+        input.studio_address,
+        treasuryAddress
+      );
+      if (balance === 0n) {
+        return { type: 'SUCCESS', nextStep: null };
+      }
+
+      const txRequest: TxRequest = {
+        to: input.studio_address,
+        data: WITHDRAW_SELECTOR,
+      };
+      const txHash = await this.txQueue.submitOnly(
+        workflow.id,
+        treasuryAddress,
+        txRequest
+      );
+      await this.persistence.appendProgress(workflow.id, { treasury_withdraw_tx_hash: txHash });
+
+      const receipt = await this.txQueue.waitForTx(txHash);
+      if (receipt.status === 'confirmed') {
+        await this.persistence.appendProgress(workflow.id, { treasury_withdraw_confirmed: true });
+        return { type: 'SUCCESS', nextStep: null };
+      }
+      if (receipt.status === 'reverted') {
+        return {
+          type: 'FAILED',
+          error: {
+            category: 'PERMANENT',
+            message: `Treasury withdraw reverted: ${receipt.revertReason ?? 'unknown'}`,
+            code: 'TREASURY_WITHDRAW_REVERTED',
+          },
+        };
+      }
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: 'Treasury withdraw tx still pending',
+          code: 'TREASURY_WITHDRAW_PENDING',
+        },
+      };
+    } catch (err) {
+      return {
+        type: 'RETRY',
+        error: {
+          category: 'TRANSIENT',
+          message: err instanceof Error ? err.message : String(err),
+          code: 'TREASURY_WITHDRAW_ERROR',
+        },
+      };
+    }
+  }
+}
+
+// =============================================================================
 // WORKFLOW FACTORY
 // =============================================================================
 
@@ -462,18 +598,22 @@ export function createCloseEpochWorkflow(
 
 /**
  * Create CloseEpoch workflow definition.
+ * If treasuryWithdrawAdapter is provided and TREASURY_PRIVATE_KEY is set at runtime,
+ * a WITHDRAW_TREASURY step runs after closeEpoch to pull the orchestrator fee into the treasury wallet.
  */
 export function createCloseEpochDefinition(
   txQueue: TxQueue,
   persistence: WorkflowPersistence,
   encoder: EpochContractEncoder,
-  chainState: EpochChainStateAdapter
+  chainState: EpochChainStateAdapter,
+  treasuryWithdrawAdapter: TreasuryWithdrawAdapter | null = null
 ): WorkflowDefinition<CloseEpochRecord> {
   const steps = new Map<string, StepExecutor<CloseEpochRecord>>();
 
   steps.set('CHECK_PRECONDITIONS', new CheckPreconditionsStep(chainState, persistence));
   steps.set('SUBMIT_CLOSE_EPOCH', new SubmitCloseEpochStep(txQueue, persistence, encoder));
   steps.set('AWAIT_TX_CONFIRM', new AwaitCloseEpochConfirmStep(txQueue, persistence));
+  steps.set('WITHDRAW_TREASURY', new WithdrawTreasuryStep(txQueue, persistence, treasuryWithdrawAdapter));
 
   return {
     type: 'CloseEpoch',
@@ -483,6 +623,7 @@ export function createCloseEpochDefinition(
       'CHECK_PRECONDITIONS',
       'SUBMIT_CLOSE_EPOCH',
       'AWAIT_TX_CONFIRM',
+      'WITHDRAW_TREASURY',
     ],
   };
 }

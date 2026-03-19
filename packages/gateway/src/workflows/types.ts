@@ -246,6 +246,10 @@ export interface CloseEpochProgress {
   close_confirmed?: boolean;
   close_block?: number;
   close_confirmed_at?: number;
+
+  // Treasury withdraw (pull payment after closeEpoch)
+  treasury_withdraw_tx_hash?: string;
+  treasury_withdraw_confirmed?: boolean;
 }
 
 export type CloseEpochRecord = WorkflowRecord<CloseEpochInput, CloseEpochProgress>;
