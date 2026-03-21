@@ -15,7 +15,8 @@
     "clean": "rm -rf dist",
     "smoke-test": "tsx scripts/smoke-test.ts",
     "test:pr-pipeline": "tsx scripts/runRealPRPipeline.ts",
-    "test:session-full-loop": "tsx scripts/test-session-full-loop.ts"
+    "test:session-full-loop": "tsx scripts/test-session-full-loop.ts",
+    "validate:reputation-read-paths": "tsx scripts/validate-reputation-read-paths.ts"
   },
   "dependencies": {
     "@ardrive/turbo-sdk": "^1.41.0",

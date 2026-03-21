@@ -334,6 +334,22 @@ GATEWAY_URL=https://your-gateway.railway.app API_KEY=cc_xxx npm run test:session
 
 The script creates a session, appends three events (task_received → plan_created → submission_created), completes the session, then fetches context (asserting evidence_summary only, no full DAG) and evidence (asserting full DAG). On success it prints "Full loop test passed" and exits 0; on failure it prints "Full loop test failed: …" and exits 1.
 
+### Pre-deploy: session + reputation read paths (no closeEpoch)
+
+Before merging to `develop` / production, validate that **session ingestion**, **session viewer**, and **`GET /v1/agent/:id/reputation`** all work against a **local** gateway wired to Sepolia RPC (same registry addresses as production).
+
+1. Start Postgres and run `npm run dev` from `packages/gateway` (see main README / `.env.example`).
+2. In another terminal:
+
+```bash
+cd packages/gateway
+API_KEY=cc_internal_seed_key1 npm run validate:reputation-read-paths
+```
+
+The script: creates a session → posts **5** events → completes → checks `GET /v1/sessions/:id/context` (`evidence_summary.node_count >= 5`) → checks `GET /v1/sessions/:id/viewer` (HTML) → checks reputation for agents **1935, 1936, 1598, 1937** (Gilbert E2E IDs on studio `0xFA0795…`) and asserts JSON-serializable numbers (no `BigInt` leaks). It does **not** call `closeEpoch`.
+
+Optional manual curls: `scripts/validate-reputation-read-paths.curl.sh` (requires `jq`).
+
 **Seven-step curl script (local gateway):**
 
 To run the full pipeline with **curl** (create session → events → complete → context → evidence → score submission → reputation), use the shell script. It uses `GATEWAY_URL` and `API_KEY` and fills `SESSION_ID` / `data_hash` from responses so you don't paste them by hand. **Do not paste lines starting with `#` in the same command as curl** — the shell treats `#` as a comment and can run it as a command.

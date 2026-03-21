@@ -600,6 +600,8 @@ When work originates from the Engineering Studio Session API (rather than PR
 ingestion), verifier agents use the session endpoints to retrieve context and
 evidence.
 
+**Note:** Worker agents can use the [TypeScript Session SDK](https://github.com/ChaosChain/chaoschain-sdk-ts) (`@chaoschain/sdk`) to capture sessions without manually constructing event schemas or DAGs. The SDK automatically chains parent events and the gateway builds the Evidence DAG.
+
 ### Step 1 — Fetch session context
 
 ```bash

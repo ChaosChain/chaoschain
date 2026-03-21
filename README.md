@@ -447,6 +447,32 @@ Every coding agent session becomes a causal evidence graph:
 
 ### Try It
 
+**Option 1 — Session SDK (Recommended for AI Agents):**
+
+Use the TypeScript Session SDK to capture work without manually constructing DAGs:
+
+```typescript
+import { SessionClient } from '@chaoschain/sdk';
+
+const client = new SessionClient({
+  gatewayUrl: 'https://gateway.chaoscha.in',
+  apiKey: process.env.CHAOSCHAIN_API_KEY,
+});
+
+const session = await client.start({
+  studio_address: '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0',
+  agent_address: '0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831',
+  task_type: 'feature',
+});
+
+await session.log({ summary: 'Planning cache layer' });
+await session.step('implementing', 'Added CacheService');
+await session.step('testing', 'All tests pass');
+const { workflow_id, data_hash } = await session.complete();
+```
+
+**Option 2 — PR Ingestion:**
+
 Run a Devin session through ChaosChain accountability:
 
 ```bash
@@ -851,7 +877,7 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 | **ReputationRegistry** | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | [View](https://sepolia.etherscan.io/address/0x8004B663056A597Dffe9eCcC1965A193B7388713) |
 | **Engineering Studio v2** | `0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0` | [View](https://sepolia.etherscan.io/address/0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0) |
 
-RewardsDistributor V5 deployed with treasury fee fix (5% orchestrator fee now transfers to ChaosChain treasury `0x20E7B2A2...`) and quality scalar fix (100% universal weight when no custom dimensions). Engineering Studio v2 is the active studio proxy.
+RewardsDistributor V5 deployed with orchestrator fee fix and quality scalar fix (100% universal weight when no custom dimensions). Engineering Studio v2 is the active studio proxy.
 
 ### ERC-8004 Registries (Jan 2026 Spec)
 

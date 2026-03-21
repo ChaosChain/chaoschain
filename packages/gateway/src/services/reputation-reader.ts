@@ -55,14 +55,22 @@ export interface ReputationReaderConfig {
   network: string;
   /** Number of universal PoA dimensions (default: 5) */
   universalDimensions?: number;
+  /**
+   * Client addresses for ReputationRegistry.getSummary (required on-chain).
+   * Defaults to [rewardsDistributorAddress] when omitted or empty.
+   * The RewardsDistributor is the contract that calls giveFeedback during closeEpoch,
+   * so it's the correct clientAddress (msg.sender recorded in the registry).
+   */
+  reputationClientAddresses?: string[];
 }
 
 export class ReputationReader {
   private identity: ethers.Contract;
   private reputation: ethers.Contract;
-  private rewardsDistributorAddress: string;
   private network: string;
   private dims: number;
+  /** Checksum addresses for getSummary client filter */
+  private readonly summaryClientAddresses: string[];
 
   constructor(config: ReputationReaderConfig) {
     this.identity = new ethers.Contract(
@@ -75,9 +83,16 @@ export class ReputationReader {
       REPUTATION_ABI,
       config.provider,
     );
-    this.rewardsDistributorAddress = config.rewardsDistributorAddress;
     this.network = config.network;
     this.dims = config.universalDimensions ?? 5;
+
+    // Default to RewardsDistributor address — the contract that calls giveFeedback
+    const raw =
+      config.reputationClientAddresses?.filter((a) => a?.trim().length > 0) ??
+      [];
+    const addrs =
+      raw.length > 0 ? raw : [config.rewardsDistributorAddress];
+    this.summaryClientAddresses = addrs.map((a) => ethers.getAddress(a.trim()));
   }
 
   /**
@@ -127,20 +142,21 @@ export class ReputationReader {
    * Caller must verify agentExists first.
    */
   async getReputation(agentId: number): Promise<ReputationData> {
-    // clientAddresses = [RewardsDistributor] — the contract that calls giveFeedback
-    // during closeEpoch. The ReputationRegistry records msg.sender as the client,
-    // so we must filter by RD address (not Studio address) to get results.
-    const clients = [this.rewardsDistributorAddress];
-
     let totalCount = 0;
     let totalValue = 0;
     let verifierCount = 0;
     let verifierValue = 0;
 
     try {
+      const clients = this.summaryClientAddresses;
       const [overall, verifier] = await Promise.all([
         this.reputation.getSummary(agentId, clients, '', ''),
-        this.reputation.getSummary(agentId, clients, 'VALIDATOR_ACCURACY', 'CONSENSUS_MATCH'),
+        this.reputation.getSummary(
+          agentId,
+          clients,
+          'VALIDATOR_ACCURACY',
+          'CONSENSUS_MATCH',
+        ),
       ]);
 
       totalCount = safeNumber(overall[0]);
@@ -160,24 +176,19 @@ export class ReputationReader {
     const workerCount = totalCount - verifierCount;
     const workerValue = totalValue - verifierValue;
 
-    // trust_score: average feedback value across all entries (0-100)
     const trustScore =
       totalCount > 0 ? Math.round(totalValue / totalCount) : 0;
 
-    // epochs_participated: each epoch produces `dims` worker feedbacks
-    // plus verifier feedbacks. Approximate using total count.
     const workerEpochs =
       this.dims > 0 ? Math.floor(workerCount / this.dims) : 0;
     const epochsParticipated = Math.max(workerEpochs, verifierCount);
 
-    // quality_score: worker average normalized to 0-1
     let qualityScore: number | null = null;
     if (workerCount > 0) {
       qualityScore =
         Math.round((workerValue / workerCount / 100) * 100) / 100;
     }
 
-    // consensus_accuracy: verifier average normalized to 0-1
     let consensusAccuracy: number | null = null;
     if (verifierCount > 0) {
       consensusAccuracy =
