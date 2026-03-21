@@ -19,6 +19,21 @@ const REPUTATION_ABI = [
   'function getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2) view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals)',
 ] as const;
 
+/**
+ * Coerce any ethers return value (BigInt, number, string, or unknown) to a
+ * safe JS number. Handles ethers v6 Result entries that may be BigInt,
+ * hex strings, or already numbers.
+ */
+function safeNumber(val: unknown): number {
+  if (typeof val === 'bigint') return Number(val);
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    const n = Number(val);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  return 0;
+}
+
 export interface ReputationData {
   agent_id: number;
   trust_score: number;
@@ -112,20 +127,35 @@ export class ReputationReader {
    * Caller must verify agentExists first.
    */
   async getReputation(agentId: number): Promise<ReputationData> {
-    // Parallel reads: overall summary + verifier-specific summary
-    // clientAddresses = [RewardsDistributor] — the contract that publishes feedback
-    // tag2 is hardcoded to 'CONSENSUS_MATCH' in RewardsDistributor._publishValidatorReputation
+    // clientAddresses = [RewardsDistributor] — the contract that calls giveFeedback
+    // during closeEpoch. The ReputationRegistry records msg.sender as the client,
+    // so we must filter by RD address (not Studio address) to get results.
     const clients = [this.rewardsDistributorAddress];
-    const [overall, verifier] = await Promise.all([
-      this.reputation.getSummary(agentId, clients, '', ''),
-      this.reputation.getSummary(agentId, clients, 'VALIDATOR_ACCURACY', 'CONSENSUS_MATCH'),
-    ]);
 
-    const totalCount = Number(overall[0] as bigint);
-    const totalValue = Number(overall[1] as bigint);
+    let totalCount = 0;
+    let totalValue = 0;
+    let verifierCount = 0;
+    let verifierValue = 0;
 
-    const verifierCount = Number(verifier[0] as bigint);
-    const verifierValue = Number(verifier[1] as bigint);
+    try {
+      const [overall, verifier] = await Promise.all([
+        this.reputation.getSummary(agentId, clients, '', ''),
+        this.reputation.getSummary(agentId, clients, 'VALIDATOR_ACCURACY', 'CONSENSUS_MATCH'),
+      ]);
+
+      totalCount = safeNumber(overall[0]);
+      totalValue = safeNumber(overall[1]);
+      verifierCount = safeNumber(verifier[0]);
+      verifierValue = safeNumber(verifier[1]);
+    } catch (err) {
+      // Contract call failed (ABI mismatch, decode error, RPC issue).
+      // Return zero-reputation rather than propagating — the agent exists
+      // on-chain, we just can't read reputation data right now.
+      console.error(
+        `[ReputationReader] getSummary failed for agent ${agentId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     const workerCount = totalCount - verifierCount;
     const workerValue = totalValue - verifierValue;
