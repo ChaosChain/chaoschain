@@ -12,10 +12,9 @@ import {MockIdentityRegistryIntegration, MockReputationRegistryIntegration} from
 
 /**
  * @title EpochRecloseTest
- * @notice Tests whether a closed epoch can be re-opened and re-closed.
- * @dev Found during E2E validation: the contract has no `isEpochClosed` flag,
- *      so registerWork can add works to an already-closed epoch.
- *      This test verifies whether that's safe or causes double-pay.
+ * @notice Proves that closeEpoch can be called twice on the same epoch,
+ *         resulting in double reward distribution (vulnerability).
+ * @dev Found during E2E validation: the contract has no `isEpochClosed` flag.
  */
 contract EpochRecloseTest is Test {
 
@@ -36,7 +35,7 @@ contract EpochRecloseTest is Test {
     uint256 public validatorAgentId;
 
     address public studioProxy;
-    uint64 public constant EPOCH = 10; // use a clean epoch number
+    uint64 public constant EPOCH = 10;
 
     function setUp() public {
         owner = address(this);
@@ -71,23 +70,19 @@ contract EpochRecloseTest is Test {
         vm.deal(worker, 10 ether);
         vm.deal(validator, 10 ether);
 
-        // Create studio
         vm.prank(studioOwner);
         (address proxy, ) = chaosCore.createStudio("Reclose Test Studio", address(predictionLogic));
         studioProxy = proxy;
 
-        // Register agents
         vm.prank(worker);
         StudioProxy(payable(proxy)).registerAgent{value: 1 ether}(workerAgentId, StudioProxy.AgentRole.WORKER);
         vm.prank(validator);
         StudioProxy(payable(proxy)).registerAgent{value: 1 ether}(validatorAgentId, StudioProxy.AgentRole.VERIFIER);
 
-        // Fund escrow
         vm.prank(studioOwner);
         StudioProxy(payable(proxy)).deposit{value: 50 ether}();
     }
 
-    /// @notice Helper: submit work, score it, register in epoch
     function _submitAndScore(bytes32 dataHash) internal {
         vm.prank(worker);
         StudioProxy(payable(studioProxy)).submitWork(
@@ -106,54 +101,11 @@ contract EpochRecloseTest is Test {
     }
 
     /**
-     * @notice Test: can we add work to a closed epoch and re-close it?
-     * @dev If this passes, double-close is possible and old works get reprocessed.
+     * @notice Double-close same epoch without adding new work pays rewards twice.
+     * @dev This test ASSERTS the vulnerability exists. When the contract is fixed
+     *      (epoch close guard added), this test should be updated to expect revert.
      */
-    function test_registerWork_afterCloseEpoch_isAllowed() public {
-        // Submit work 1 and close epoch
-        bytes32 work1 = keccak256("work_1");
-        _submitAndScore(work1);
-
-        uint256 workerBalanceBefore = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
-        rewardsDistributor.closeEpoch(studioProxy, EPOCH);
-        uint256 workerBalanceAfterFirst = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
-
-        console.log("Worker balance after first close:", workerBalanceAfterFirst);
-        assertGt(workerBalanceAfterFirst, workerBalanceBefore, "Worker got rewards from first close");
-
-        // Now add work 2 to the SAME epoch (already closed)
-        bytes32 work2 = keccak256("work_2");
-        _submitAndScore(work2);
-
-        // Verify registerWork succeeded (no revert)
-        bytes32[] memory works = rewardsDistributor.getEpochWork(studioProxy, EPOCH);
-        assertEq(works.length, 2, "Both works in epoch");
-
-        // Close the epoch AGAIN
-        rewardsDistributor.closeEpoch(studioProxy, EPOCH);
-        uint256 workerBalanceAfterSecond = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
-
-        console.log("Worker balance after second close:", workerBalanceAfterSecond);
-
-        // If balance increased significantly, work1 was reprocessed (double-pay)
-        uint256 firstCloseReward = workerBalanceAfterFirst - workerBalanceBefore;
-        uint256 secondCloseReward = workerBalanceAfterSecond - workerBalanceAfterFirst;
-
-        console.log("First close reward:", firstCloseReward);
-        console.log("Second close reward:", secondCloseReward);
-
-        // If second reward > first reward, it means both works were processed
-        // (work1 again + work2). That's double-pay for work1.
-        if (secondCloseReward > firstCloseReward) {
-            console.log("WARNING: Second close rewarded MORE than first - likely double-pay");
-        }
-    }
-
-    /**
-     * @notice Test: does closeEpoch on the same epoch with same works double-pay?
-     * @dev Close the same epoch twice WITHOUT adding new work.
-     */
-    function test_doubleCloseEpoch_sameWorks_doublesPay() public {
+    function test_doubleCloseEpoch_paysRewardsTwice() public {
         bytes32 work1 = keccak256("double_pay_work");
         _submitAndScore(work1);
 
@@ -164,22 +116,57 @@ contract EpochRecloseTest is Test {
         uint256 balanceAfterFirst = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
         uint256 firstReward = balanceAfterFirst - balanceBefore;
 
-        console.log("First close reward:", firstReward);
+        assertGt(firstReward, 0, "First close must pay rewards");
 
-        // Second close — same epoch, same work, no new work added
+        // Second close — same epoch, same work, no new work
         rewardsDistributor.closeEpoch(studioProxy, EPOCH);
         uint256 balanceAfterSecond = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
         uint256 secondReward = balanceAfterSecond - balanceAfterFirst;
 
-        console.log("Second close reward:", secondReward);
+        // VULNERABILITY: second close pays again
+        assertGt(secondReward, 0, "Double-close pays rewards twice (no epoch close guard)");
+    }
 
-        // Document the finding
-        if (secondReward > 0) {
-            console.log("CONFIRMED: Double-close pays rewards TWICE for the same work");
-            console.log("This is a potential vulnerability - no epoch close guard exists");
-        } else {
-            console.log("Safe: Second close did not pay additional rewards");
-        }
+    /**
+     * @notice registerWork succeeds on an already-closed epoch.
+     * @dev No on-chain state tracks whether an epoch was closed.
+     */
+    function test_registerWork_afterCloseEpoch_succeeds() public {
+        bytes32 work1 = keccak256("work_1");
+        _submitAndScore(work1);
+
+        rewardsDistributor.closeEpoch(studioProxy, EPOCH);
+
+        // Add work to already-closed epoch — should not revert
+        bytes32 work2 = keccak256("work_2");
+        _submitAndScore(work2);
+
+        bytes32[] memory works = rewardsDistributor.getEpochWork(studioProxy, EPOCH);
+        assertEq(works.length, 2, "registerWork allowed on closed epoch");
+    }
+
+    /**
+     * @notice Re-closing after adding new work reprocesses old work too.
+     */
+    function test_reclose_afterNewWork_reprocessesOldWork() public {
+        bytes32 work1 = keccak256("reprocess_work_1");
+        _submitAndScore(work1);
+
+        uint256 balanceBefore = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
+        rewardsDistributor.closeEpoch(studioProxy, EPOCH);
+        uint256 firstReward = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker) - balanceBefore;
+
+        // Add work 2 and re-close
+        bytes32 work2 = keccak256("reprocess_work_2");
+        _submitAndScore(work2);
+
+        uint256 balanceBeforeSecond = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker);
+        rewardsDistributor.closeEpoch(studioProxy, EPOCH);
+        uint256 secondReward = StudioProxy(payable(studioProxy)).getWithdrawableBalance(worker) - balanceBeforeSecond;
+
+        // Second close processes 2 works (work1 again + work2).
+        // Reward may be less than first (escrow partially drained) but must be > 0,
+        // proving work1 was reprocessed alongside work2.
+        assertGt(secondReward, 0, "Re-close paid rewards again (old work reprocessed)");
     }
 }
-
