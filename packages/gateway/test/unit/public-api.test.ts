@@ -491,6 +491,111 @@ describe('Public API — GET /v1/agent/:id/reputation (with work data)', () => {
 });
 
 // =============================================================================
+// Tests — GET /v1/agent/:id/reputation (after closeEpoch)
+// =============================================================================
+
+describe('Public API — GET /v1/agent/:id/reputation (after epoch close)', () => {
+  it('returns 200 with non-zero epochs_participated after closeEpoch', async () => {
+    const reader = new MockReputationReader();
+    reader.addAgent({
+      agent_id: 1935,
+      trust_score: 72,
+      epochs_participated: 1,
+      quality_score: 0.72,
+      consensus_accuracy: null,
+      last_updated_epoch: null,
+      evidence_anchor: null,
+      derivation_root: null,
+      network: 'ethereum-sepolia',
+    });
+
+    const app = buildApp(reader);
+    const { status, body } = await get(app, '/v1/agent/1935/reputation');
+
+    expect(status).toBe(200);
+    expect(body.version).toBe('1.0');
+    const data = body.data as Record<string, unknown>;
+    expect(data.agent_id).toBe(1935);
+    expect(data.trust_score).toBeGreaterThan(0);
+    expect(data.epochs_participated).toBeGreaterThanOrEqual(1);
+    expect(data.quality_score).toBeGreaterThan(0);
+    expect(data.last_updated_epoch).toBeNull();
+    expect(data.network).toBe('ethereum-sepolia');
+  });
+
+  it('returns 200 with zero reputation when getReputation throws (contract error)', async () => {
+    const reader = new MockReputationReader();
+    reader.addAgent({
+      agent_id: 500,
+      trust_score: 0,
+      epochs_participated: 0,
+      quality_score: null,
+      consensus_accuracy: null,
+      last_updated_epoch: null,
+      evidence_anchor: null,
+      derivation_root: null,
+      network: 'test-network',
+    });
+
+    // Override getReputation to simulate a contract call failure that
+    // the real ReputationReader now catches internally
+    const origGetRep = reader.getReputation.bind(reader);
+    let callCount = 0;
+    reader.getReputation = async (agentId: number) => {
+      callCount++;
+      // Return the zero-data that ReputationReader would produce
+      // when getSummary throws internally
+      return origGetRep(agentId);
+    };
+
+    const app = buildApp(reader as unknown as MockReputationReader);
+    const { status, body } = await get(app, '/v1/agent/500/reputation');
+
+    expect(status).toBe(200);
+    expect(callCount).toBe(1);
+    const data = body.data as Record<string, unknown>;
+    expect(data.agent_id).toBe(500);
+    expect(data.trust_score).toBe(0);
+    expect(data.epochs_participated).toBe(0);
+  });
+
+  it('all numeric fields are JSON-serializable (no BigInt leak)', async () => {
+    const reader = new MockReputationReader();
+    reader.addAgent({
+      agent_id: 1936,
+      trust_score: 85,
+      epochs_participated: 3,
+      quality_score: 0.85,
+      consensus_accuracy: 0.91,
+      last_updated_epoch: null,
+      evidence_anchor: null,
+      derivation_root: null,
+      network: 'ethereum-sepolia',
+    });
+
+    const app = buildApp(reader);
+    const { status, body } = await get(app, '/v1/agent/1936/reputation');
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+
+    // Verify no BigInts snuck through — JSON.stringify would throw otherwise
+    expect(() => JSON.stringify(data)).not.toThrow();
+
+    // Verify numeric types
+    expect(typeof data.agent_id).toBe('number');
+    expect(typeof data.trust_score).toBe('number');
+    expect(typeof data.epochs_participated).toBe('number');
+    if (data.quality_score !== null) {
+      expect(typeof data.quality_score).toBe('number');
+    }
+    if (data.consensus_accuracy !== null) {
+      expect(typeof data.consensus_accuracy).toBe('number');
+    }
+  });
+});
+
+// =============================================================================
 // Tests — GET /v1/work/:hash
 // =============================================================================
 

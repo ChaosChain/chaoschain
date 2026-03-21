@@ -161,6 +161,11 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
         const message =
           err instanceof Error ? err.message : 'Unknown error';
 
+        console.error(
+          `[PublicAPI] /v1/agent/${rawId}/reputation error:`,
+          err instanceof Error ? err.stack ?? err.message : err,
+        );
+
         if (
           message.includes('could not detect network') ||
           message.includes('ECONNREFUSED') ||
