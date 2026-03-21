@@ -187,6 +187,7 @@ export interface ScoreSubmissionInput {
   signer_address: string;      // Which key signs on-chain txs
   worker_address?: string;     // Required for direct mode - which worker is being scored
   mode?: ScoreSubmissionMode;  // "direct" (default) or "commit_reveal"
+  admin_signer_address?: string; // Owner signer for registerValidator (onlyOwner on RewardsDistributor)
 }
 
 // =============================================================================

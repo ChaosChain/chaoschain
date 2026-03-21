@@ -382,11 +382,31 @@ export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord>
 
     const evidenceUri = `ar://${progress.arweave_tx_id}`;
 
+    // V1: single-agent on-chain submission (msg.sender = participant)
+    // Multi-agent attribution lives in the evidence DAG (per-event agent_address)
+    // and in Arweave (evidence packages with per-node author).
+    //
+    // TODO: V2 — switch to submitWorkMultiAgent when operator/delegate pattern
+    // is added to the contract. Currently the contract requires msg.sender to be
+    // in the participants list, which doesn't work when the gateway signer is
+    // different from the agents who did the work (e.g. GitHub App passive capture).
+    //
+    // const uniqueAuthors = [...new Set(input.dkg_evidence.map((e) => e.author))].sort();
+    // if (uniqueAuthors.length > 1) {
+    //   const weightPerWorker = Math.floor(10000 / uniqueAuthors.length);
+    //   const remainder = 10000 - weightPerWorker * uniqueAuthors.length;
+    //   const weightValues = uniqueAuthors.map((_, i) => weightPerWorker + (i === 0 ? remainder : 0));
+    //   txData = this.contractEncoder.encodeSubmitWorkMultiAgent(
+    //     input.data_hash, progress.dkg_thread_root, progress.dkg_evidence_root,
+    //     uniqueAuthors, weightValues, evidenceUri,
+    //   );
+    // }
+
     const txData = this.contractEncoder.encodeSubmitWork(
       input.data_hash,
       progress.dkg_thread_root,
       progress.dkg_evidence_root,
-      evidenceUri
+      evidenceUri,
     );
 
     const txRequest: TxRequest = {
