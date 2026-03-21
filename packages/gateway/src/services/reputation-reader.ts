@@ -36,6 +36,7 @@ export interface ReputationReaderConfig {
   provider: ethers.Provider;
   identityRegistryAddress: string;
   reputationRegistryAddress: string;
+  rewardsDistributorAddress: string;
   network: string;
   /** Number of universal PoA dimensions (default: 5) */
   universalDimensions?: number;
@@ -44,6 +45,7 @@ export interface ReputationReaderConfig {
 export class ReputationReader {
   private identity: ethers.Contract;
   private reputation: ethers.Contract;
+  private rewardsDistributorAddress: string;
   private network: string;
   private dims: number;
 
@@ -58,6 +60,7 @@ export class ReputationReader {
       REPUTATION_ABI,
       config.provider,
     );
+    this.rewardsDistributorAddress = config.rewardsDistributorAddress;
     this.network = config.network;
     this.dims = config.universalDimensions ?? 5;
   }
@@ -110,10 +113,12 @@ export class ReputationReader {
    */
   async getReputation(agentId: number): Promise<ReputationData> {
     // Parallel reads: overall summary + verifier-specific summary
+    // clientAddresses = [RewardsDistributor] — the contract that publishes feedback
     // tag2 is hardcoded to 'CONSENSUS_MATCH' in RewardsDistributor._publishValidatorReputation
+    const clients = [this.rewardsDistributorAddress];
     const [overall, verifier] = await Promise.all([
-      this.reputation.getSummary(agentId, [], '', ''),
-      this.reputation.getSummary(agentId, [], 'VALIDATOR_ACCURACY', 'CONSENSUS_MATCH'),
+      this.reputation.getSummary(agentId, clients, '', ''),
+      this.reputation.getSummary(agentId, clients, 'VALIDATOR_ACCURACY', 'CONSENSUS_MATCH'),
     ]);
 
     const totalCount = Number(overall[0] as bigint);

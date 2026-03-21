@@ -410,6 +410,7 @@ export class Gateway {
       provider: await this.createProvider(),
       identityRegistryAddress: this.config.identityRegistryAddress,
       reputationRegistryAddress: this.config.reputationRegistryAddress,
+      rewardsDistributorAddress: this.config.rewardsDistributorAddress,
       network: process.env.NETWORK_NAME ?? 'base-sepolia',
     });
     const workDataReader = new WorkDataReader(

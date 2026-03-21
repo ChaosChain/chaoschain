@@ -388,9 +388,11 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
           const workflow = await config.submitWork({
             studio_address: session.studio_address,
             // Epoch groups work submissions for batch consensus + reward distribution.
-            // Epoch 0 is burned from test pollution (20+ works, exceeds block gas limit).
+            // Epoch 0: burned (20+ works, exceeds block gas limit).
+            // Epoch 1: Phase 1 testing (single-agent on-chain).
+            // Epoch 2: Phase 2 testing (multi-agent on-chain with minimal signer weight).
             // TODO: make epoch configurable or auto-incrementing per studio.
-            epoch: 1, // epoch: session.epoch
+            epoch: 2,
             agent_address: session.agent_address,
             data_hash: dataHash,
             dkg_evidence: dkgEvidence,

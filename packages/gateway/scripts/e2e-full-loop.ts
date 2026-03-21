@@ -17,7 +17,7 @@
  *   WORKER_2_ADDRESS   — Second worker signer for multi-agent (optional)
  *   VERIFIER_ADDRESS   — Verifier signer (registered as VERIFIER in studio)
  *   ADMIN_ADDRESS      — Admin signer (RD owner for registerWork/registerValidator/closeEpoch)
- *   SKIP_CLOSE_EPOCH   — Set to "true" to skip closeEpoch step
+ *   SKIP_CLOSE_EPOCH   — Set to "true" to skip closeEpoch step (default: runs closeEpoch)
  *   ETHERSCAN_BASE     — Etherscan base URL (default: https://sepolia.etherscan.io)
  */
 
@@ -29,10 +29,10 @@ const GATEWAY_URL = process.env.GATEWAY_URL ?? 'http://localhost:3001';
 const API_KEY = process.env.API_KEY ?? '';
 
 const STUDIO_ADDRESS = process.env.STUDIO_ADDRESS ?? '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
-const WORKER_ADDRESS = process.env.WORKER_ADDRESS ?? '0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831';
-const WORKER_2_ADDRESS = process.env.WORKER_2_ADDRESS ?? '0xA302657e7265baf5219E82329c72E4952C80730B';
-const VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS ?? '0x019aDbc6B1Eb5A848Ac5553a7753e57f624835cA';
-const ADMIN_ADDRESS = process.env.ADMIN_ADDRESS ?? '0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831';
+const WORKER_ADDRESS = process.env.WORKER_ADDRESS ?? '0x2c855f260851Ba1462065D37c0B03D589bCfA8aD';       // Copilot (agentId 1935)
+const WORKER_2_ADDRESS = process.env.WORKER_2_ADDRESS ?? '0x4fc95120d30F6Cee8D7d64255A8d97c83edA7a7f';   // CodeRabbit (agentId 1936)
+const VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS ?? '0xdcA28036eD9e682c1976F6fD34ca64A33103D69C';    // ChaosChain Eval Verifier (agentId 1937)
+const ADMIN_ADDRESS = process.env.ADMIN_ADDRESS ?? '0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831';         // RD Owner (agentId 1598)
 const SKIP_CLOSE_EPOCH = process.env.SKIP_CLOSE_EPOCH === 'true';
 const ETHERSCAN = process.env.ETHERSCAN_BASE ?? 'https://sepolia.etherscan.io';
 
