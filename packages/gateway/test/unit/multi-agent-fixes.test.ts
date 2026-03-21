@@ -259,10 +259,10 @@ describe('2. admin_signer_address', () => {
 });
 
 // =============================================================================
-// 3. submitWorkMultiAgent branching
+// 3. submitWork — always single-agent on-chain (v1)
 // =============================================================================
 
-describe('3. submitWorkMultiAgent branching', () => {
+describe('3. submitWork — always single-agent (v1)', () => {
   let persistence: WorkflowPersistence;
   let txQueue: TxQueue;
   let encoder: ContractEncoder;
@@ -275,7 +275,7 @@ describe('3. submitWorkMultiAgent branching', () => {
     step = new SubmitWorkOnchainStep(txQueue, persistence, encoder);
   });
 
-  it('a. 1 author -> encodeSubmitWork (backward compatible)', async () => {
+  it('a. Single author -> encodeSubmitWork', async () => {
     const wf = makeWorkSubmissionWorkflow(
       {
         dkg_evidence: [makeDkgEvidence('tx1', '0xAlice', 1000)],
@@ -295,7 +295,7 @@ describe('3. submitWorkMultiAgent branching', () => {
     expect(encoder.encodeSubmitWorkMultiAgent).not.toHaveBeenCalled();
   });
 
-  it('b. 2 authors -> encodeSubmitWorkMultiAgent with 3 participants (+ signer)', async () => {
+  it('b. Multiple authors -> still encodeSubmitWork (v1: single-agent on-chain)', async () => {
     const wf = makeWorkSubmissionWorkflow(
       {
         dkg_evidence: [
@@ -314,102 +314,9 @@ describe('3. submitWorkMultiAgent branching', () => {
 
     await step.execute(wf);
 
-    expect(encoder.encodeSubmitWorkMultiAgent).toHaveBeenCalled();
-    expect(encoder.encodeSubmitWork).not.toHaveBeenCalled();
-
-    const call = (encoder.encodeSubmitWorkMultiAgent as ReturnType<typeof vi.fn>).mock.calls[0];
-    const workers = call[3] as string[];
-    const weights = call[4] as number[];
-
-    // 3 participants: Alice, Bob, Signer
-    expect(workers).toHaveLength(3);
-    expect(workers).toContain('0xAlice');
-    expect(workers).toContain('0xBob');
-    expect(workers).toContain('0xSigner');
-  });
-
-  it('c. Signer already an author -> no duplicate', async () => {
-    const wf = makeWorkSubmissionWorkflow(
-      {
-        dkg_evidence: [
-          makeDkgEvidence('tx1', '0xAlice', 1000),
-          makeDkgEvidence('tx2', '0xSigner', 2000), // signer IS an author
-        ],
-        signer_address: '0xSigner',
-      },
-      {
-        arweave_tx_id: 'mock-ar-1',
-        arweave_confirmed: true,
-        dkg_thread_root: '0xThreadRoot',
-        dkg_evidence_root: '0xEvidenceRoot',
-      },
-    );
-
-    await step.execute(wf);
-
-    const call = (encoder.encodeSubmitWorkMultiAgent as ReturnType<typeof vi.fn>).mock.calls[0];
-    const workers = call[3] as string[];
-
-    // Only 2 participants: Alice, Signer (no duplicate)
-    expect(workers).toHaveLength(2);
-  });
-
-  it('d. Weights sum to exactly 10000', async () => {
-    const wf = makeWorkSubmissionWorkflow(
-      {
-        dkg_evidence: [
-          makeDkgEvidence('tx1', '0xAlice', 1000),
-          makeDkgEvidence('tx2', '0xBob', 2000),
-          makeDkgEvidence('tx3', '0xCharlie', 3000),
-        ],
-        signer_address: '0xSigner',
-      },
-      {
-        arweave_tx_id: 'mock-ar-1',
-        arweave_confirmed: true,
-        dkg_thread_root: '0xThreadRoot',
-        dkg_evidence_root: '0xEvidenceRoot',
-      },
-    );
-
-    await step.execute(wf);
-
-    const call = (encoder.encodeSubmitWorkMultiAgent as ReturnType<typeof vi.fn>).mock.calls[0];
-    const weights = call[4] as number[];
-    const sum = weights.reduce((a, b) => a + b, 0);
-    expect(sum).toBe(10000);
-  });
-
-  it('e. Signer weight = 1 (0.01%), workers get the rest', async () => {
-    const wf = makeWorkSubmissionWorkflow(
-      {
-        dkg_evidence: [
-          makeDkgEvidence('tx1', '0xAlice', 1000),
-          makeDkgEvidence('tx2', '0xBob', 2000),
-        ],
-        signer_address: '0xSigner',
-      },
-      {
-        arweave_tx_id: 'mock-ar-1',
-        arweave_confirmed: true,
-        dkg_thread_root: '0xThreadRoot',
-        dkg_evidence_root: '0xEvidenceRoot',
-      },
-    );
-
-    await step.execute(wf);
-
-    const call = (encoder.encodeSubmitWorkMultiAgent as ReturnType<typeof vi.fn>).mock.calls[0];
-    const workers = call[3] as string[];
-    const weights = call[4] as number[];
-
-    // Find signer's weight
-    const signerIdx = workers.findIndex((w: string) => w.toLowerCase() === '0xsigner');
-    expect(weights[signerIdx]).toBe(1);
-
-    // Workers get the rest (9999 split between 2)
-    const workerWeights = weights.filter((_: number, i: number) => i !== signerIdx);
-    expect(workerWeights.every((w: number) => w >= 4999)).toBe(true);
+    // V1: always single-agent, even with multiple authors in evidence
+    expect(encoder.encodeSubmitWork).toHaveBeenCalled();
+    expect(encoder.encodeSubmitWorkMultiAgent).not.toHaveBeenCalled();
   });
 });
 

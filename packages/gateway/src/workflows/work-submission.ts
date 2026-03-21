@@ -382,57 +382,23 @@ export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord>
 
     const evidenceUri = `ar://${progress.arweave_tx_id}`;
 
-    // Phase 2: Multi-agent on-chain with minimal signer weight.
-    // The contract requires msg.sender in participants, so we include the signer
-    // with weight=1 (0.01%) and distribute the rest equally among real workers.
-    // NOTE: This causes minimal signer contamination (0.01% rewards/reputation).
-    // Phase 3 (operator/delegate pattern) will remove this requirement.
-    const uniqueAuthors = [...new Set(input.dkg_evidence.map((e) => e.author))].sort();
-
-    let txData: string;
-    if (uniqueAuthors.length > 1) {
-      // Ensure signer is in participants (contract requirement)
-      let workers = [...uniqueAuthors];
-      const signerInWorkers = workers.some(
-        (w) => w.toLowerCase() === input.signer_address.toLowerCase(),
-      );
-      if (!signerInWorkers) {
-        workers.push(input.signer_address);
-        workers.sort();
-      }
-
-      // Distribute weights: signer gets 1 (0.01%), rest split equally
-      const SIGNER_WEIGHT = 1;
-      const remainingWeight = 10000 - SIGNER_WEIGHT;
-      const realWorkers = workers.filter(
-        (w) => w.toLowerCase() !== input.signer_address.toLowerCase(),
-      );
-      const perWorker = Math.floor(remainingWeight / realWorkers.length);
-      const remainder = remainingWeight - perWorker * realWorkers.length;
-
-      const weightValues = workers.map((w) => {
-        if (w.toLowerCase() === input.signer_address.toLowerCase()) return SIGNER_WEIGHT;
-        const isFirst = w === realWorkers[0];
-        return perWorker + (isFirst ? remainder : 0);
-      });
-
-      txData = this.contractEncoder.encodeSubmitWorkMultiAgent(
-        input.data_hash,
-        progress.dkg_thread_root,
-        progress.dkg_evidence_root,
-        workers,
-        weightValues,
-        evidenceUri,
-      );
-    } else {
-      // Single agent: use submitWork (auto-wraps msg.sender as sole participant)
-      txData = this.contractEncoder.encodeSubmitWork(
-        input.data_hash,
-        progress.dkg_thread_root,
-        progress.dkg_evidence_root,
-        evidenceUri,
-      );
-    }
+    // V1: single-agent on-chain. Multi-agent attribution lives in the evidence
+    // DAG (per-event agent_address) and Arweave (per-node author).
+    //
+    // The contract requires msg.sender in participants (StudioProxy._submitWorkInternal).
+    // For third-party integrations (GitHub App, SDK → hosted gateway), the signer is
+    // different from the agents who did the work. submitWorkMultiAgent doesn't work
+    // because the signer must be a participant, which contaminates weights/reputation.
+    //
+    // This needs a delegate/operator pattern in the contract (submitWorkFor) to allow
+    // the gateway to submit on behalf of workers without being a participant.
+    // See: notes-reputation-architecture.md for Path A/B/C analysis.
+    const txData = this.contractEncoder.encodeSubmitWork(
+      input.data_hash,
+      progress.dkg_thread_root,
+      progress.dkg_evidence_root,
+      evidenceUri,
+    );
 
     const txRequest: TxRequest = {
       to: input.studio_address,

@@ -34,6 +34,7 @@ const WORKER_2_ADDRESS = process.env.WORKER_2_ADDRESS ?? '0x4fc95120d30F6Cee8D7d
 const VERIFIER_ADDRESS = process.env.VERIFIER_ADDRESS ?? '0xdcA28036eD9e682c1976F6fD34ca64A33103D69C';    // ChaosChain Eval Verifier (agentId 1937)
 const ADMIN_ADDRESS = process.env.ADMIN_ADDRESS ?? '0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831';         // RD Owner (agentId 1598)
 const SKIP_CLOSE_EPOCH = process.env.SKIP_CLOSE_EPOCH === 'true';
+const EPOCH = parseInt(process.env.EPOCH ?? process.env.CURRENT_EPOCH ?? '0', 10);
 const ETHERSCAN = process.env.ETHERSCAN_BASE ?? 'https://sepolia.etherscan.io';
 
 const POLL_MS = 5_000;
@@ -269,9 +270,9 @@ async function main(): Promise<void> {
   // ════════════════════════════════════════════════════════════════════════
   line('Step 5: Submit Scores (Verifier → each Worker)');
 
-  const workersToScore = multiAgent
-    ? [WORKER_ADDRESS, WORKER_2_ADDRESS]
-    : [WORKER_ADDRESS];
+  // V1: single-agent on-chain. The only participant is the admin signer (msg.sender).
+  // Multi-agent evidence lives in the DAG, but on-chain only the signer is participant.
+  const workersToScore = [ADMIN_ADDRESS];
 
   const scores = [8500, 7200, 9000, 8800, 7600];
   console.log(`   scores:    [${scores.map((s) => (s / 100).toFixed(0)).join(', ')}] (0-100)`);
@@ -293,7 +294,7 @@ async function main(): Promise<void> {
       signer_address: VERIFIER_ADDRESS,
       worker_address: worker,
       admin_signer_address: ADMIN_ADDRESS,
-      epoch: 0,
+      epoch: EPOCH,
       salt: '0x0000000000000000000000000000000000000000000000000000000000000001',
       mode: 'direct',
     });
@@ -328,7 +329,7 @@ async function main(): Promise<void> {
     line('Step 6: Close Epoch (consensus + rewards + reputation)');
 
     console.log(`   studio: ${short(STUDIO_ADDRESS)}`);
-    console.log(`   epoch:  0`);
+    console.log(`   epoch:  ${EPOCH}`);
     console.log(`   signer: ${short(ADMIN_ADDRESS)} (RD owner)`);
     console.log('');
     console.log('   This triggers:');
@@ -338,7 +339,7 @@ async function main(): Promise<void> {
 
     const epochRes = await gw('POST', '/workflows/close-epoch', {
       studio_address: STUDIO_ADDRESS,
-      epoch: 0,
+      epoch: EPOCH,
       signer_address: ADMIN_ADDRESS,
     });
     const epochWfId = (epochRes as Record<string, unknown>).id as string;
@@ -363,7 +364,7 @@ async function main(): Promise<void> {
     console.log('   To close manually:');
     console.log(`   curl -X POST ${GATEWAY_URL}/workflows/close-epoch \\`);
     console.log(`     -H "Content-Type: application/json" \\`);
-    console.log(`     -d '{"studio_address":"${STUDIO_ADDRESS}","epoch":0,"signer_address":"${ADMIN_ADDRESS}"}'`);
+    console.log(`     -d '{"studio_address":"${STUDIO_ADDRESS}","epoch":${EPOCH},"signer_address":"${ADMIN_ADDRESS}"}'`);
   }
 
   // ════════════════════════════════════════════════════════════════════════
