@@ -403,7 +403,7 @@ export class Gateway {
     );
 
     // Workflow routes
-    this.app.use(createRoutes(this.engine, persistence, this.logger));
+    this.app.use(createRoutes(this.engine, persistence, this.logger, primarySignerAddress));
 
     // Public read API (rate limited, no auth)
     const reputationClientAddrs = (process.env.REPUTATION_CLIENT_ADDRESSES ?? '')

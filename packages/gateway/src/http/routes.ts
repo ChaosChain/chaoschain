@@ -177,7 +177,8 @@ class ValidationError extends Error {
 export function createRoutes(
   engine: WorkflowEngine,
   persistence: WorkflowPersistence,
-  logger: Logger
+  logger: Logger,
+  primarySignerAddress?: string
 ): Router {
   const router = Router();
 
@@ -264,9 +265,12 @@ export function createRoutes(
           input.worker_address = validateAddress(body.worker_address, 'worker_address');
         }
 
-        // Optional admin signer for registerValidator (onlyOwner on RewardsDistributor)
+        // Admin signer for registerValidator (onlyOwner on RewardsDistributor).
+        // Defaults to the gateway's primary signer so the caller doesn't need to know it.
         if (body.admin_signer_address) {
           input.admin_signer_address = validateAddress(body.admin_signer_address, 'admin_signer_address');
+        } else if (primarySignerAddress) {
+          input.admin_signer_address = primarySignerAddress;
         }
 
         // Create workflow record
