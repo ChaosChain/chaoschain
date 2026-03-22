@@ -303,12 +303,7 @@ export class Gateway {
       }
     });
 
-    // Resume active workflows (startup reconciliation)
-    this.logger.info({}, 'Resuming active workflows...');
-    await this.engine.reconcileAllActive();
-    this.logger.info({}, 'Active workflows resumed');
-
-    // Setup HTTP server
+    // Setup HTTP server (MUST happen before workflow reconciliation so /health is available)
     this.app.use(express.json({ limit: '10mb' }));
 
     // Root landing page
@@ -480,6 +475,15 @@ export class Gateway {
       },
       signer: primarySignerAddress ?? 'NOT_CONFIGURED',
     }, 'Gateway started successfully — resolved addresses');
+
+    // Resume active workflows in the background AFTER the HTTP server is healthy.
+    // This must not block startup — stale workflows can take minutes to exhaust
+    // retries, which would prevent /health from responding within Railway's window.
+    this.logger.info({}, 'Resuming active workflows (background)...');
+    this.engine.reconcileAllActive().then(
+      () => this.logger.info({}, 'Active workflows resumed'),
+      (err) => this.logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Workflow reconciliation failed'),
+    );
   }
 
   /**
