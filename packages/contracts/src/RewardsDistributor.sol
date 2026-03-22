@@ -47,7 +47,10 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     uint256 public beta = 1 * PRECISION;  // Reward sharpness parameter
     uint256 public kappa = 2 * PRECISION; // Slashing severity parameter
     uint256 public tau = 10 * PRECISION;  // Error tolerance threshold
-    
+
+    /// @dev Treasury address for orchestrator fee distribution
+    address public treasury;
+
     /// @dev Consensus results storage (dataHash => ConsensusResult)
     mapping(bytes32 => ConsensusResult) private _consensusResults;
     
@@ -63,12 +66,15 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
     // ============ Constructor ============
     
     /**
-     * @dev Initialize with registry
+     * @dev Initialize with registry and treasury
      * @param registry_ The ChaosChainRegistry address
+     * @param treasury_ The treasury address for orchestrator fees
      */
-    constructor(address registry_) Ownable(msg.sender) {
+    constructor(address registry_, address treasury_) Ownable(msg.sender) {
         require(registry_ != address(0), "Invalid registry");
+        require(treasury_ != address(0), "Invalid treasury");
         registry = IChaosChainRegistry(registry_);
+        treasury = treasury_;
     }
     
     // ============ Core Functions ============
@@ -107,7 +113,12 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
             uint256 orchestratorFee = (totalBudget * 5) / 100;
             uint256 validatorPool = (totalBudget * 10) / 100;
             uint256 workerPool = totalBudget - orchestratorFee - validatorPool;
-            
+
+            // Transfer orchestrator fee to treasury
+            if (orchestratorFee > 0) {
+                studioProxy.releaseFunds(treasury, orchestratorFee, dataHash);
+            }
+
             // ═══════════════════════════════════════════════════════════════════
             // PER-WORKER CONSENSUS (Protocol Spec §2.1-2.2, §4.2)
             // Each worker gets individual consensus scores and reputation!
@@ -407,6 +418,11 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         }
         uint256 universalAvg = universalSum / studioProxy.UNIVERSAL_DIMENSIONS();
         
+        // If no custom dimensions, universal scores represent 100% of quality
+        if (customDimNames.length == 0) {
+            return universalAvg;
+        }
+
         // 2. Compute custom studio component (§3.1 studio-specific)
         // These are weighted according to studio preferences
         uint256 customWeightedSum = 0;
@@ -531,7 +547,15 @@ contract RewardsDistributor is Ownable, IRewardsDistributor {
         kappa = kappa_;
         tau = tau_;
     }
-    
+
+    /// @inheritdoc IRewardsDistributor
+    function setTreasury(address treasury_) external onlyOwner {
+        require(treasury_ != address(0), "Invalid treasury");
+        address old = treasury;
+        treasury = treasury_;
+        emit TreasuryUpdated(old, treasury_);
+    }
+
     // ============ Epoch Management Functions ============
     
     /**

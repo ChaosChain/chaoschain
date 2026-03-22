@@ -19,6 +19,21 @@ const REPUTATION_ABI = [
   'function getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2) view returns (uint64 count, int128 summaryValue, uint8 summaryValueDecimals)',
 ] as const;
 
+/**
+ * Coerce any ethers return value (BigInt, number, string, or unknown) to a
+ * safe JS number. Handles ethers v6 Result entries that may be BigInt,
+ * hex strings, or already numbers.
+ */
+function safeNumber(val: unknown): number {
+  if (typeof val === 'bigint') return Number(val);
+  if (typeof val === 'number') return val;
+  if (typeof val === 'string') {
+    const n = Number(val);
+    return Number.isNaN(n) ? 0 : n;
+  }
+  return 0;
+}
+
 export interface ReputationData {
   agent_id: number;
   trust_score: number;
@@ -36,9 +51,17 @@ export interface ReputationReaderConfig {
   provider: ethers.Provider;
   identityRegistryAddress: string;
   reputationRegistryAddress: string;
+  rewardsDistributorAddress: string;
   network: string;
   /** Number of universal PoA dimensions (default: 5) */
   universalDimensions?: number;
+  /**
+   * Client addresses for ReputationRegistry.getSummary (required on-chain).
+   * Defaults to [rewardsDistributorAddress] when omitted or empty.
+   * The RewardsDistributor is the contract that calls giveFeedback during closeEpoch,
+   * so it's the correct clientAddress (msg.sender recorded in the registry).
+   */
+  reputationClientAddresses?: string[];
 }
 
 export class ReputationReader {
@@ -46,6 +69,8 @@ export class ReputationReader {
   private reputation: ethers.Contract;
   private network: string;
   private dims: number;
+  /** Checksum addresses for getSummary client filter */
+  private readonly summaryClientAddresses: string[];
 
   constructor(config: ReputationReaderConfig) {
     this.identity = new ethers.Contract(
@@ -60,6 +85,14 @@ export class ReputationReader {
     );
     this.network = config.network;
     this.dims = config.universalDimensions ?? 5;
+
+    // Default to RewardsDistributor address — the contract that calls giveFeedback
+    const raw =
+      config.reputationClientAddresses?.filter((a) => a?.trim().length > 0) ??
+      [];
+    const addrs =
+      raw.length > 0 ? raw : [config.rewardsDistributorAddress];
+    this.summaryClientAddresses = addrs.map((a) => ethers.getAddress(a.trim()));
   }
 
   /**
@@ -109,40 +142,53 @@ export class ReputationReader {
    * Caller must verify agentExists first.
    */
   async getReputation(agentId: number): Promise<ReputationData> {
-    // Parallel reads: overall summary + verifier-specific summary
-    // tag2 is hardcoded to 'CONSENSUS_MATCH' in RewardsDistributor._publishValidatorReputation
-    const [overall, verifier] = await Promise.all([
-      this.reputation.getSummary(agentId, [], '', ''),
-      this.reputation.getSummary(agentId, [], 'VALIDATOR_ACCURACY', 'CONSENSUS_MATCH'),
-    ]);
+    let totalCount = 0;
+    let totalValue = 0;
+    let verifierCount = 0;
+    let verifierValue = 0;
 
-    const totalCount = Number(overall[0] as bigint);
-    const totalValue = Number(overall[1] as bigint);
+    try {
+      const clients = this.summaryClientAddresses;
+      const [overall, verifier] = await Promise.all([
+        this.reputation.getSummary(agentId, clients, '', ''),
+        this.reputation.getSummary(
+          agentId,
+          clients,
+          'VALIDATOR_ACCURACY',
+          'CONSENSUS_MATCH',
+        ),
+      ]);
 
-    const verifierCount = Number(verifier[0] as bigint);
-    const verifierValue = Number(verifier[1] as bigint);
+      totalCount = safeNumber(overall[0]);
+      totalValue = safeNumber(overall[1]);
+      verifierCount = safeNumber(verifier[0]);
+      verifierValue = safeNumber(verifier[1]);
+    } catch (err) {
+      // Contract call failed (ABI mismatch, decode error, RPC issue).
+      // Return zero-reputation rather than propagating — the agent exists
+      // on-chain, we just can't read reputation data right now.
+      console.error(
+        `[ReputationReader] getSummary failed for agent ${agentId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     const workerCount = totalCount - verifierCount;
     const workerValue = totalValue - verifierValue;
 
-    // trust_score: average feedback value across all entries (0-100)
     const trustScore =
       totalCount > 0 ? Math.round(totalValue / totalCount) : 0;
 
-    // epochs_participated: each epoch produces `dims` worker feedbacks
-    // plus verifier feedbacks. Approximate using total count.
     const workerEpochs =
       this.dims > 0 ? Math.floor(workerCount / this.dims) : 0;
     const epochsParticipated = Math.max(workerEpochs, verifierCount);
 
-    // quality_score: worker average normalized to 0-1
     let qualityScore: number | null = null;
     if (workerCount > 0) {
       qualityScore =
         Math.round((workerValue / workerCount / 100) * 100) / 100;
     }
 
-    // consensus_accuracy: verifier average normalized to 0-1
     let consensusAccuracy: number | null = null;
     if (verifierCount > 0) {
       consensusAccuracy =

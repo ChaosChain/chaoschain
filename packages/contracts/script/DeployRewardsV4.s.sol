@@ -17,7 +17,8 @@ contract DeployRewardsV4 is Script {
         
         vm.startBroadcast(deployerPrivateKey);
         
-        RewardsDistributor rewardsDistributor = new RewardsDistributor(registry);
+        address treasury = 0x20E7B2A2c8969725b88Dd3EF3a11Bc3353C83F70; // ChaosChain treasury
+        RewardsDistributor rewardsDistributor = new RewardsDistributor(registry, treasury);
         console.log("RewardsDistributor V4:", address(rewardsDistributor));
         
         ChaosChainRegistry(registry).setRewardsDistributor(address(rewardsDistributor));

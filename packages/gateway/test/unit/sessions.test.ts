@@ -82,7 +82,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
     timestamp: '2026-03-14T10:00:00Z',
     summary: 'Received task',
     studio: {
-      studio_address: '0xA855F7893ac01653D1bCC24210bFbb3c47324649',
+      studio_address: '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0',
       studio_policy_version: 'engineering-studio-default-v1',
     },
     task: {

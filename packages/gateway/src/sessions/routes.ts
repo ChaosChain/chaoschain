@@ -354,11 +354,16 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       if (finalStatus === 'completed' && config.submitWork && config.signerAddress) {
         const dag = await store.materializeDAG(sessionId);
 
+        // Map event_ids to arweave_tx_ids so DKG parent references resolve correctly
+        const eventToArweave = new Map(
+          dag.nodes.map((n) => [n.node_id, `session_${sessionId}_${n.node_id}`]),
+        );
+
         const dkgEvidence = dag.nodes.map((node) => ({
           arweave_tx_id: `session_${sessionId}_${node.node_id}`,
           author: node.agent_address,
           timestamp: new Date(node.timestamp).getTime(),
-          parent_ids: node.parent_ids,
+          parent_ids: node.parent_ids.map((pid) => eventToArweave.get(pid) ?? pid),
           payload_hash: node.payload_hash,
           artifact_ids: node.artifacts.map((a) => a.id),
           signature: '0xsession',
@@ -382,7 +387,10 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         try {
           const workflow = await config.submitWork({
             studio_address: session.studio_address,
-            epoch: 0,
+            // Epoch groups work submissions for batch consensus + reward distribution.
+            // Epoch 0 is burned on Sepolia Studio v2 (20+ works, exceeds block gas limit).
+            // TODO: auto-incrementing or studio-managed epochs.
+            epoch: parseInt(process.env.CURRENT_EPOCH ?? '1', 10),
             agent_address: session.agent_address,
             data_hash: dataHash,
             dkg_evidence: dkgEvidence,

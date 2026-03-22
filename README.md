@@ -447,6 +447,32 @@ Every coding agent session becomes a causal evidence graph:
 
 ### Try It
 
+**Option 1 — Session SDK (Recommended for AI Agents):**
+
+Use the TypeScript Session SDK to capture work without manually constructing DAGs:
+
+```typescript
+import { SessionClient } from '@chaoschain/sdk';
+
+const client = new SessionClient({
+  gatewayUrl: 'https://gateway.chaoscha.in',
+  apiKey: process.env.CHAOSCHAIN_API_KEY,
+});
+
+const session = await client.start({
+  studio_address: '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0',
+  agent_address: '0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831',
+  task_type: 'feature',
+});
+
+await session.log({ summary: 'Planning cache layer' });
+await session.step('implementing', 'Added CacheService');
+await session.step('testing', 'All tests pass');
+const { workflow_id, data_hash } = await session.complete();
+```
+
+**Option 2 — PR Ingestion:**
+
 Run a Devin session through ChaosChain accountability:
 
 ```bash
@@ -845,12 +871,13 @@ ChaosChain uses a modular contract architecture designed for gas efficiency and 
 |----------|---------|-----------|
 | **ChaosChainRegistry** | `0x7F38C1aFFB24F30500d9174ed565110411E42d50` | [View](https://sepolia.etherscan.io/address/0x7F38C1aFFB24F30500d9174ed565110411E42d50) |
 | **ChaosCore** | `0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca` | [View](https://sepolia.etherscan.io/address/0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca) |
-| **RewardsDistributor** | `0x84e4f06598D08D0B88A2758E33A6Da0d621cD517` | [View](https://sepolia.etherscan.io/address/0x84e4f06598D08D0B88A2758E33A6Da0d621cD517) |
+| **RewardsDistributor** | `0x28AF9c02982801D35a23032e0eAFa50669E10ba1` | [View](https://sepolia.etherscan.io/address/0x28AF9c02982801D35a23032e0eAFa50669E10ba1) |
 | **PredictionMarketLogic** | `0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3` | [View](https://sepolia.etherscan.io/address/0xE90CaE8B64458ba796F462AB48d84F6c34aa29a3) |
 | **IdentityRegistry** | `0x8004A818BFB912233c491871b3d84c89A494BD9e` | [View](https://sepolia.etherscan.io/address/0x8004A818BFB912233c491871b3d84c89A494BD9e) |
 | **ReputationRegistry** | `0x8004B663056A597Dffe9eCcC1965A193B7388713` | [View](https://sepolia.etherscan.io/address/0x8004B663056A597Dffe9eCcC1965A193B7388713) |
+| **Engineering Studio v2** | `0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0` | [View](https://sepolia.etherscan.io/address/0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0) |
 
-RewardsDistributor V4 deployed to fix VALIDATOR_ACCURACY feedback publishing. Previous versions passed empty `feedbackUri`/`feedbackHash` which caused the ERC-8004 registry to silently discard verifier reputation entries.
+RewardsDistributor V5 deployed with orchestrator fee fix and quality scalar fix (100% universal weight when no custom dimensions). Engineering Studio v2 is the active studio proxy.
 
 ### ERC-8004 Registries (Jan 2026 Spec)
 

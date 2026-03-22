@@ -12,7 +12,7 @@ if [ -z "$API_KEY" ]; then
   echo "WARNING: API_KEY not set. Some endpoints may return 401."
 fi
 
-STUDIO="0xA855F7893ac01653D1bCC24210bFbb3c47324649"
+STUDIO="0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0"
 WORKER="0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831"
 # Verifier address (use same as worker for local test, or set VERIFIER_ADDRESS)
 VERIFIER="${VERIFIER_ADDRESS:-$WORKER}"
@@ -45,9 +45,9 @@ R2=$(curl -s -X POST "$GATEWAY_URL/v1/sessions/$SESSION_ID/events" \
   -H "Content-Type: application/json" \
   -H "x-api-key: $API_KEY" \
   -d '[
-    {"event_type":"task_received","event_id":"evt_1","timestamp":"2026-03-15T10:00:00Z","summary":"Received feature task","causality":{"parent_event_ids":[]},"agent":{"agent_address":"0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831","role":"worker"},"studio":{"studio_address":"0xA855F7893ac01653D1bCC24210bFbb3c47324649","studio_policy_version":"engineering-studio-default-v1"},"task":{"work_mandate_id":"generic-task","task_type":"feature"}},
-    {"event_type":"plan_created","event_id":"evt_2","timestamp":"2026-03-15T10:02:00Z","summary":"Created implementation plan","causality":{"parent_event_ids":["evt_1"]},"agent":{"agent_address":"0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831","role":"worker"},"studio":{"studio_address":"0xA855F7893ac01653D1bCC24210bFbb3c47324649","studio_policy_version":"engineering-studio-default-v1"},"task":{"work_mandate_id":"generic-task","task_type":"feature"}},
-    {"event_type":"submission_created","event_id":"evt_3","timestamp":"2026-03-15T10:15:00Z","summary":"Submitted completed feature work","causality":{"parent_event_ids":["evt_2"]},"agent":{"agent_address":"0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831","role":"worker"},"studio":{"studio_address":"0xA855F7893ac01653D1bCC24210bFbb3c47324649","studio_policy_version":"engineering-studio-default-v1"},"task":{"work_mandate_id":"generic-task","task_type":"feature"}}
+    {"event_type":"task_received","event_id":"evt_1","timestamp":"2026-03-15T10:00:00Z","summary":"Received feature task","causality":{"parent_event_ids":[]},"agent":{"agent_address":"0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831","role":"worker"},"studio":{"studio_address":"0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0","studio_policy_version":"engineering-studio-default-v1"},"task":{"work_mandate_id":"generic-task","task_type":"feature"}},
+    {"event_type":"plan_created","event_id":"evt_2","timestamp":"2026-03-15T10:02:00Z","summary":"Created implementation plan","causality":{"parent_event_ids":["evt_1"]},"agent":{"agent_address":"0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831","role":"worker"},"studio":{"studio_address":"0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0","studio_policy_version":"engineering-studio-default-v1"},"task":{"work_mandate_id":"generic-task","task_type":"feature"}},
+    {"event_type":"submission_created","event_id":"evt_3","timestamp":"2026-03-15T10:15:00Z","summary":"Submitted completed feature work","causality":{"parent_event_ids":["evt_2"]},"agent":{"agent_address":"0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831","role":"worker"},"studio":{"studio_address":"0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0","studio_policy_version":"engineering-studio-default-v1"},"task":{"work_mandate_id":"generic-task","task_type":"feature"}}
   ]')
 if echo "$R2" | grep -q '"events_accepted":3'; then
   echo "Step 2 OK — events accepted=3"

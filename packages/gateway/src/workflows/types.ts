@@ -187,6 +187,7 @@ export interface ScoreSubmissionInput {
   signer_address: string;      // Which key signs on-chain txs
   worker_address?: string;     // Required for direct mode - which worker is being scored
   mode?: ScoreSubmissionMode;  // "direct" (default) or "commit_reveal"
+  admin_signer_address?: string; // Owner signer for registerValidator (onlyOwner on RewardsDistributor)
 }
 
 // =============================================================================
@@ -246,6 +247,10 @@ export interface CloseEpochProgress {
   close_confirmed?: boolean;
   close_block?: number;
   close_confirmed_at?: number;
+
+  // Treasury withdraw (pull payment after closeEpoch)
+  treasury_withdraw_tx_hash?: string;
+  treasury_withdraw_confirmed?: boolean;
 }
 
 export type CloseEpochRecord = WorkflowRecord<CloseEpochInput, CloseEpochProgress>;

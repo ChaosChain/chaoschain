@@ -1,6 +1,6 @@
 {
   "_description": "Pre-built evidence packages for verifier testing. Derived from a 3-commit Devin session (JWT auth refactor). Use these to test your verifier locally without running the full demo script.",
-  "_studio": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+  "_studio": "0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0",
   "_session": "devin-session-001",
 
   "evidence_packages": [

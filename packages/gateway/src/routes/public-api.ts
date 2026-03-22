@@ -161,6 +161,11 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
         const message =
           err instanceof Error ? err.message : 'Unknown error';
 
+        console.error(
+          `[PublicAPI] /v1/agent/${rawId}/reputation error:`,
+          err instanceof Error ? err.stack ?? err.message : err,
+        );
+
         if (
           message.includes('could not detect network') ||
           message.includes('ECONNREFUSED') ||
@@ -572,7 +577,7 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
 
       const [, owner, repo, numStr] = prMatch;
       const prNumber = parseInt(numStr, 10);
-      const studioAddr = studio_address ?? '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+      const studioAddr = studio_address ?? '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 
       try {
         const ghHeaders: Record<string, string> = { 'User-Agent': 'ChaosChain-Gateway' };

@@ -40,6 +40,7 @@ interface CreateScoreSubmissionRequest {
   signer_address: string;
   worker_address?: string;  // Required for direct mode - the worker being scored
   mode?: 'direct' | 'commit_reveal';  // Default: "direct"
+  admin_signer_address?: string; // Owner signer for registerValidator (onlyOwner)
 }
 
 interface CreateCloseEpochRequest {
@@ -176,7 +177,8 @@ class ValidationError extends Error {
 export function createRoutes(
   engine: WorkflowEngine,
   persistence: WorkflowPersistence,
-  logger: Logger
+  logger: Logger,
+  primarySignerAddress?: string
 ): Router {
   const router = Router();
 
@@ -261,6 +263,14 @@ export function createRoutes(
             throw new ValidationError('worker_address is required for direct scoring mode');
           }
           input.worker_address = validateAddress(body.worker_address, 'worker_address');
+        }
+
+        // Admin signer for registerValidator (onlyOwner on RewardsDistributor).
+        // Defaults to the gateway's primary signer so the caller doesn't need to know it.
+        if (body.admin_signer_address) {
+          input.admin_signer_address = validateAddress(body.admin_signer_address, 'admin_signer_address');
+        } else if (primarySignerAddress) {
+          input.admin_signer_address = primarySignerAddress;
         }
 
         // Create workflow record

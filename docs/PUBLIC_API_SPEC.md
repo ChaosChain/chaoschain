@@ -384,14 +384,14 @@ Returns pending (unfinalized) work submissions for a studio.
 {
   "version": "1.0",
   "data": {
-    "studio": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+    "studio": "0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0",
     "work": [
       {
         "work_id": "0x5a2d2528…",
         "data_hash": "0x5a2d2528…",
         "agent_id": 1598,
         "worker_address": "0x9B4Cef62a0ce1671ccFEFA6a6D8cBFa165c49831",
-        "studio_address": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+        "studio_address": "0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0",
         "epoch": 0,
         "submitted_at": "2026-03-10T14:32:00.000Z",
         "evidence_anchor": "demo_abc123…",

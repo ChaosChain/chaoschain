@@ -113,7 +113,7 @@ Body:
 
 ```json
 {
-  "studio_address": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+  "studio_address": "0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0",
   "epoch": 0,
   "validator_address": "0xYOUR_VERIFIER_ADDRESS",
   "data_hash": "0x5a2d2528...",

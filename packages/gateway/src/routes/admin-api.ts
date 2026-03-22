@@ -230,7 +230,7 @@ export function createAdminRoutes(config: AdminApiConfig): Router {
   // POST /admin/seed-demo — insert demo workflow records for testing
   router.post('/admin/seed-demo', requireAdmin, async (req: Request, res: Response) => {
     const studioAddress = (req.body?.studio_address as string)
-      ?? '0xA855F7893ac01653D1bCC24210bFbb3c47324649';
+      ?? '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
 
     try {
       const now = Date.now();

@@ -32,7 +32,7 @@ Body:
 ```json
 {
   "pr_url": "https://github.com/owner/repo/pull/123",
-  "studio_address": "0xA855F7893ac01653D1bCC24210bFbb3c47324649",
+  "studio_address": "0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0",
   "task_type": "feature",
   "work_mandate_id": "generic-task"
 }
