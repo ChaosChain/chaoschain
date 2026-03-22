@@ -20,16 +20,8 @@ const REPUTATION_ABI = [
 ] as const;
 
 /**
- * Default studio client for Engineering Agent Studio v2 (Sepolia).
- * On-chain ReputationRegistry.getSummary requires a non-empty clientAddresses
- * filter (ERC-8004 Feb 2026); empty array reverts with "clientAddresses required".
- */
-export const DEFAULT_REPUTATION_CLIENT_ADDRESS =
-  '0xFA0795fD5D7F58eCAa7Eae35Ad9cB8AED9424Dd0';
-
-/**
  * Coerce any ethers return value (BigInt, number, string, or unknown) to a
- * safe JS number.  Handles ethers v6 Result entries that may be BigInt,
+ * safe JS number. Handles ethers v6 Result entries that may be BigInt,
  * hex strings, or already numbers.
  */
 function safeNumber(val: unknown): number {
@@ -59,12 +51,15 @@ export interface ReputationReaderConfig {
   provider: ethers.Provider;
   identityRegistryAddress: string;
   reputationRegistryAddress: string;
+  rewardsDistributorAddress: string;
   network: string;
   /** Number of universal PoA dimensions (default: 5) */
   universalDimensions?: number;
   /**
    * Client addresses for ReputationRegistry.getSummary (required on-chain).
-   * Defaults to {@link DEFAULT_REPUTATION_CLIENT_ADDRESS} when omitted or empty.
+   * Defaults to [rewardsDistributorAddress] when omitted or empty.
+   * The RewardsDistributor is the contract that calls giveFeedback during closeEpoch,
+   * so it's the correct clientAddress (msg.sender recorded in the registry).
    */
   reputationClientAddresses?: string[];
 }
@@ -91,11 +86,12 @@ export class ReputationReader {
     this.network = config.network;
     this.dims = config.universalDimensions ?? 5;
 
+    // Default to RewardsDistributor address — the contract that calls giveFeedback
     const raw =
       config.reputationClientAddresses?.filter((a) => a?.trim().length > 0) ??
       [];
     const addrs =
-      raw.length > 0 ? raw : [DEFAULT_REPUTATION_CLIENT_ADDRESS];
+      raw.length > 0 ? raw : [config.rewardsDistributorAddress];
     this.summaryClientAddresses = addrs.map((a) => ethers.getAddress(a.trim()));
   }
 

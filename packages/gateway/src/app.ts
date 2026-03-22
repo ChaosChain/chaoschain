@@ -403,7 +403,7 @@ export class Gateway {
     );
 
     // Workflow routes
-    this.app.use(createRoutes(this.engine, persistence, this.logger));
+    this.app.use(createRoutes(this.engine, persistence, this.logger, primarySignerAddress));
 
     // Public read API (rate limited, no auth)
     const reputationClientAddrs = (process.env.REPUTATION_CLIENT_ADDRESSES ?? '')
@@ -415,6 +415,7 @@ export class Gateway {
       provider: await this.createProvider(),
       identityRegistryAddress: this.config.identityRegistryAddress,
       reputationRegistryAddress: this.config.reputationRegistryAddress,
+      rewardsDistributorAddress: this.config.rewardsDistributorAddress,
       network: process.env.NETWORK_NAME ?? 'base-sepolia',
       reputationClientAddresses:
         reputationClientAddrs.length > 0 ? reputationClientAddrs : undefined,

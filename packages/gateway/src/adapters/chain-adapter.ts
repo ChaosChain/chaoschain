@@ -338,9 +338,14 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
     try {
       const result = await contract.getScoreVectorsForWorker(dataHash, worker);
       const validators: string[] = result.validators ?? result[0];
-      return validators.some(
+      const scoreVectors: string[] = result.scoreVectors ?? result[1];
+      const idx = validators.findIndex(
         (v: string) => v.toLowerCase() === validator.toLowerCase()
       );
+      if (idx === -1) return false;
+      // Verify score data is non-empty (contract may create empty slots for multi-agent participants)
+      const scoreData = scoreVectors[idx];
+      return typeof scoreData === 'string' && scoreData !== '0x' && scoreData.length > 2;
     } catch {
       return false;
     }

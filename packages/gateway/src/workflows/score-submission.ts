@@ -951,14 +951,14 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
       }
     }
 
-    // Precondition: reveal must be confirmed
-    if (!progress.reveal_confirmed) {
+    // Precondition: scoring must be confirmed (direct or commit-reveal)
+    if (!progress.score_confirmed && !progress.reveal_confirmed) {
       return {
         type: 'FAILED',
         error: {
           category: 'PERMANENT',
-          message: 'Reveal not confirmed',
-          code: 'REVEAL_NOT_CONFIRMED',
+          message: 'Score not confirmed (neither direct score nor reveal confirmed)',
+          code: 'SCORE_NOT_CONFIRMED',
         },
       };
     }
@@ -975,15 +975,17 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
     };
 
     try {
+      // Use admin signer for onlyOwner registerValidator, fall back to score signer
+      const signerForRegister = input.admin_signer_address ?? input.signer_address;
       const txHash = await this.txQueue.submitOnly(
         workflow.id,
-        input.signer_address,
+        signerForRegister,
         txRequest
       );
 
       // Persist tx hash (critical checkpoint)
-      await this.persistence.appendProgress(workflow.id, { 
-        register_validator_tx_hash: txHash 
+      await this.persistence.appendProgress(workflow.id, {
+        register_validator_tx_hash: txHash
       });
 
       return { type: 'SUCCESS', nextStep: 'AWAIT_REGISTER_VALIDATOR_CONFIRM' };
@@ -1104,8 +1106,8 @@ export class AwaitRegisterValidatorConfirmStep implements StepExecutor<ScoreSubm
     try {
       const receipt = await this.txQueue.waitForTx(progress.register_validator_tx_hash);
 
-      // Release signer lock after confirmation
-      this.txQueue.releaseSignerLock(input.signer_address);
+      // Release signer lock after confirmation (admin signer if used)
+      this.txQueue.releaseSignerLock(input.admin_signer_address ?? input.signer_address);
 
       switch (receipt.status) {
         case 'confirmed':
