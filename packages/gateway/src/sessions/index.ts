@@ -1,7 +1,7 @@
 export { SessionStore, NotFoundError, ConflictError } from './store.js';
 export type { PoolLike } from './store.js';
 export { createSessionRoutes } from './routes.js';
-export type { SessionApiConfig, SubmitWorkFn } from './routes.js';
+export type { SessionApiConfig, SubmitWorkFn, EpochAllocator } from './routes.js';
 export type {
   CodingSessionEvent,
   SessionMetadata,

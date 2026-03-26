@@ -125,6 +125,7 @@ export interface SessionMetadata {
   started_at: string; // ISO-8601
   completed_at: string | null;
   event_count: number;
+  epoch: number | null;
   workflow_id: string | null;
   data_hash: string | null;
 }

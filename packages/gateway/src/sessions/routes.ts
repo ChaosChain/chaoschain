@@ -127,17 +127,31 @@ export interface SubmitWorkFn {
   (input: Record<string, unknown>): Promise<{ id: string }>;
 }
 
+export interface EpochAllocator {
+  allocate(): Promise<number>;
+  current(): number;
+}
+
 export interface SessionApiConfig {
   store: SessionStore;
   apiKeys?: Set<string>;
   submitWork?: SubmitWorkFn;
   signerAddress?: string;
+  epochAllocator?: EpochAllocator;
   logger?: { warn(obj: Record<string, unknown>, msg: string): void };
 }
 
 export function createSessionRoutes(config: SessionApiConfig): Router {
   const router = Router();
   const { store } = config;
+
+  // ── Epoch read endpoint ──
+  router.get('/v1/epoch/current', (_req: Request, res: Response) => {
+    const epoch = config.epochAllocator
+      ? config.epochAllocator.current()
+      : parseInt(process.env.CURRENT_EPOCH ?? '1', 10);
+    res.json({ version: API_VERSION, data: { next_epoch: epoch } });
+  });
 
   // =========================================================================
   // POST /v1/sessions — create a new coding session
@@ -166,6 +180,10 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         ? body.session_id
         : `sess_${randomUUID().replace(/-/g, '')}`;
 
+      const epoch = config.epochAllocator
+        ? await config.epochAllocator.allocate()
+        : parseInt(process.env.CURRENT_EPOCH ?? '1', 10);
+
       const meta: SessionMetadata = {
         session_id: sessionId,
         session_root_event_id: null,
@@ -178,6 +196,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         started_at: new Date().toISOString(),
         completed_at: null,
         event_count: 0,
+        epoch,
         workflow_id: null,
         data_hash: null,
       };
@@ -387,10 +406,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         try {
           const workflow = await config.submitWork({
             studio_address: session.studio_address,
-            // Epoch groups work submissions for batch consensus + reward distribution.
-            // Epoch 0 is burned on Sepolia Studio v2 (20+ works, exceeds block gas limit).
-            // TODO: auto-incrementing or studio-managed epochs.
-            epoch: parseInt(process.env.CURRENT_EPOCH ?? '1', 10),
+            epoch: session.epoch ?? parseInt(process.env.CURRENT_EPOCH ?? '1', 10),
             agent_address: session.agent_address,
             data_hash: dataHash,
             dkg_evidence: dkgEvidence,
@@ -473,6 +489,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
             started_at: session.started_at,
             completed_at: session.completed_at,
             event_count: session.event_count,
+            epoch: session.epoch,
             workflow_id: session.workflow_id,
             data_hash: session.data_hash,
           },
