@@ -53,14 +53,14 @@ export class SessionStore {
           `INSERT INTO sessions
             (session_id, session_root_event_id, studio_address, studio_policy_version,
              work_mandate_id, task_type, agent_address, status, started_at,
-             completed_at, event_count, workflow_id, data_hash)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+             completed_at, event_count, epoch, workflow_id, data_hash)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
           [
             meta.session_id, meta.session_root_event_id,
             meta.studio_address, meta.studio_policy_version,
             meta.work_mandate_id, meta.task_type, meta.agent_address,
             meta.status, meta.started_at, meta.completed_at,
-            meta.event_count, meta.workflow_id, meta.data_hash,
+            meta.event_count, meta.epoch, meta.workflow_id, meta.data_hash,
           ],
         );
       } catch (err: unknown) {
@@ -314,6 +314,7 @@ export class SessionStore {
       started_at: row.started_at instanceof Date ? row.started_at.toISOString() : String(row.started_at),
       completed_at: row.completed_at ? (row.completed_at instanceof Date ? row.completed_at.toISOString() : String(row.completed_at)) : null,
       event_count: Number(row.event_count),
+      epoch: row.epoch != null ? Number(row.epoch) : null,
       workflow_id: row.workflow_id ? String(row.workflow_id) : null,
       data_hash: row.data_hash ? String(row.data_hash) : null,
     };

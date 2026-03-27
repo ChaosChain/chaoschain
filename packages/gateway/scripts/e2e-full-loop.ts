@@ -220,9 +220,11 @@ async function main(): Promise<void> {
   const comp = compRes.data as Record<string, unknown>;
   const workflowId = comp.workflow_id as string | null;
   const dataHash = comp.data_hash as string | null;
+  const sessionEpoch = (comp.epoch as number) ?? EPOCH;
 
   console.log(`   workflow_id: ${workflowId ?? 'null'}`);
   console.log(`   data_hash:   ${dataHash ? short(dataHash) : 'null'}`);
+  console.log(`   epoch:       ${sessionEpoch}`);
 
   if (!workflowId || !dataHash) {
     console.error('\n   No workflow — SIGNER_PRIVATE_KEY not configured?');
@@ -294,7 +296,7 @@ async function main(): Promise<void> {
       signer_address: VERIFIER_ADDRESS,
       worker_address: worker,
       admin_signer_address: ADMIN_ADDRESS,
-      epoch: EPOCH,
+      epoch: sessionEpoch,
       salt: '0x0000000000000000000000000000000000000000000000000000000000000001',
       mode: 'direct',
     });
@@ -329,7 +331,7 @@ async function main(): Promise<void> {
     line('Step 6: Close Epoch (consensus + rewards + reputation)');
 
     console.log(`   studio: ${short(STUDIO_ADDRESS)}`);
-    console.log(`   epoch:  ${EPOCH}`);
+    console.log(`   epoch:  ${sessionEpoch}`);
     console.log(`   signer: ${short(ADMIN_ADDRESS)} (RD owner)`);
     console.log('');
     console.log('   This triggers:');
@@ -339,7 +341,7 @@ async function main(): Promise<void> {
 
     const epochRes = await gw('POST', '/workflows/close-epoch', {
       studio_address: STUDIO_ADDRESS,
-      epoch: EPOCH,
+      epoch: sessionEpoch,
       signer_address: ADMIN_ADDRESS,
     });
     const epochWfId = (epochRes as Record<string, unknown>).id as string;
@@ -364,7 +366,7 @@ async function main(): Promise<void> {
     console.log('   To close manually:');
     console.log(`   curl -X POST ${GATEWAY_URL}/workflows/close-epoch \\`);
     console.log(`     -H "Content-Type: application/json" \\`);
-    console.log(`     -d '{"studio_address":"${STUDIO_ADDRESS}","epoch":${EPOCH},"signer_address":"${ADMIN_ADDRESS}"}'`);
+    console.log(`     -d '{"studio_address":"${STUDIO_ADDRESS}","epoch":${sessionEpoch},"signer_address":"${ADMIN_ADDRESS}"}'`);
   }
 
   // ════════════════════════════════════════════════════════════════════════

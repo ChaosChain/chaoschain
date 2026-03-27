@@ -109,6 +109,16 @@ DO $$ BEGIN
 END $$;
 `;
 
+const MIGRATION_V3_SQL = `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 3) THEN
+    ALTER TABLE sessions ADD COLUMN IF NOT EXISTS epoch INTEGER;
+
+    INSERT INTO schema_migrations (version) VALUES (3);
+  END IF;
+END $$;
+`;
+
 /**
  * Ensure the database schema exists. Idempotent — safe to call on every startup.
  * Uses CREATE TABLE IF NOT EXISTS so it's a no-op on an already-initialized DB.
@@ -116,6 +126,7 @@ END $$;
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(SCHEMA_SQL);
   await pool.query(MIGRATION_V2_SQL);
+  await pool.query(MIGRATION_V3_SQL);
 }
 
 // =============================================================================

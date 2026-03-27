@@ -28,6 +28,7 @@ import {
 } from './workflows/score-submission.js';
 import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
 import { PostgresWorkflowPersistence, runMigrations } from './persistence/postgres/index.js';
+import { EpochCounter } from './services/epoch-counter.js';
 import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
 import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
 import { createRoutes, errorHandler, apiKeyAuth, rateLimit, InMemoryRateLimiter } from './http/index.js';
@@ -371,6 +372,11 @@ export class Gateway {
       this.logger.warn({}, 'No ADMIN_KEY configured — admin routes disabled');
     }
 
+    // Epoch counter — auto-increments per session, persists in Postgres
+    const epochCounter = new EpochCounter(this.pool ?? undefined, parseInt(process.env.CURRENT_EPOCH ?? '1', 10));
+    await epochCounter.initialize();
+    this.logger.info({ nextEpoch: epochCounter.current() }, 'Epoch counter initialized');
+
     // Session API (Engineering Studio — Postgres-backed)
     const sessionStore = new SessionStore(this.pool);
     const sessionSubmitWork = primarySignerAddress
@@ -389,6 +395,7 @@ export class Gateway {
         apiKeys,
         submitWork: sessionSubmitWork,
         signerAddress: primarySignerAddress,
+        epochAllocator: epochCounter,
         logger: this.logger,
       }),
     );

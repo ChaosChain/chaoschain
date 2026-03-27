@@ -43,6 +43,33 @@ paths:
                     type: integer
                     format: int64
 
+  /v1/epoch/current:
+    get:
+      summary: Get current epoch
+      description: |
+        Returns the next epoch that will be assigned to a new session.
+        Each session gets its own auto-incremented epoch.
+        Useful for operators to know which epoch to pass to closeEpoch.
+      operationId: getCurrentEpoch
+      responses:
+        '200':
+          description: Current epoch info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "1.0"
+                  data:
+                    type: object
+                    properties:
+                      next_epoch:
+                        type: integer
+                        description: The next epoch that will be assigned to a new session
+                        example: 18
+
   /workflows/work-submission:
     post:
       summary: Create a work submission workflow
