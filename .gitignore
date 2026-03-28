@@ -5,6 +5,7 @@
 .DS_Store
 .env
 .env.local
+packages/gateway/.env.docker.local
 .env.development.local
 .env.test.local
 .env.production.local

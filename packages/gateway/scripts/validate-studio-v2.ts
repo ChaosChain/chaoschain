@@ -41,9 +41,10 @@ const GATEWAY_URL = (process.env.GATEWAY_URL ?? 'http://localhost:3000')
   .replace('localhost', '127.0.0.1');
 const API_KEY = process.env.API_KEY ?? '';
 
-const RPC_URL = process.env.SEPOLIA_RPC_URL
-  ?? process.env.RPC_URL
-  ?? 'https://eth-sepolia.g.alchemy.com/v2/gkHpxu7aSBljCv8Hlxu1GJnQRsyyZM7z';
+const RPC_URL =
+  process.env.SEPOLIA_RPC_URL?.trim() ||
+  process.env.RPC_URL?.trim() ||
+  'https://rpc.sepolia.org';
 
 const DEPLOYER_KEY = process.env.DEPLOYER_PRIVATE_KEY
   ?? process.env.SEPOLIA_PRIVATE_KEY

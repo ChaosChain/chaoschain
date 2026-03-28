@@ -33,9 +33,10 @@ const __dirname = path.dirname(__filename);
 
 const GATEWAY_URL = process.env.GATEWAY_URL ?? 'https://gateway.chaoscha.in';
 const API_KEY = process.env.API_KEY ?? '';
-const RPC_URL = process.env.RPC_URL
-  ?? process.env.SEPOLIA_RPC_URL
-  ?? 'https://eth-sepolia.g.alchemy.com/v2/gkHpxu7aSBljCv8Hlxu1GJnQRsyyZM7z';
+const RPC_URL =
+  process.env.RPC_URL?.trim() ||
+  process.env.SEPOLIA_RPC_URL?.trim() ||
+  'https://rpc.sepolia.org';
 const SIGNER_KEY = process.env.SIGNER_PRIVATE_KEY
   ?? process.env.DEPLOYER_PRIVATE_KEY
   ?? process.env.SEPOLIA_PRIVATE_KEY

@@ -7,10 +7,10 @@
  * Usage:
  *   cd packages/gateway && npx tsx scripts/run-sepolia-demo.ts
  *
- * Environment (all have defaults for the existing Sepolia deployment):
- *   SEPOLIA_RPC_URL          — Alchemy/Infura Sepolia endpoint
- *   DEPLOYER_PRIVATE_KEY     — Owner of ChaosCore + RewardsDistributor
- *   ARWEAVE_DEVNET_KEY       — (optional) base64-encoded Arweave JWK for real upload
+ * Environment:
+ *   SEPOLIA_RPC_URL / RPC_URL — Sepolia RPC (defaults to public rpc.sepolia.org)
+ *   DEPLOYER_PRIVATE_KEY      — Owner of ChaosCore + RewardsDistributor (required)
+ *   ARWEAVE_DEVNET_KEY        — (optional) base64-encoded Arweave JWK for real upload
  */
 
 import { ethers, AbiCoder, keccak256, toUtf8Bytes, Wallet, JsonRpcProvider } from 'ethers';
@@ -20,15 +20,30 @@ import * as crypto from 'node:crypto';
 import { computeDKG, extractPoAFeatures } from '../src/services/dkg/index.js';
 import type { EvidencePackage } from '../src/services/dkg/types.js';
 
+/** Public Sepolia RPC (rate-limited); prefer SEPOLIA_RPC_URL / RPC_URL. */
+const DEFAULT_SEPOLIA_RPC = 'https://rpc.sepolia.org';
+
+function requireDeployerPrivateKey(): string {
+  const k = process.env.DEPLOYER_PRIVATE_KEY?.trim();
+  if (!k) {
+    console.error(
+      'DEPLOYER_PRIVATE_KEY is required. Set it in the environment; never commit private keys.',
+    );
+    process.exit(1);
+  }
+  return k;
+}
+
 // =============================================================================
 // CONFIGURATION
 // =============================================================================
 
-const RPC_URL = process.env.SEPOLIA_RPC_URL
-  ?? 'https://eth-sepolia.g.alchemy.com/v2/gkHpxu7aSBljCv8Hlxu1GJnQRsyyZM7z';
+const RPC_URL =
+  process.env.SEPOLIA_RPC_URL?.trim() ||
+  process.env.RPC_URL?.trim() ||
+  DEFAULT_SEPOLIA_RPC;
 
-const DEPLOYER_KEY = process.env.DEPLOYER_PRIVATE_KEY
-  ?? '0xd5e6046419db99358ec9b10e11a398989b8e5432fe0e2b4174a094063d05ea42';
+const DEPLOYER_KEY = requireDeployerPrivateKey();
 
 const CHAOS_CORE        = '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca';
 const REWARDS_DIST      = '0x28AF9c02982801D35a23032e0eAFa50669E10ba1';

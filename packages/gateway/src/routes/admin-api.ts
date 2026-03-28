@@ -75,7 +75,13 @@ export class ApiKeyStore {
         `INSERT INTO api_keys (key, name, role) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING`,
         [key, 'env-seed', 'internal'],
       );
-      this.cache.add(key);
+      const active = await this.pool.query(
+        `SELECT 1 FROM api_keys WHERE key = $1 AND NOT revoked`,
+        [key],
+      );
+      if (active.rows.length > 0) {
+        this.cache.add(key);
+      }
     }
   }
 
