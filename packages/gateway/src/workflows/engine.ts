@@ -199,7 +199,35 @@ export class WorkflowEngine {
       return;
     }
 
-    // RUNNING or STALLED - run reconciliation then continue
+    if (workflow.state === 'STALLED') {
+      // Track how many times this workflow has been resumed from STALLED.
+      // After MAX_STALL_CYCLES, mark as permanently FAILED to prevent
+      // infinite retry loops on gateway restarts.
+      const MAX_STALL_CYCLES = 3;
+      const progress = (workflow.progress ?? {}) as Record<string, unknown>;
+      const stallCount = (typeof progress._stall_count === 'number' ? progress._stall_count : 0) + 1;
+
+      if (stallCount > MAX_STALL_CYCLES) {
+        this.emit({ type: 'WORKFLOW_FAILED', workflowId, error: {
+          category: 'PERMANENT' as const,
+          message: `Workflow exceeded ${MAX_STALL_CYCLES} stall cycles without progress`,
+          code: 'MAX_STALL_CYCLES_EXCEEDED',
+        }});
+        await this.transitionToFailed(workflowId, {
+          category: 'PERMANENT',
+          message: `Exceeded ${MAX_STALL_CYCLES} stall cycles without progress. Last error: ${workflow.error?.message ?? 'unknown'}`,
+          code: 'MAX_STALL_CYCLES_EXCEEDED',
+        });
+        return;
+      }
+
+      // Reset step_attempts so the workflow gets fresh retries,
+      // and increment stall_count to track reconciliation cycles.
+      await this.persistence.appendProgress(workflowId, { _stall_count: stallCount });
+      await this.persistence.updateState(workflowId, 'RUNNING', workflow.step, 0);
+    }
+
+    // RUNNING or resumed STALLED - run reconciliation then continue
     await this.runWorkflow(workflowId);
   }
 
