@@ -11,11 +11,11 @@ import {
   WorkflowEngine,
   InMemoryWorkflowPersistence,
   WorkflowReconciler,
-} from '../../src/workflows/index.js';
+} from '../../src/workflows/index';
 import type {
   StepExecutor,
   WorkflowDefinition,
-} from '../../src/workflows/index.js';
+} from '../../src/workflows/index';
 
 function createMinimalEngine(persistence: InMemoryWorkflowPersistence) {
   const reconciler = {

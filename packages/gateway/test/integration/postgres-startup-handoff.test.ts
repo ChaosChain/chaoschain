@@ -5,15 +5,15 @@ import { Pool } from 'pg';
 import {
   WorkflowEngine,
   WorkflowReconciler,
-} from '../../src/workflows/index.js';
+} from '../../src/workflows/index';
 import type {
   StepExecutor,
   WorkflowDefinition,
-} from '../../src/workflows/index.js';
+} from '../../src/workflows/index';
 import {
   PostgresWorkflowPersistence,
   runMigrations,
-} from '../../src/persistence/postgres/index.js';
+} from '../../src/persistence/postgres/index';
 
 const DEFAULT_ADMIN_DATABASE_URL = 'postgresql://postgres:gateway@127.0.0.1:5432/postgres';
 
