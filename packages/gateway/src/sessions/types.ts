@@ -225,3 +225,22 @@ export interface EvidenceDAG {
   terminals: string[];  // node_ids with no children
   merkle_root: string;  // sha256 of sorted payload_hashes
 }
+
+// =============================================================================
+// SESSION LIST (paginated list response)
+// =============================================================================
+
+export interface SessionListItem {
+  session_id: string;
+  status: SessionStatus;
+  epoch: number | null;
+  agent_address: string;
+  studio_address: string;
+  created_at: string;
+  node_count: number;
+}
+
+export interface ListSessionsResult {
+  sessions: SessionListItem[];
+  total: number;
+}
