@@ -78,6 +78,10 @@ export interface GatewayConfig {
 
   // Logging
   logLevel: 'debug' | 'info' | 'warn' | 'error';
+
+  // Restart / deploy safety
+  runningWorkflowResumeMinAgeMs: number;
+  shutdownDrainTimeoutMs: number;
 }
 
 export function loadConfigFromEnv(): GatewayConfig {
@@ -97,6 +101,8 @@ export function loadConfigFromEnv(): GatewayConfig {
     // Arweave Turbo gateway
     turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
+    runningWorkflowResumeMinAgeMs: parseInt(process.env.RUNNING_WORKFLOW_RESUME_MIN_AGE_MS ?? '180000', 10),
+    shutdownDrainTimeoutMs: parseInt(process.env.SHUTDOWN_DRAIN_TIMEOUT_MS ?? '120000', 10),
   };
 }
 
@@ -113,6 +119,7 @@ export class Gateway {
   private server?: ReturnType<Express['listen']>;
   private metricsServer?: import('http').Server;
   private shutdownPromise?: Promise<void>;
+  private shuttingDown = false;
 
   constructor(config: GatewayConfig) {
     this.config = config;
@@ -307,6 +314,26 @@ export class Gateway {
     // Setup HTTP server (MUST happen before workflow reconciliation so /health is available)
     this.app.use(express.json({ limit: '10mb' }));
 
+    // During shutdown, reject new write traffic while allowing reads/health checks
+    // to continue until the deployment is fully drained.
+    this.app.use((req, res, next) => {
+      if (!this.shuttingDown) {
+        next();
+        return;
+      }
+
+      if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+        next();
+        return;
+      }
+
+      res.setHeader('Connection', 'close');
+      res.status(503).json({
+        error: 'Gateway is shutting down',
+        code: 'SHUTTING_DOWN',
+      });
+    });
+
     // Root landing page
     this.app.get('/', (_req, res) => {
       res.json({
@@ -481,13 +508,17 @@ export class Gateway {
         reputationRegistry: this.config.reputationRegistryAddress,
       },
       signer: primarySignerAddress ?? 'NOT_CONFIGURED',
+      runningWorkflowResumeMinAgeMs: this.config.runningWorkflowResumeMinAgeMs,
+      shutdownDrainTimeoutMs: this.config.shutdownDrainTimeoutMs,
     }, 'Gateway started successfully — resolved addresses');
 
     // Resume active workflows in the background AFTER the HTTP server is healthy.
     // This must not block startup — stale workflows can take minutes to exhaust
     // retries, which would prevent /health from responding within Railway's window.
     this.logger.info({}, 'Resuming active workflows (background)...');
-    this.engine.reconcileAllActive().then(
+    this.engine.reconcileAllActive({
+      runningWorkflowMinAgeMs: this.config.runningWorkflowResumeMinAgeMs,
+    }).then(
       () => this.logger.info({}, 'Active workflows resumed'),
       (err) => this.logger.error({ error: err instanceof Error ? err.message : String(err) }, 'Workflow reconciliation failed'),
     );
@@ -513,6 +544,7 @@ export class Gateway {
 
   private async doStop(): Promise<void> {
     this.logger.info({}, 'Stopping Gateway...');
+    this.shuttingDown = true;
 
     // Stop HTTP server
     if (this.server) {
@@ -523,6 +555,16 @@ export class Gateway {
         });
       });
       this.logger.info({}, 'HTTP server stopped');
+    }
+
+    const drained = await this.engine.waitForIdle(this.config.shutdownDrainTimeoutMs);
+    if (drained) {
+      this.logger.info({}, 'In-flight workflows drained');
+    } else {
+      this.logger.warn(
+        { timeoutMs: this.config.shutdownDrainTimeoutMs, activeExecutions: this.engine.activeExecutionCount() },
+        'Timed out waiting for in-flight workflows to drain'
+      );
     }
 
     // Stop metrics server
