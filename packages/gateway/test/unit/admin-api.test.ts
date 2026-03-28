@@ -34,6 +34,11 @@ function createMockPool() {
         rows.push({ key, name, role, created_at: new Date(), revoked: false });
         return { rowCount: 1 };
       }
+      if (typeof sql === 'string' && sql.includes('SELECT 1 FROM api_keys WHERE key =')) {
+        const key = (params as string[])[0];
+        const match = rows.find((r) => r.key === key && !r.revoked);
+        return { rows: match ? [{ '1': 1 }] : [] };
+      }
       if (typeof sql === 'string' && sql.includes('UPDATE api_keys SET revoked')) {
         const key = (params as string[])[0];
         const idx = rows.findIndex((r) => r.key === key && !r.revoked);
