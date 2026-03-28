@@ -117,6 +117,10 @@ export class EthersChainAdapter implements ChainAdapter, ChainStateAdapter, Scor
   // ChainAdapter Implementation
   // ===========================================================================
 
+  hasSigner(address: string): boolean {
+    return this.signers.has(address.toLowerCase());
+  }
+
   async getNonce(address: string): Promise<number> {
     return await this.provider.getTransactionCount(address, 'pending');
   }

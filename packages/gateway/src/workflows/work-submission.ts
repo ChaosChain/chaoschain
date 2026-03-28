@@ -203,7 +203,16 @@ export class UploadEvidenceStep implements StepExecutor<WorkSubmissionRecord> {
 
   private classifyError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
-    
+
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
     // Classify based on error patterns
     if (message.includes('insufficient funds')) {
       return {
@@ -432,6 +441,15 @@ export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord>
 
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
 
     // Contract reverts are permanent
     if (message.includes('already submitted') || message.includes('work exists')) {
@@ -685,6 +703,15 @@ export class RegisterWorkStep implements StepExecutor<WorkSubmissionRecord> {
 
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
 
     // Already registered is idempotent success - but the reconciliation should skip this
     // If we hit this error, something is wrong but we can treat it as success

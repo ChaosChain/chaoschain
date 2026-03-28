@@ -273,6 +273,15 @@ export class SubmitCloseEpochStep implements StepExecutor<CloseEpochRecord> {
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
 
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
     // Contract reverts are permanent - closeEpoch is final
     if (message.includes('epoch already closed') || message.includes('already closed')) {
       return {
