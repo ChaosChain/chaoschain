@@ -1,6 +1,7 @@
 /**
  * Session API Routes — Engineering Studio MVP
  *
+ * GET  /v1/sessions              — Paginated list of all sessions (API key required)
  * POST /v1/sessions              — Create a new coding session
  * POST /v1/sessions/:id/events   — Append canonical session events
  * POST /v1/sessions/:id/complete — Mark session complete; bridge to WorkSubmission
@@ -151,6 +152,47 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       ? config.epochAllocator.current()
       : parseInt(process.env.CURRENT_EPOCH ?? '1', 10);
     res.json({ version: API_VERSION, data: { next_epoch: epoch } });
+  });
+
+  // =========================================================================
+  // GET /v1/sessions — paginated list of all sessions (API key required)
+  // =========================================================================
+
+  router.get('/v1/sessions', async (req: Request, res: Response) => {
+    if (config.apiKeys && config.apiKeys.size > 0) {
+      const key = req.headers['x-api-key'];
+      if (!key || typeof key !== 'string' || !config.apiKeys.has(key)) {
+        res.status(401).json({
+          version: API_VERSION,
+          error: { code: 'UNAUTHORIZED', message: 'Invalid or missing API key' },
+        });
+        return;
+      }
+    }
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);
+    const status = req.query.status as string | undefined;
+    const studio_address = req.query.studio_address as string | undefined;
+    const agent_address = req.query.agent_address as string | undefined;
+
+    const result = await store.list({
+      limit,
+      offset,
+      status: status as 'running' | 'completed' | 'failed' | undefined,
+      studio_address,
+      agent_address,
+    });
+
+    res.json({
+      version: API_VERSION,
+      data: {
+        sessions: result.sessions,
+        total: result.total,
+        limit,
+        offset,
+      },
+    });
   });
 
   // =========================================================================

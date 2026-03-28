@@ -21,6 +21,8 @@ import type {
   EvidenceNode,
   EvidenceEdge,
   EvidenceDAG,
+  SessionListItem,
+  ListSessionsResult,
 } from './types.js';
 import { VERIFIER_EVENT_TYPES, TERMINAL_EVENT_TYPES } from './types.js';
 
@@ -117,6 +119,95 @@ export class SessionStore {
         [sessionId, session.status, session.completed_at, session.workflow_id, session.data_hash],
       );
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // List (paginated)
+  // ---------------------------------------------------------------------------
+
+  async list(opts: {
+    limit?: number;
+    offset?: number;
+    status?: SessionStatus;
+    studio_address?: string;
+    agent_address?: string;
+  } = {}): Promise<ListSessionsResult> {
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+    const offset = Math.max(opts.offset ?? 0, 0);
+
+    if (this.pool) {
+      const conditions: string[] = [];
+      const values: unknown[] = [];
+      let paramIdx = 1;
+
+      if (opts.status) {
+        conditions.push(`status = $${paramIdx++}`);
+        values.push(opts.status);
+      }
+      if (opts.studio_address) {
+        conditions.push(`studio_address = $${paramIdx++}`);
+        values.push(opts.studio_address);
+      }
+      if (opts.agent_address) {
+        conditions.push(`agent_address = $${paramIdx++}`);
+        values.push(opts.agent_address);
+      }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const countResult = await this.pool.query(
+        `SELECT COUNT(*) AS total FROM sessions ${where}`,
+        values,
+      );
+      const total = Number(countResult.rows[0]?.total ?? 0);
+
+      const dataResult = await this.pool.query(
+        `SELECT session_id, status, epoch, agent_address, studio_address,
+                COALESCE(created_at, started_at) AS created_at, event_count
+         FROM sessions ${where}
+         ORDER BY created_at DESC
+         LIMIT $${paramIdx++} OFFSET $${paramIdx}`,
+        [...values, limit, offset],
+      );
+
+      const sessions: SessionListItem[] = dataResult.rows.map((row) => ({
+        session_id: String(row.session_id),
+        status: String(row.status) as SessionStatus,
+        epoch: row.epoch != null ? Number(row.epoch) : null,
+        agent_address: String(row.agent_address),
+        studio_address: String(row.studio_address),
+        created_at: row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : String(row.created_at),
+        node_count: Number(row.event_count),
+      }));
+
+      return { sessions, total };
+    }
+
+    // In-memory fallback (unit tests)
+    let all = Array.from(this.cache.values());
+
+    if (opts.status) all = all.filter((s) => s.status === opts.status);
+    if (opts.studio_address) all = all.filter((s) => s.studio_address === opts.studio_address);
+    if (opts.agent_address) all = all.filter((s) => s.agent_address === opts.agent_address);
+
+    all.sort((a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime());
+
+    const total = all.length;
+    const page = all.slice(offset, offset + limit);
+
+    const sessions: SessionListItem[] = page.map((s) => ({
+      session_id: s.session_id,
+      status: s.status,
+      epoch: s.epoch,
+      agent_address: s.agent_address,
+      studio_address: s.studio_address,
+      created_at: s.started_at,
+      node_count: s.event_count,
+    }));
+
+    return { sessions, total };
   }
 
   // ---------------------------------------------------------------------------

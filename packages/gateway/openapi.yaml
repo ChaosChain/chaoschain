@@ -70,6 +70,83 @@ paths:
                         description: The next epoch that will be assigned to a new session
                         example: 18
 
+  /v1/sessions:
+    get:
+      summary: List sessions (paginated)
+      description: |
+        Returns a paginated list of all coding sessions from Postgres.
+        Supports filtering by status, studio_address, and agent_address.
+        Requires API key authentication via x-api-key header.
+      operationId: listSessions
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Page size (1–100, default 50)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          description: Number of records to skip (default 0)
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: status
+          in: query
+          description: Filter by session status
+          schema:
+            type: string
+            enum: [running, completed, failed]
+        - name: studio_address
+          in: query
+          description: Filter by studio Ethereum address
+          schema:
+            type: string
+        - name: agent_address
+          in: query
+          description: Filter by agent Ethereum address
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated session list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "1.0"
+                  data:
+                    type: object
+                    properties:
+                      sessions:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/SessionListItem'
+                      total:
+                        type: integer
+                        description: Total sessions matching filters
+                        example: 42
+                      limit:
+                        type: integer
+                        example: 50
+                      offset:
+                        type: integer
+                        example: 0
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /workflows/work-submission:
     post:
       summary: Create a work submission workflow
@@ -396,8 +473,41 @@ components:
             code:
               type: string
 
+    SessionListItem:
+      type: object
+      properties:
+        session_id:
+          type: string
+          example: "sess_a1b2c3d4e5f6"
+        status:
+          type: string
+          enum: [running, completed, failed]
+        epoch:
+          type: integer
+          nullable: true
+          example: 18
+        agent_address:
+          type: string
+          example: "0x1234567890123456789012345678901234567890"
+        studio_address:
+          type: string
+          example: "0x1234567890123456789012345678901234567890"
+        created_at:
+          type: string
+          format: date-time
+        node_count:
+          type: integer
+          description: Number of events (evidence nodes) in the session
+          example: 12
+
     ErrorResponse:
       type: object
       properties:
         error:
           type: string
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key

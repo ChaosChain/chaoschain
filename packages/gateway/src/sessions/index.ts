@@ -6,6 +6,8 @@ export type {
   CodingSessionEvent,
   SessionMetadata,
   SessionStatus,
+  SessionListItem,
+  ListSessionsResult,
   StoredEvent,
   CreateSessionInput,
   CompleteSessionInput,
