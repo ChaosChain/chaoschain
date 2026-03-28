@@ -99,6 +99,7 @@ export class WorkflowEngine {
   private retryPolicy: RetryPolicy;
   private eventHandlers: EventHandler[] = [];
   private activeExecutions: Set<Promise<void>> = new Set();
+  private signerCheck?: (address: string) => boolean;
 
   constructor(
     persistence: WorkflowPersistence,
@@ -108,6 +109,14 @@ export class WorkflowEngine {
     this.persistence = persistence;
     this.reconciler = reconciler;
     this.retryPolicy = retryPolicy;
+  }
+
+  /**
+   * Set a function that checks whether a signer key is available for a given address.
+   * Used during reconciliation to fail workflows whose signer was rotated away.
+   */
+  setSignerCheck(fn: (address: string) => boolean): void {
+    this.signerCheck = fn;
   }
 
   /**
@@ -449,14 +458,27 @@ export class WorkflowEngine {
     const activeWorkflows = await this.persistence.findActiveWorkflows();
 
     for (const workflow of activeWorkflows) {
+      if (this.signerCheck && workflow.signer && !this.signerCheck(workflow.signer)) {
+        try {
+          await this.transitionToFailed(workflow.id, {
+            category: 'PERMANENT',
+            message: `Signer ${workflow.signer} is no longer available (key rotated). Failing stale workflow.`,
+            code: 'SIGNER_UNAVAILABLE',
+          });
+        } catch (err) {
+          console.error(`Failed to mark workflow ${workflow.id} as FAILED (stale signer):`, err);
+        }
+        continue;
+      }
+
       if (!this.shouldResumeWorkflowOnStartup(workflow, runningWorkflowMinAgeMs, now)) {
         continue;
       }
+
       try {
         await this.resumeWorkflow(workflow.id);
       } catch (error) {
         console.error(`Failed to resume workflow ${workflow.id}:`, error);
-        // Continue with other workflows
       }
     }
   }

@@ -38,6 +38,11 @@ export interface TxSubmitResult {
  */
 export interface ChainAdapter {
   /**
+   * Check whether a private key is loaded for the given address.
+   */
+  hasSigner(address: string): boolean;
+
+  /**
    * Get current nonce for address.
    */
   getNonce(address: string): Promise<number>;

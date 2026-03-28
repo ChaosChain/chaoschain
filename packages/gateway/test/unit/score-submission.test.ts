@@ -36,6 +36,7 @@ import {
 
 function createMockChainAdapter(): ChainAdapter {
   return {
+    hasSigner: vi.fn().mockReturnValue(true),
     getNonce: vi.fn().mockResolvedValue(0),
     submitTx: vi.fn().mockResolvedValue({ txHash: '0xmocktx' }),
     getTxReceipt: vi.fn().mockResolvedValue(null),

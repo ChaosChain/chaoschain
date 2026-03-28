@@ -217,6 +217,7 @@ export class Gateway {
 
     // Initialize engine
     this.engine = new WorkflowEngine(persistence, reconciler);
+    this.engine.setSignerCheck((addr) => chainAdapter.hasSigner(addr));
 
     // Register all workflow definitions
     const studioEncoder = new StudioProxyEncoder();

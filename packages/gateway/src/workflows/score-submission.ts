@@ -265,6 +265,15 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
 
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
+
     // Contract reverts are permanent
     if (message.includes('already scored') || message.includes('score exists')) {
       return {
@@ -500,6 +509,15 @@ export class CommitScoreStep implements StepExecutor<ScoreSubmissionRecord> {
 
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
 
     // Contract reverts are permanent
     if (message.includes('already committed') || message.includes('commit exists')) {
@@ -737,6 +755,15 @@ export class RevealScoreStep implements StepExecutor<ScoreSubmissionRecord> {
 
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
 
     // Contract reverts are permanent
     if (message.includes('already revealed') || message.includes('reveal exists')) {
@@ -1010,6 +1037,15 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
 
   private classifyTxError(error: unknown): ClassifiedError {
     const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes('No signer registered')) {
+      return {
+        category: 'PERMANENT',
+        message: 'Signer key unavailable (rotated or not loaded)',
+        code: 'SIGNER_UNAVAILABLE',
+        originalError: error instanceof Error ? error : undefined,
+      };
+    }
 
     // Contract reverts
     if (message.includes('already') || message.includes('registered')) {
