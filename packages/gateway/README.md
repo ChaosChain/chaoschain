@@ -56,7 +56,7 @@ Expected response:
 
 ```bash
 cd packages/gateway
-GATEWAY_URL=http://localhost:3000 API_KEY=cc_agent_gateway_seeder_9b03744c9749c8416f341fe9f81f9d33 npm run test:session-full-loop
+GATEWAY_URL=http://localhost:3000 API_KEY=your_chaoschain_api_key npm run test:session-full-loop
 ```
 
 Expected output:
@@ -82,7 +82,7 @@ Run the 7-step curl full loop, then open the viewer in a browser:
 
 ```bash
 cd packages/gateway
-GATEWAY_URL=http://localhost:3000 API_KEY=cc_agent_gateway_seeder_9b03744c9749c8416f341fe9f81f9d33 ./scripts/full-loop-curl.sh
+GATEWAY_URL=http://localhost:3000 API_KEY=your_chaoschain_api_key ./scripts/full-loop-curl.sh
 ```
 
 From the output, copy the `session_id` (e.g. `sess_...`). Then open:
@@ -356,7 +356,7 @@ To run the full pipeline with **curl** (create session → events → complete �
 
 ```bash
 # From packages/gateway, with gateway running (e.g. docker compose up)
-GATEWAY_URL=http://localhost:3000 API_KEY=cc_agent_gateway_seeder_9b03744c9749c8416f341fe9f81f9d33 ./scripts/full-loop-curl.sh
+GATEWAY_URL=http://localhost:3000 API_KEY=your_chaoschain_api_key ./scripts/full-loop-curl.sh
 ```
 
 Steps: 1) create session, 2) emit 3 events, 3) complete session, 4) GET context, 5) GET evidence, 6) POST score-submission, 7) GET reputation. Step 7 may error if the agent is not registered on-chain; the rest validate the pipeline.

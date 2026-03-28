@@ -3,7 +3,7 @@
 # Minimal full-loop test: 7 curl calls against the gateway.
 # Uses GATEWAY_URL (default http://localhost:3000) and API_KEY.
 # Run from repo root or packages/gateway:
-#   GATEWAY_URL=http://localhost:3000 API_KEY=cc_agent_gateway_seeder_... ./scripts/full-loop-curl.sh
+#   GATEWAY_URL=http://localhost:3000 API_KEY=your_chaoschain_api_key ./scripts/full-loop-curl.sh
 #
 set -e
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:3000}"

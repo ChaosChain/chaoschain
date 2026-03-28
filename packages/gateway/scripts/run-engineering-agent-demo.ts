@@ -14,7 +14,7 @@
  *
  * Environment:
  *   SEPOLIA_RPC_URL        — Alchemy/Infura Sepolia endpoint
- *   DEPLOYER_PRIVATE_KEY   — Owner of ChaosCore + RewardsDistributor
+ *   DEPLOYER_PRIVATE_KEY   — Owner of ChaosCore + RewardsDistributor (required)
  */
 
 import { ethers, AbiCoder, keccak256, Wallet, JsonRpcProvider } from 'ethers';
@@ -26,6 +26,20 @@ import type { EvidencePackage } from '../src/services/dkg/types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/** Public Sepolia RPC (rate-limited); prefer SEPOLIA_RPC_URL / RPC_URL. */
+const DEFAULT_SEPOLIA_RPC = 'https://rpc.sepolia.org';
+
+function requireDeployerPrivateKey(): string {
+  const k = process.env.DEPLOYER_PRIVATE_KEY?.trim();
+  if (!k) {
+    console.error(
+      'DEPLOYER_PRIVATE_KEY is required. Set it in the environment; never commit private keys.',
+    );
+    process.exit(1);
+  }
+  return k;
+}
 
 // =============================================================================
 // SESSION TYPES
@@ -56,11 +70,12 @@ interface AgentSession {
 // CONFIGURATION
 // =============================================================================
 
-const RPC_URL = process.env.SEPOLIA_RPC_URL
-  ?? 'https://eth-sepolia.g.alchemy.com/v2/gkHpxu7aSBljCv8Hlxu1GJnQRsyyZM7z';
+const RPC_URL =
+  process.env.SEPOLIA_RPC_URL?.trim() ||
+  process.env.RPC_URL?.trim() ||
+  DEFAULT_SEPOLIA_RPC;
 
-const DEPLOYER_KEY = process.env.DEPLOYER_PRIVATE_KEY
-  ?? '0xd5e6046419db99358ec9b10e11a398989b8e5432fe0e2b4174a094063d05ea42';
+const DEPLOYER_KEY = requireDeployerPrivateKey();
 
 const CHAOS_CORE        = '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca';
 const REWARDS_DIST      = '0x28AF9c02982801D35a23032e0eAFa50669E10ba1';

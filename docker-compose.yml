@@ -25,7 +25,10 @@ services:
       - "3000:3000"
       - "9090:9090"
     env_file:
-      - packages/gateway/.env.docker
+      - path: packages/gateway/.env.docker
+        required: true
+      - path: packages/gateway/.env.docker.local
+        required: false
     depends_on:
       postgres:
         condition: service_healthy
