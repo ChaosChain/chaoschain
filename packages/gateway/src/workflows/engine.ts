@@ -81,6 +81,13 @@ export type EngineEvent =
 
 export type EventHandler = (event: EngineEvent) => void;
 
+export interface ReconcileActiveOptions {
+  // Skip recently-updated RUNNING workflows on startup to avoid
+  // overlapping execution during deploy/restart handoff.
+  runningWorkflowMinAgeMs?: number;
+  now?: number;
+}
+
 // =============================================================================
 // WORKFLOW ENGINE
 // =============================================================================
@@ -91,6 +98,7 @@ export class WorkflowEngine {
   private definitions: Map<string, WorkflowDefinition<any>> = new Map();
   private retryPolicy: RetryPolicy;
   private eventHandlers: EventHandler[] = [];
+  private activeExecutions: Set<Promise<void>> = new Set();
 
   constructor(
     persistence: WorkflowPersistence,
@@ -160,6 +168,10 @@ export class WorkflowEngine {
    * Transitions from CREATED to RUNNING and begins execution.
    */
   async startWorkflow(workflowId: string): Promise<void> {
+    return this.trackExecution(this.startWorkflowInternal(workflowId));
+  }
+
+  private async startWorkflowInternal(workflowId: string): Promise<void> {
     const workflow = await this.persistence.load(workflowId);
     if (!workflow) {
       throw new Error(`Workflow ${workflowId} not found`);
@@ -183,6 +195,10 @@ export class WorkflowEngine {
    * Used for RUNNING/STALLED workflows after restart.
    */
   async resumeWorkflow(workflowId: string): Promise<void> {
+    return this.trackExecution(this.resumeWorkflowInternal(workflowId));
+  }
+
+  private async resumeWorkflowInternal(workflowId: string): Promise<void> {
     const workflow = await this.persistence.load(workflowId);
     if (!workflow) {
       throw new Error(`Workflow ${workflowId} not found`);
@@ -425,10 +441,17 @@ export class WorkflowEngine {
    * Reconcile and resume all active workflows.
    * Called on Gateway startup.
    */
-  async reconcileAllActive(): Promise<void> {
+  async reconcileAllActive(options: ReconcileActiveOptions = {}): Promise<void> {
+    const {
+      runningWorkflowMinAgeMs = 0,
+      now = Date.now(),
+    } = options;
     const activeWorkflows = await this.persistence.findActiveWorkflows();
 
     for (const workflow of activeWorkflows) {
+      if (!this.shouldResumeWorkflowOnStartup(workflow, runningWorkflowMinAgeMs, now)) {
+        continue;
+      }
       try {
         await this.resumeWorkflow(workflow.id);
       } catch (error) {
@@ -436,6 +459,40 @@ export class WorkflowEngine {
         // Continue with other workflows
       }
     }
+  }
+
+  activeExecutionCount(): number {
+    return this.activeExecutions.size;
+  }
+
+  async waitForIdle(timeoutMs: number = 0): Promise<boolean> {
+    const deadline = timeoutMs > 0 ? Date.now() + timeoutMs : Number.POSITIVE_INFINITY;
+
+    while (this.activeExecutions.size > 0) {
+      const inFlight = Array.from(this.activeExecutions);
+      const settled = Promise.allSettled(inFlight).then(() => true);
+
+      if (!Number.isFinite(deadline)) {
+        await settled;
+        continue;
+      }
+
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return this.activeExecutions.size === 0;
+      }
+
+      const outcome = await Promise.race([
+        settled.then(() => 'settled' as const),
+        this.sleep(remaining).then(() => 'timeout' as const),
+      ]);
+
+      if (outcome === 'timeout') {
+        return this.activeExecutions.size === 0;
+      }
+    }
+
+    return true;
   }
 
   // ===========================================================================
@@ -498,5 +555,28 @@ export class WorkflowEngine {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private trackExecution(task: Promise<void>): Promise<void> {
+    this.activeExecutions.add(task);
+    task.then(() => {
+      this.activeExecutions.delete(task);
+    }, () => {
+      this.activeExecutions.delete(task);
+    });
+    return task;
+  }
+
+  private shouldResumeWorkflowOnStartup(
+    workflow: WorkflowRecord,
+    runningWorkflowMinAgeMs: number,
+    now: number
+  ): boolean {
+    if (workflow.state !== 'RUNNING' || runningWorkflowMinAgeMs <= 0) {
+      return true;
+    }
+
+    const ageMs = Math.max(0, now - workflow.updated_at);
+    return ageMs >= runningWorkflowMinAgeMs;
   }
 }

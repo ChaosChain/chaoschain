@@ -65,7 +65,7 @@ export type { ChainStateAdapter, ArweaveAdapter, ReconciliationResult } from './
 export { WorkflowReconciler } from './reconciliation.js';
 
 // Engine types
-export type { StepExecutor, WorkflowDefinition, EngineEvent, EventHandler } from './engine.js';
+export type { StepExecutor, WorkflowDefinition, EngineEvent, EventHandler, ReconcileActiveOptions } from './engine.js';
 export { WorkflowEngine } from './engine.js';
 
 // WorkSubmission types
