@@ -228,6 +228,16 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       }
     }
 
+    // DEBUG: trace worker/data_hash before on-chain call
+    console.log('[SUBMIT_SCORE_DIRECT] debug', {
+      workflowId: workflow.id,
+      worker_address: input.worker_address,
+      data_hash: input.data_hash,
+      signer_address: input.signer_address,
+      validator_address: input.validator_address,
+      studio_address: input.studio_address,
+    });
+
     // Encode transaction
     const txData = this.encoder.encodeSubmitScoreVectorForWorker(
       input.data_hash,

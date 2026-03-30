@@ -12,6 +12,7 @@ RUN npm run build
 # Stage 2: Production runtime
 FROM node:20-alpine AS runner
 WORKDIR /app
+RUN apk add --no-cache wget
 RUN addgroup -g 1001 -S chaoschain && adduser -S gateway -u 1001 -G chaoschain
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./

@@ -8,6 +8,7 @@
  * GET  /v1/sessions/:id/context  — Verifier scoring context (lightweight)
  * GET  /v1/sessions/:id/viewer   — Self-contained HTML evidence viewer
  * GET  /v1/sessions/:id/evidence — Full Evidence DAG
+ * GET  /v1/agents/leaderboard    — Per-agent score aggregation from ScoreSubmission workflows
  */
 
 import { Router, Request, Response } from 'express';
@@ -15,7 +16,7 @@ import { randomUUID, createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { SessionStore, NotFoundError, ConflictError } from './store.js';
+import { SessionStore, NotFoundError, ConflictError, type PoolLike } from './store.js';
 import type {
   CodingSessionEvent,
   CreateSessionInput,
@@ -140,6 +141,7 @@ export interface SessionApiConfig {
   signerAddress?: string;
   epochAllocator?: EpochAllocator;
   logger?: { warn(obj: Record<string, unknown>, msg: string): void };
+  pool?: PoolLike;
 }
 
 export function createSessionRoutes(config: SessionApiConfig): Router {
@@ -624,6 +626,156 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         return;
       }
       throw err;
+    }
+  });
+
+  // =========================================================================
+  // GET /v1/agents/leaderboard — per-agent score aggregation
+  // =========================================================================
+
+  router.get('/v1/agents/leaderboard', async (req: Request, res: Response) => {
+    if (config.apiKeys && config.apiKeys.size > 0) {
+      const key = req.headers['x-api-key'];
+      if (!key || typeof key !== 'string' || !config.apiKeys.has(key)) {
+        res.status(401).json({
+          version: API_VERSION,
+          error: { code: 'UNAUTHORIZED', message: 'Invalid or missing API key' },
+        });
+        return;
+      }
+    }
+
+    if (!config.pool) {
+      res.set('Cache-Control', 'public, max-age=60');
+      res.json({ version: API_VERSION, data: { agents: [], total: 0 } });
+      return;
+    }
+
+    const studioFilter = req.query.studio_address as string | undefined;
+
+    const conditions = [
+      `type = 'ScoreSubmission'`,
+      `state = 'COMPLETED'`,
+    ];
+    const values: unknown[] = [];
+
+    if (studioFilter) {
+      values.push(studioFilter.toLowerCase());
+      conditions.push(`LOWER(input->>'studio_address') = $${values.length}`);
+    }
+
+    const where = conditions.join(' AND ');
+
+    // CTE normalizes each row to 0–100 before aggregation.
+    // If any element > 100, the vector is treated as basis-points and divided by 100.
+    const sql = `
+      WITH normalized AS (
+        SELECT
+          input->>'worker_address' AS agent_address,
+          updated_at,
+          CASE WHEN GREATEST(
+            (input->'scores'->0)::text::float,
+            (input->'scores'->1)::text::float,
+            (input->'scores'->2)::text::float,
+            (input->'scores'->3)::text::float,
+            (input->'scores'->4)::text::float
+          ) > 100
+          THEN (input->'scores'->0)::text::float / 100.0
+          ELSE (input->'scores'->0)::text::float END AS s0,
+          CASE WHEN GREATEST(
+            (input->'scores'->0)::text::float,
+            (input->'scores'->1)::text::float,
+            (input->'scores'->2)::text::float,
+            (input->'scores'->3)::text::float,
+            (input->'scores'->4)::text::float
+          ) > 100
+          THEN (input->'scores'->1)::text::float / 100.0
+          ELSE (input->'scores'->1)::text::float END AS s1,
+          CASE WHEN GREATEST(
+            (input->'scores'->0)::text::float,
+            (input->'scores'->1)::text::float,
+            (input->'scores'->2)::text::float,
+            (input->'scores'->3)::text::float,
+            (input->'scores'->4)::text::float
+          ) > 100
+          THEN (input->'scores'->2)::text::float / 100.0
+          ELSE (input->'scores'->2)::text::float END AS s2,
+          CASE WHEN GREATEST(
+            (input->'scores'->0)::text::float,
+            (input->'scores'->1)::text::float,
+            (input->'scores'->2)::text::float,
+            (input->'scores'->3)::text::float,
+            (input->'scores'->4)::text::float
+          ) > 100
+          THEN (input->'scores'->3)::text::float / 100.0
+          ELSE (input->'scores'->3)::text::float END AS s3,
+          CASE WHEN GREATEST(
+            (input->'scores'->0)::text::float,
+            (input->'scores'->1)::text::float,
+            (input->'scores'->2)::text::float,
+            (input->'scores'->3)::text::float,
+            (input->'scores'->4)::text::float
+          ) > 100
+          THEN (input->'scores'->4)::text::float / 100.0
+          ELSE (input->'scores'->4)::text::float END AS s4
+        FROM workflows
+        WHERE ${where}
+          AND jsonb_array_length(input->'scores') >= 5
+      )
+      SELECT
+        agent_address,
+        COUNT(*) AS scored_sessions,
+        ROUND(AVG(s0))::int AS avg_initiative,
+        ROUND(AVG(s1))::int AS avg_collaboration,
+        ROUND(AVG(s2))::int AS avg_reasoning,
+        ROUND(AVG(s3))::int AS avg_compliance,
+        ROUND(AVG(s4))::int AS avg_efficiency,
+        MAX(updated_at) AS last_scored_at
+      FROM normalized
+      GROUP BY agent_address
+      ORDER BY (AVG(s0) + AVG(s1) + AVG(s2) + AVG(s3) + AVG(s4)) / 5 DESC`;
+
+    try {
+      const result = await config.pool.query(sql, values);
+
+      const clamp = (v: number) => Math.min(100, Math.max(0, v));
+
+      const agents = result.rows.map((row) => {
+        const init = clamp(Number(row.avg_initiative ?? 0));
+        const collab = clamp(Number(row.avg_collaboration ?? 0));
+        const reason = clamp(Number(row.avg_reasoning ?? 0));
+        const comply = clamp(Number(row.avg_compliance ?? 0));
+        const effi = clamp(Number(row.avg_efficiency ?? 0));
+        const overall = clamp(Math.round((init + collab + reason + comply + effi) / 5));
+
+        return {
+          agent_address: row.agent_address as string,
+          sessions: Number(row.scored_sessions),
+          overall,
+          avg_scores: {
+            initiative: init,
+            collaboration: collab,
+            reasoning: reason,
+            compliance: comply,
+            efficiency: effi,
+          },
+          last_scored_at: row.last_scored_at
+            ? new Date(Number(row.last_scored_at)).toISOString()
+            : null,
+        };
+      });
+
+      res.set('Cache-Control', 'public, max-age=60');
+      res.json({
+        version: API_VERSION,
+        data: { agents, total: agents.length },
+      });
+    } catch (err) {
+      console.error('[leaderboard] query failed:', err);
+      res.status(500).json({
+        version: API_VERSION,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to query leaderboard' },
+      });
     }
   });
 

@@ -425,6 +425,7 @@ export class Gateway {
         signerAddress: primarySignerAddress,
         epochAllocator: epochCounter,
         logger: this.logger,
+        pool: this.pool,
       }),
     );
     this.logger.info(

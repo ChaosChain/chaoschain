@@ -52,6 +52,22 @@ Expected response:
 { "status": "ok", "version": "1.0", ... }
 ```
 
+`docker-compose.yml` sets `CHAOSCHAIN_API_KEYS=local_docker_dev_key` and a public Sepolia `RPC_URL` so the gateway can start without editing `.env.docker`. Use header `x-api-key: local_docker_dev_key` for session and leaderboard routes that require a key.
+
+### 3b. (Optional) Agent leaderboard smoke test
+
+Seed sample `ScoreSubmission` rows, then call the leaderboard:
+
+```bash
+docker compose exec -T postgres psql -U postgres -d gateway -f - < packages/gateway/scripts/seed-leaderboard-test.sql
+
+curl -sS -H "x-api-key: local_docker_dev_key" "http://localhost:3000/v1/agents/leaderboard" | jq .
+curl -sS -H "x-api-key: local_docker_dev_key" \
+  "http://localhost:3000/v1/agents/leaderboard?studio_address=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" | jq .
+```
+
+The leaderboard averages whatever numeric scale is stored in `workflows.input.scores` (see script comments for 0–100 vs basis points).
+
 ### 4. Run the full-loop session test
 
 ```bash
