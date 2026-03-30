@@ -654,73 +654,77 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
     const studioFilter = req.query.studio_address as string | undefined;
 
     const conditions = [
-      `type = 'ScoreSubmission'`,
-      `state = 'COMPLETED'`,
+      `w.type = 'ScoreSubmission'`,
+      `w.state = 'COMPLETED'`,
     ];
     const values: unknown[] = [];
 
     if (studioFilter) {
       values.push(studioFilter.toLowerCase());
-      conditions.push(`LOWER(input->>'studio_address') = $${values.length}`);
+      conditions.push(`LOWER(w.input->>'studio_address') = $${values.length}`);
     }
 
     const where = conditions.join(' AND ');
 
     // CTE normalizes each row to 0–100 before aggregation.
     // If any element > 100, the vector is treated as basis-points and divided by 100.
+    // LEFT JOIN sessions on data_hash so the leaderboard shows the real agent_address
+    // (from the session) rather than the gateway signer stored as worker_address.
     const sql = `
       WITH normalized AS (
         SELECT
-          input->>'worker_address' AS agent_address,
-          updated_at,
+          COALESCE(s.agent_address, w.input->>'worker_address') AS agent_address,
+          w.updated_at,
           CASE WHEN GREATEST(
-            (input->'scores'->0)::text::float,
-            (input->'scores'->1)::text::float,
-            (input->'scores'->2)::text::float,
-            (input->'scores'->3)::text::float,
-            (input->'scores'->4)::text::float
+            (w.input->'scores'->0)::text::float,
+            (w.input->'scores'->1)::text::float,
+            (w.input->'scores'->2)::text::float,
+            (w.input->'scores'->3)::text::float,
+            (w.input->'scores'->4)::text::float
           ) > 100
-          THEN (input->'scores'->0)::text::float / 100.0
-          ELSE (input->'scores'->0)::text::float END AS s0,
+          THEN (w.input->'scores'->0)::text::float / 100.0
+          ELSE (w.input->'scores'->0)::text::float END AS s0,
           CASE WHEN GREATEST(
-            (input->'scores'->0)::text::float,
-            (input->'scores'->1)::text::float,
-            (input->'scores'->2)::text::float,
-            (input->'scores'->3)::text::float,
-            (input->'scores'->4)::text::float
+            (w.input->'scores'->0)::text::float,
+            (w.input->'scores'->1)::text::float,
+            (w.input->'scores'->2)::text::float,
+            (w.input->'scores'->3)::text::float,
+            (w.input->'scores'->4)::text::float
           ) > 100
-          THEN (input->'scores'->1)::text::float / 100.0
-          ELSE (input->'scores'->1)::text::float END AS s1,
+          THEN (w.input->'scores'->1)::text::float / 100.0
+          ELSE (w.input->'scores'->1)::text::float END AS s1,
           CASE WHEN GREATEST(
-            (input->'scores'->0)::text::float,
-            (input->'scores'->1)::text::float,
-            (input->'scores'->2)::text::float,
-            (input->'scores'->3)::text::float,
-            (input->'scores'->4)::text::float
+            (w.input->'scores'->0)::text::float,
+            (w.input->'scores'->1)::text::float,
+            (w.input->'scores'->2)::text::float,
+            (w.input->'scores'->3)::text::float,
+            (w.input->'scores'->4)::text::float
           ) > 100
-          THEN (input->'scores'->2)::text::float / 100.0
-          ELSE (input->'scores'->2)::text::float END AS s2,
+          THEN (w.input->'scores'->2)::text::float / 100.0
+          ELSE (w.input->'scores'->2)::text::float END AS s2,
           CASE WHEN GREATEST(
-            (input->'scores'->0)::text::float,
-            (input->'scores'->1)::text::float,
-            (input->'scores'->2)::text::float,
-            (input->'scores'->3)::text::float,
-            (input->'scores'->4)::text::float
+            (w.input->'scores'->0)::text::float,
+            (w.input->'scores'->1)::text::float,
+            (w.input->'scores'->2)::text::float,
+            (w.input->'scores'->3)::text::float,
+            (w.input->'scores'->4)::text::float
           ) > 100
-          THEN (input->'scores'->3)::text::float / 100.0
-          ELSE (input->'scores'->3)::text::float END AS s3,
+          THEN (w.input->'scores'->3)::text::float / 100.0
+          ELSE (w.input->'scores'->3)::text::float END AS s3,
           CASE WHEN GREATEST(
-            (input->'scores'->0)::text::float,
-            (input->'scores'->1)::text::float,
-            (input->'scores'->2)::text::float,
-            (input->'scores'->3)::text::float,
-            (input->'scores'->4)::text::float
+            (w.input->'scores'->0)::text::float,
+            (w.input->'scores'->1)::text::float,
+            (w.input->'scores'->2)::text::float,
+            (w.input->'scores'->3)::text::float,
+            (w.input->'scores'->4)::text::float
           ) > 100
-          THEN (input->'scores'->4)::text::float / 100.0
-          ELSE (input->'scores'->4)::text::float END AS s4
-        FROM workflows
+          THEN (w.input->'scores'->4)::text::float / 100.0
+          ELSE (w.input->'scores'->4)::text::float END AS s4
+        FROM workflows w
+        LEFT JOIN sessions s
+          ON LOWER(s.data_hash) = LOWER(w.input->>'data_hash')
         WHERE ${where}
-          AND jsonb_array_length(input->'scores') >= 5
+          AND jsonb_array_length(w.input->'scores') >= 5
       )
       SELECT
         agent_address,

@@ -1142,13 +1142,13 @@ describe('GET /v1/agents/leaderboard', () => {
     expect((res.body.data as Record<string, unknown>).agents).toEqual([]);
   });
 
-  it('normalizes basis-point rows to 0–100 and clamps', async () => {
-    // Simulate pre-aggregated rows as returned by the CTE query.
-    // The SQL itself runs against Postgres; here we test the JS mapping layer.
+  it('uses agent_address from session JOIN (not worker_address)', async () => {
+    // Mock pool returns rows as the CTE+JOIN would produce:
+    // agent_address comes from COALESCE(s.agent_address, w.input->>'worker_address')
     const app = buildLeaderboardApp({
       poolRows: [
         {
-          agent_address: '0xAlice',
+          agent_address: '0x08109bab_RealAgent',
           scored_sessions: '2',
           avg_initiative: 85,
           avg_collaboration: 72,
@@ -1158,7 +1158,7 @@ describe('GET /v1/agents/leaderboard', () => {
           last_scored_at: 1743050000000,
         },
         {
-          agent_address: '0xBob',
+          agent_address: '0xFallbackWorker',
           scored_sessions: '1',
           avg_initiative: 70,
           avg_collaboration: 65,
@@ -1177,18 +1177,44 @@ describe('GET /v1/agents/leaderboard', () => {
     expect(data.total).toBe(2);
 
     const agents = data.agents as Array<Record<string, unknown>>;
-    const alice = agents.find((a) => a.agent_address === '0xAlice')!;
-    expect(alice.sessions).toBe(2);
-    expect(alice.overall).toBe(82);
-    const aliceScores = alice.avg_scores as Record<string, number>;
-    expect(aliceScores.initiative).toBe(85);
-    expect(aliceScores.collaboration).toBe(72);
-    expect(aliceScores.reasoning).toBe(90);
-    expect(aliceScores.compliance).toBe(88);
-    expect(aliceScores.efficiency).toBe(76);
+    const real = agents.find((a) => a.agent_address === '0x08109bab_RealAgent')!;
+    expect(real).toBeDefined();
+    expect(real.sessions).toBe(2);
+    expect(real.overall).toBe(82);
+    const realScores = real.avg_scores as Record<string, number>;
+    expect(realScores.initiative).toBe(85);
+    expect(realScores.collaboration).toBe(72);
+    expect(realScores.reasoning).toBe(90);
+    expect(realScores.compliance).toBe(88);
+    expect(realScores.efficiency).toBe(76);
 
-    const bob = agents.find((a) => a.agent_address === '0xBob')!;
-    expect(bob.overall).toBe(70);
+    const fallback = agents.find((a) => a.agent_address === '0xFallbackWorker')!;
+    expect(fallback).toBeDefined();
+    expect(fallback.overall).toBe(70);
+  });
+
+  it('falls back to worker_address when no matching session exists', async () => {
+    const app = buildLeaderboardApp({
+      poolRows: [
+        {
+          agent_address: '0xSignerAsWorker',
+          scored_sessions: '1',
+          avg_initiative: 60,
+          avg_collaboration: 60,
+          avg_reasoning: 60,
+          avg_compliance: 60,
+          avg_efficiency: 60,
+          last_scored_at: 1743010000000,
+        },
+      ],
+    });
+
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    expect(res.status).toBe(200);
+    const agents = (res.body.data as Record<string, unknown>).agents as Array<Record<string, unknown>>;
+    expect(agents).toHaveLength(1);
+    expect(agents[0].agent_address).toBe('0xSignerAsWorker');
+    expect(agents[0].overall).toBe(60);
   });
 
   it('clamps values above 100 to 100 and below 0 to 0', async () => {
