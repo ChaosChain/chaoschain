@@ -147,6 +147,94 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /v1/agents/leaderboard:
+    get:
+      summary: Per-agent score leaderboard
+      description: |
+        Aggregates per-agent scores from completed ScoreSubmission workflows.
+        Returns agents ranked by overall score (average of 5 dimensions).
+        All scores are returned on a 0–100 scale. Workflow rows stored as
+        basis points (0–10000) are automatically normalized: if any element
+        in a row's score vector exceeds 100, the entire vector is divided
+        by 100 before averaging.
+        Requires API key authentication via x-api-key header.
+      operationId: getAgentLeaderboard
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: studio_address
+          in: query
+          description: Filter by studio Ethereum address (case-insensitive)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent leaderboard
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "public, max-age=60"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "1.0"
+                  data:
+                    type: object
+                    properties:
+                      agents:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            agent_address:
+                              type: string
+                              example: "0x08109bab..."
+                            sessions:
+                              type: integer
+                              description: Number of scored sessions
+                              example: 5
+                            overall:
+                              type: integer
+                              description: Average of all 5 dimension scores, normalized to 0–100 and clamped
+                              example: 72
+                            avg_scores:
+                              type: object
+                              properties:
+                                initiative:
+                                  type: number
+                                  example: 65
+                                collaboration:
+                                  type: number
+                                  example: 70
+                                reasoning:
+                                  type: number
+                                  example: 80
+                                compliance:
+                                  type: number
+                                  example: 75
+                                efficiency:
+                                  type: number
+                                  example: 70
+                            last_scored_at:
+                              type: string
+                              format: date-time
+                              nullable: true
+                      total:
+                        type: integer
+                        description: Total agents in leaderboard
+                        example: 3
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /workflows/work-submission:
     post:
       summary: Create a work submission workflow

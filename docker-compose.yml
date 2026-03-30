@@ -21,6 +21,11 @@ services:
       context: .
       dockerfile: packages/gateway/Dockerfile
     restart: unless-stopped
+    environment:
+      # Local smoke tests: session + leaderboard routes expect an API key when keys are configured.
+      CHAOSCHAIN_API_KEYS: local_docker_dev_key
+      # Avoid placeholder Alchemy URL during local Docker (background RPC use).
+      RPC_URL: https://ethereum-sepolia-rpc.publicnode.com
     ports:
       - "3000:3000"
       - "9090:9090"

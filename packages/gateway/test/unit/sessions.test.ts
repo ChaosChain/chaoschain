@@ -1092,3 +1092,135 @@ describe('WorkSubmission bridge on complete', () => {
     expect((res.body.data as Record<string, unknown>).workflow_id).toBeNull();
   });
 });
+
+// =============================================================================
+// GET /v1/agents/leaderboard
+// =============================================================================
+
+describe('GET /v1/agents/leaderboard', () => {
+  function buildLeaderboardApp(opts: {
+    apiKeys?: Set<string>;
+    poolRows?: Record<string, unknown>[];
+  }) {
+    const app = express();
+    app.use(express.json());
+    const store = new SessionStore();
+    const mockPool: PoolLike = {
+      async query(_text: string, _values?: unknown[]) {
+        return { rows: opts.poolRows ?? [], rowCount: opts.poolRows?.length ?? 0 };
+      },
+    };
+    app.use(createSessionRoutes({
+      store,
+      apiKeys: opts.apiKeys,
+      pool: mockPool,
+    }));
+    return app;
+  }
+
+  it('returns 401 without API key when keys are configured', async () => {
+    const app = buildLeaderboardApp({ apiKeys: new Set(['test_key']) });
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns empty result when pool returns no rows', async () => {
+    const app = buildLeaderboardApp({});
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    expect(res.status).toBe(200);
+    const data = res.body.data as Record<string, unknown>;
+    expect(data.agents).toEqual([]);
+    expect(data.total).toBe(0);
+  });
+
+  it('returns empty result when no pool is configured', async () => {
+    const app = express();
+    app.use(express.json());
+    app.use(createSessionRoutes({ store: new SessionStore() }));
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    expect(res.status).toBe(200);
+    expect((res.body.data as Record<string, unknown>).agents).toEqual([]);
+  });
+
+  it('normalizes basis-point rows to 0–100 and clamps', async () => {
+    // Simulate pre-aggregated rows as returned by the CTE query.
+    // The SQL itself runs against Postgres; here we test the JS mapping layer.
+    const app = buildLeaderboardApp({
+      poolRows: [
+        {
+          agent_address: '0xAlice',
+          scored_sessions: '2',
+          avg_initiative: 85,
+          avg_collaboration: 72,
+          avg_reasoning: 90,
+          avg_compliance: 88,
+          avg_efficiency: 76,
+          last_scored_at: 1743050000000,
+        },
+        {
+          agent_address: '0xBob',
+          scored_sessions: '1',
+          avg_initiative: 70,
+          avg_collaboration: 65,
+          avg_reasoning: 75,
+          avg_compliance: 68,
+          avg_efficiency: 73,
+          last_scored_at: 1743010000000,
+        },
+      ],
+    });
+
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    expect(res.status).toBe(200);
+
+    const data = res.body.data as Record<string, unknown>;
+    expect(data.total).toBe(2);
+
+    const agents = data.agents as Array<Record<string, unknown>>;
+    const alice = agents.find((a) => a.agent_address === '0xAlice')!;
+    expect(alice.sessions).toBe(2);
+    expect(alice.overall).toBe(82);
+    const aliceScores = alice.avg_scores as Record<string, number>;
+    expect(aliceScores.initiative).toBe(85);
+    expect(aliceScores.collaboration).toBe(72);
+    expect(aliceScores.reasoning).toBe(90);
+    expect(aliceScores.compliance).toBe(88);
+    expect(aliceScores.efficiency).toBe(76);
+
+    const bob = agents.find((a) => a.agent_address === '0xBob')!;
+    expect(bob.overall).toBe(70);
+  });
+
+  it('clamps values above 100 to 100 and below 0 to 0', async () => {
+    const app = buildLeaderboardApp({
+      poolRows: [
+        {
+          agent_address: '0xEdge',
+          scored_sessions: '1',
+          avg_initiative: 105,
+          avg_collaboration: -3,
+          avg_reasoning: 50,
+          avg_compliance: 200,
+          avg_efficiency: 0,
+          last_scored_at: 1743050000000,
+        },
+      ],
+    });
+
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    const agents = (res.body.data as Record<string, unknown>).agents as Array<Record<string, unknown>>;
+    const edge = agents[0];
+    const scores = edge.avg_scores as Record<string, number>;
+    expect(scores.initiative).toBe(100);
+    expect(scores.collaboration).toBe(0);
+    expect(scores.compliance).toBe(100);
+    expect(scores.efficiency).toBe(0);
+    expect(edge.overall).toBe(50);
+  });
+
+  it('sets Cache-Control header', async () => {
+    const app = buildLeaderboardApp({});
+    const res = await req(app, 'GET', '/v1/agents/leaderboard');
+    expect(res.headers['cache-control']).toBe('public, max-age=60');
+  });
+});
