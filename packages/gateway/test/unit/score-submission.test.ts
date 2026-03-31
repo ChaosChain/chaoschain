@@ -1041,3 +1041,262 @@ describe('F. ScoreSubmission Mode Isolation', () => {
     expect(scoreEncoder.encodeRevealScore).not.toHaveBeenCalled();
   });
 });
+
+// =============================================================================
+// F. SIGNER FALLBACK TESTS
+// =============================================================================
+
+describe('F. Signer fallback when signer_address is not loaded', () => {
+  const GATEWAY_SIGNER = '0xGatewaySigner';
+
+  let persistence: InMemoryWorkflowPersistence;
+  let chainAdapter: ChainAdapter;
+  let scoreChainState: ScoreChainStateAdapter;
+  let arweaveAdapter: ArweaveAdapter;
+  let scoreEncoder: ScoreContractEncoder;
+  let directScoreEncoder: DirectScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
+  let chainState: ChainStateAdapter;
+  let txQueue: TxQueue;
+  let reconciler: WorkflowReconciler;
+  let engine: WorkflowEngine;
+
+  beforeEach(() => {
+    persistence = new InMemoryWorkflowPersistence();
+    chainAdapter = createMockChainAdapter();
+    chainState = createMockChainStateAdapter();
+    scoreChainState = createMockScoreChainStateAdapter();
+    arweaveAdapter = createMockArweaveAdapter();
+    scoreEncoder = createMockScoreEncoder();
+    directScoreEncoder = createMockDirectScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
+
+    // Only the gateway signer is loaded; verifier addresses are not
+    (chainAdapter.hasSigner as ReturnType<typeof vi.fn>).mockImplementation(
+      (addr: string) => addr.toLowerCase() === GATEWAY_SIGNER.toLowerCase()
+    );
+
+    txQueue = new TxQueue(chainAdapter);
+    reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
+    engine = new WorkflowEngine(persistence, reconciler);
+
+    const definition = createScoreSubmissionDefinition(
+      txQueue,
+      persistence,
+      scoreChainState,
+      {
+        commitRevealEncoder: scoreEncoder,
+        directEncoder: directScoreEncoder,
+        validatorEncoder,
+      },
+      GATEWAY_SIGNER
+    );
+    engine.registerWorkflow(definition);
+  });
+
+  it('SUBMIT_SCORE_DIRECT falls back to gateway signer when input.signer_address is not loaded', async () => {
+    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const input = createTestInput('direct');
+    input.signer_address = '0xExternalVerifier';
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+    await engine.startWorkflow(workflow.id);
+
+    // submitTx should have been called with the gateway signer, not the verifier
+    expect(chainAdapter.submitTx).toHaveBeenCalledWith(
+      GATEWAY_SIGNER,
+      expect.any(Object),
+      expect.any(Number)
+    );
+  });
+
+  it('SUBMIT_SCORE_DIRECT uses input.signer_address when it IS loaded', async () => {
+    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const input = createTestInput('direct');
+    input.signer_address = GATEWAY_SIGNER;
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+    await engine.startWorkflow(workflow.id);
+
+    expect(chainAdapter.submitTx).toHaveBeenCalledWith(
+      GATEWAY_SIGNER,
+      expect.any(Object),
+      expect.any(Number)
+    );
+  });
+
+  it('REGISTER_VALIDATOR falls back to gateway signer when admin/signer address is not loaded', async () => {
+    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const input = createTestInput('direct');
+    input.signer_address = '0xExternalVerifier';
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+
+    // Advance to REGISTER_VALIDATOR by setting state + step directly
+    await persistence.updateState(workflow.id, 'RUNNING', 'REGISTER_VALIDATOR', 0);
+    await persistence.appendProgress(workflow.id, { score_confirmed: true });
+
+    // Reset submitTx call tracking before running the step
+    (chainAdapter.submitTx as ReturnType<typeof vi.fn>).mockClear();
+
+    await engine.resumeWorkflow(workflow.id);
+
+    expect(chainAdapter.submitTx).toHaveBeenCalledWith(
+      GATEWAY_SIGNER,
+      expect.any(Object),
+      expect.any(Number)
+    );
+  });
+});
+
+// =============================================================================
+// G. WORKER ADDRESS RESOLUTION TESTS
+// =============================================================================
+
+describe('G. Worker address resolution from WorkSubmission signer', () => {
+  const GATEWAY_SIGNER = '0xGatewaySigner';
+  const WORK_SUBMITTER = '0xOriginalWorkSubmitter';
+
+  let persistence: InMemoryWorkflowPersistence;
+  let chainAdapter: ChainAdapter;
+  let scoreChainState: ScoreChainStateAdapter;
+  let arweaveAdapter: ArweaveAdapter;
+  let scoreEncoder: ScoreContractEncoder;
+  let directScoreEncoder: DirectScoreContractEncoder;
+  let validatorEncoder: ValidatorRegistrationEncoder;
+  let chainState: ChainStateAdapter;
+  let txQueue: TxQueue;
+  let reconciler: WorkflowReconciler;
+  let engine: WorkflowEngine;
+
+  beforeEach(() => {
+    persistence = new InMemoryWorkflowPersistence();
+    chainAdapter = createMockChainAdapter();
+    chainState = createMockChainStateAdapter();
+    scoreChainState = createMockScoreChainStateAdapter();
+    arweaveAdapter = createMockArweaveAdapter();
+    scoreEncoder = createMockScoreEncoder();
+    directScoreEncoder = createMockDirectScoreEncoder();
+    validatorEncoder = createMockValidatorRegistrationEncoder();
+
+    (chainAdapter.hasSigner as ReturnType<typeof vi.fn>).mockReturnValue(true);
+
+    txQueue = new TxQueue(chainAdapter);
+    reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue, scoreChainState);
+    engine = new WorkflowEngine(persistence, reconciler);
+
+    const definition = createScoreSubmissionDefinition(
+      txQueue,
+      persistence,
+      scoreChainState,
+      {
+        commitRevealEncoder: scoreEncoder,
+        directEncoder: directScoreEncoder,
+        validatorEncoder,
+      },
+      GATEWAY_SIGNER
+    );
+    engine.registerWorkflow(definition);
+  });
+
+  async function seedWorkSubmission(dataHash: string, signer: string) {
+    await persistence.create({
+      id: 'wf-work-' + dataHash.slice(0, 8),
+      type: 'WorkSubmission',
+      created_at: Date.now() - 10000,
+      updated_at: Date.now() - 10000,
+      state: 'COMPLETED',
+      step: 'DONE',
+      step_attempts: 0,
+      input: { data_hash: dataHash, studio_address: '0xStudio', epoch: 1, signer_address: signer },
+      progress: {},
+      signer,
+    });
+  }
+
+  it('uses WorkSubmission.signer as worker_address when it differs from input.worker_address', async () => {
+    const DATA_HASH = '0xDataHash';
+    await seedWorkSubmission(DATA_HASH, WORK_SUBMITTER);
+
+    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const input = createTestInput('direct');
+    input.data_hash = DATA_HASH;
+    input.worker_address = '0xWrongAgentAddress';
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+    await engine.startWorkflow(workflow.id);
+
+    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
+      DATA_HASH,
+      WORK_SUBMITTER,
+      expect.any(Array)
+    );
+  });
+
+  it('uses WorkSubmission.signer even when input.worker_address is missing', async () => {
+    const DATA_HASH = '0xDataHash';
+    await seedWorkSubmission(DATA_HASH, WORK_SUBMITTER);
+
+    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const input = createTestInput('direct');
+    input.data_hash = DATA_HASH;
+    input.worker_address = undefined;
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+    await engine.startWorkflow(workflow.id);
+
+    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
+      DATA_HASH,
+      WORK_SUBMITTER,
+      expect.any(Array)
+    );
+  });
+
+  it('falls back to input.worker_address when no WorkSubmission exists', async () => {
+    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const input = createTestInput('direct');
+    input.data_hash = '0xNoMatchingWork';
+    input.worker_address = '0xFallbackWorker';
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+    await engine.startWorkflow(workflow.id);
+
+    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
+      '0xNoMatchingWork',
+      '0xFallbackWorker',
+      expect.any(Array)
+    );
+  });
+
+  it('fails with clear error when both WorkSubmission and input.worker_address are missing', async () => {
+    const input = createTestInput('direct');
+    input.data_hash = '0xNoMatchingWork';
+    input.worker_address = undefined;
+    const workflow = createScoreSubmissionWorkflow(input);
+
+    await persistence.create(workflow);
+    await engine.startWorkflow(workflow.id);
+
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('FAILED');
+    expect(saved!.error?.code).toBe('MISSING_WORKER_ADDRESS');
+  });
+});

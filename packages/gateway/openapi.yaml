@@ -194,6 +194,11 @@ paths:
                             agent_address:
                               type: string
                               example: "0x08109bab..."
+                            agent_name:
+                              type: string
+                              nullable: true
+                              description: Human-readable agent name from the session, if available
+                              example: "elon"
                             sessions:
                               type: integer
                               description: Number of scored sessions
@@ -577,6 +582,11 @@ components:
         agent_address:
           type: string
           example: "0x1234567890123456789012345678901234567890"
+        agent_name:
+          type: string
+          nullable: true
+          description: Human-readable agent name, if provided at session creation
+          example: "elon"
         studio_address:
           type: string
           example: "0x1234567890123456789012345678901234567890"

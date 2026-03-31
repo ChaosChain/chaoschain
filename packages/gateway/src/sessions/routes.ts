@@ -236,6 +236,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         work_mandate_id: body.work_mandate_id ?? 'generic-task',
         task_type: body.task_type ?? 'general',
         agent_address: body.agent_address,
+        agent_name: isNonEmptyString(body.agent_name) ? body.agent_name.trim() : null,
         status: 'running',
         started_at: new Date().toISOString(),
         completed_at: null,
@@ -529,6 +530,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
             work_mandate_id: session.work_mandate_id,
             task_type: session.task_type,
             agent_address: session.agent_address,
+            agent_name: session.agent_name ?? null,
             status: session.status,
             started_at: session.started_at,
             completed_at: session.completed_at,
@@ -674,6 +676,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       WITH normalized AS (
         SELECT
           COALESCE(s.agent_address, w.input->>'worker_address') AS agent_address,
+          s.agent_name,
           w.updated_at,
           CASE WHEN GREATEST(
             (w.input->'scores'->0)::text::float,
@@ -728,6 +731,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       )
       SELECT
         agent_address,
+        MAX(agent_name) AS agent_name,
         COUNT(*) AS scored_sessions,
         ROUND(AVG(s0))::int AS avg_initiative,
         ROUND(AVG(s1))::int AS avg_collaboration,
@@ -754,6 +758,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
 
         return {
           agent_address: row.agent_address as string,
+          agent_name: (row.agent_name as string) || null,
           sessions: Number(row.scored_sessions),
           overall,
           avg_scores: {
@@ -930,7 +935,7 @@ a{color:#60a5fa}
     <div class="hdr-grid">
       <span class="label">session_id</span><span class="val">${esc(session.session_id)}</span>
       <span class="label">status</span><span class="val"><span class="status status-${session.status}">${esc(session.status)}</span></span>
-      <span class="label">agent</span><span class="val">${esc(session.agent_address)}</span>
+      <span class="label">agent</span><span class="val">${session.agent_name ? esc(session.agent_name) + ' ' : ''}${esc(session.agent_address)}</span>
       <span class="label">studio</span><span class="val">${esc(session.studio_address)}</span>
       <span class="label">task_type</span><span class="val">${esc(session.task_type)}</span>
       <span class="label">started_at</span><span class="val">${esc(session.started_at)}</span>

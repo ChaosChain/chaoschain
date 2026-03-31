@@ -254,7 +254,8 @@ export class Gateway {
         directEncoder: directScoreEncoder,           // For direct mode (default, MVP)
         commitRevealEncoder: commitRevealScoreEncoder, // For commit-reveal mode (available)
         validatorEncoder,                            // For REGISTER_VALIDATOR step (both modes)
-      }
+      },
+      primarySignerAddress
     );
     this.engine.registerWorkflow(scoreSubmissionDef);
     this.logger.info(

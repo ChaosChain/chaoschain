@@ -181,6 +181,13 @@ export class TxQueue {
   }
 
   /**
+   * Check whether a private key is loaded for the given address.
+   */
+  hasSigner(address: string): boolean {
+    return this.chainAdapter.hasSigner(address);
+  }
+
+  /**
    * Check transaction status without holding lock.
    * Used for reconciliation.
    */
