@@ -172,17 +172,20 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
   private persistence: WorkflowPersistence;
   private encoder: DirectScoreContractEncoder;
   private chainState: ScoreChainStateAdapter;
+  private fallbackSignerAddress?: string;
 
   constructor(
     txQueue: TxQueue,
     persistence: WorkflowPersistence,
     encoder: DirectScoreContractEncoder,
-    chainState: ScoreChainStateAdapter
+    chainState: ScoreChainStateAdapter,
+    fallbackSignerAddress?: string
   ) {
     this.txQueue = txQueue;
     this.persistence = persistence;
     this.encoder = encoder;
     this.chainState = chainState;
+    this.fallbackSignerAddress = fallbackSignerAddress;
   }
 
   isIrreversible(): boolean {
@@ -198,13 +201,31 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       return { type: 'SUCCESS', nextStep: 'AWAIT_SCORE_CONFIRM' };
     }
 
-    // Validate required input for direct mode
-    if (!input.worker_address) {
+    // V1: on-chain participant is the original WorkSubmission signer, not the session agent.
+    // Look up the WorkSubmission that created this data_hash to get the actual on-chain worker.
+    let resolvedWorkerAddress: string | undefined;
+    try {
+      const workWf = await this.persistence.findWorkByDataHash(input.data_hash);
+      if (workWf) {
+        resolvedWorkerAddress = workWf.signer;
+        if (input.worker_address && input.worker_address.toLowerCase() !== resolvedWorkerAddress.toLowerCase()) {
+          console.log(`[SUBMIT_SCORE_DIRECT] worker mismatch: input=${input.worker_address} work_submitter=${resolvedWorkerAddress}; using work_submitter`);
+        }
+      }
+    } catch (err) {
+      console.log(`[SUBMIT_SCORE_DIRECT] failed to look up WorkSubmission for data_hash=${input.data_hash}:`, err);
+    }
+
+    if (!resolvedWorkerAddress) {
+      resolvedWorkerAddress = input.worker_address;
+    }
+
+    if (!resolvedWorkerAddress) {
       return {
         type: 'FAILED',
         error: {
           category: 'PERMANENT',
-          message: 'worker_address is required for direct scoring mode',
+          message: 'Unable to resolve worker_address for score submission (no WorkSubmission found and input.worker_address is missing)',
           code: 'MISSING_WORKER_ADDRESS',
         },
       };
@@ -216,10 +237,9 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
         input.studio_address,
         input.data_hash,
         input.validator_address,
-        input.worker_address
+        resolvedWorkerAddress
       );
       if (scoreExists) {
-        // Score already on-chain, skip to validator registration
         await this.persistence.appendProgress(workflow.id, {
           score_confirmed: true,
           score_confirmed_at: Date.now(),
@@ -228,20 +248,19 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       }
     }
 
-    // DEBUG: trace worker/data_hash before on-chain call
-    console.log('[SUBMIT_SCORE_DIRECT] debug', {
-      workflowId: workflow.id,
-      worker_address: input.worker_address,
-      data_hash: input.data_hash,
-      signer_address: input.signer_address,
-      validator_address: input.validator_address,
-      studio_address: input.studio_address,
-    });
+    // Resolve effective signer: if the requested signer isn't loaded
+    // (e.g. external verifier address), fall back to the gateway's primary signer.
+    // submitScoreVectorForWorker accepts any msg.sender, so this is safe.
+    let effectiveSigner = input.signer_address;
+    if (!this.txQueue.hasSigner(effectiveSigner) && this.fallbackSignerAddress) {
+      console.log(`[SUBMIT_SCORE_DIRECT] signer ${effectiveSigner} not loaded, using gateway signer ${this.fallbackSignerAddress}`);
+      effectiveSigner = this.fallbackSignerAddress;
+    }
 
-    // Encode transaction
+    // Encode transaction using the resolved worker (original WorkSubmission signer)
     const txData = this.encoder.encodeSubmitScoreVectorForWorker(
       input.data_hash,
-      input.worker_address,
+      resolvedWorkerAddress,
       input.scores
     );
 
@@ -253,12 +272,14 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
     try {
       const txHash = await this.txQueue.submitOnly(
         workflow.id,
-        input.signer_address,
+        effectiveSigner,
         txRequest
       );
 
-      // Persist tx hash (critical checkpoint)
-      await this.persistence.appendProgress(workflow.id, { score_tx_hash: txHash });
+      await this.persistence.appendProgress(workflow.id, {
+        score_tx_hash: txHash,
+        resolved_worker_address: resolvedWorkerAddress,
+      });
 
       return { type: 'SUCCESS', nextStep: 'AWAIT_SCORE_CONFIRM' };
     } catch (error) {
@@ -947,17 +968,20 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
   private persistence: WorkflowPersistence;
   private validatorEncoder: ValidatorRegistrationEncoder;
   private chainState: ScoreChainStateAdapter;
+  private fallbackSignerAddress?: string;
 
   constructor(
     txQueue: TxQueue,
     persistence: WorkflowPersistence,
     validatorEncoder: ValidatorRegistrationEncoder,
-    chainState: ScoreChainStateAdapter
+    chainState: ScoreChainStateAdapter,
+    fallbackSignerAddress?: string
   ) {
     this.txQueue = txQueue;
     this.persistence = persistence;
     this.validatorEncoder = validatorEncoder;
     this.chainState = chainState;
+    this.fallbackSignerAddress = fallbackSignerAddress;
   }
 
   isIrreversible(): boolean {
@@ -1013,7 +1037,11 @@ export class RegisterValidatorStep implements StepExecutor<ScoreSubmissionRecord
 
     try {
       // Use admin signer for onlyOwner registerValidator, fall back to score signer
-      const signerForRegister = input.admin_signer_address ?? input.signer_address;
+      let signerForRegister = input.admin_signer_address ?? input.signer_address;
+      if (!this.txQueue.hasSigner(signerForRegister) && this.fallbackSignerAddress) {
+        console.log(`[REGISTER_VALIDATOR] signer ${signerForRegister} not loaded, using gateway signer ${this.fallbackSignerAddress}`);
+        signerForRegister = this.fallbackSignerAddress;
+      }
       const txHash = await this.txQueue.submitOnly(
         workflow.id,
         signerForRegister,
@@ -1282,14 +1310,15 @@ export function createScoreSubmissionDefinition(
   txQueue: TxQueue,
   persistence: WorkflowPersistence,
   chainState: ScoreChainStateAdapter,
-  encoders: ScoreSubmissionEncoders
+  encoders: ScoreSubmissionEncoders,
+  fallbackSignerAddress?: string
 ): WorkflowDefinition<ScoreSubmissionRecord> {
   const steps = new Map<string, StepExecutor<ScoreSubmissionRecord>>();
 
   // Direct mode steps (default, MVP)
   if (encoders.directEncoder) {
     steps.set('SUBMIT_SCORE_DIRECT', new SubmitScoreDirectStep(
-      txQueue, persistence, encoders.directEncoder, chainState
+      txQueue, persistence, encoders.directEncoder, chainState, fallbackSignerAddress
     ));
     steps.set('AWAIT_SCORE_CONFIRM', new AwaitScoreConfirmStep(txQueue, persistence));
   }
@@ -1309,7 +1338,7 @@ export function createScoreSubmissionDefinition(
   // Validator registration steps (both modes)
   if (encoders.validatorEncoder) {
     steps.set('REGISTER_VALIDATOR', new RegisterValidatorStep(
-      txQueue, persistence, encoders.validatorEncoder, chainState
+      txQueue, persistence, encoders.validatorEncoder, chainState, fallbackSignerAddress
     ));
     steps.set('AWAIT_REGISTER_VALIDATOR_CONFIRM', new AwaitRegisterValidatorConfirmStep(
       txQueue, persistence

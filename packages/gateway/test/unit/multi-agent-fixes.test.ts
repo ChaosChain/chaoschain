@@ -120,11 +120,13 @@ function mockPersistence(): WorkflowPersistence {
     findActiveWorkflows: vi.fn().mockResolvedValue([]),
     findByTypeAndState: vi.fn().mockResolvedValue([]),
     updateState: vi.fn(),
-  };
+    findWorkByDataHash: vi.fn().mockResolvedValue(null),
+  } as unknown as WorkflowPersistence;
 }
 
 function mockTxQueue(): TxQueue {
   return {
+    hasSigner: vi.fn().mockReturnValue(true),
     submitOnly: vi.fn().mockResolvedValue('0xMockTxHash'),
     waitForTx: vi.fn().mockResolvedValue({ status: 'confirmed', blockNumber: 100 }),
     releaseSignerLock: vi.fn(),

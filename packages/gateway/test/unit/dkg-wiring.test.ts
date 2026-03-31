@@ -79,6 +79,7 @@ function mockPersistence(): WorkflowPersistence {
     findByTypeAndState: vi.fn().mockResolvedValue([]),
     updateState: vi.fn(),
     delete: vi.fn(),
+    findWorkByDataHash: vi.fn().mockResolvedValue(null),
   } as unknown as WorkflowPersistence;
 }
 

@@ -121,6 +121,7 @@ export interface SessionMetadata {
   work_mandate_id: string;
   task_type: string;
   agent_address: string;
+  agent_name?: string | null;
   status: SessionStatus;
   started_at: string; // ISO-8601
   completed_at: string | null;
@@ -141,6 +142,7 @@ export interface CreateSessionInput {
   work_mandate_id?: string;
   task_type?: string;
   agent_address: string;
+  agent_name?: string;
 }
 
 // =============================================================================
@@ -235,6 +237,7 @@ export interface SessionListItem {
   status: SessionStatus;
   epoch: number | null;
   agent_address: string;
+  agent_name?: string | null;
   studio_address: string;
   created_at: string;
   node_count: number;

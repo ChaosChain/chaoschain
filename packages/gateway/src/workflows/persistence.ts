@@ -64,6 +64,12 @@ export interface WorkflowPersistence {
     type: string,
     state: WorkflowMetaState
   ): Promise<WorkflowRecord[]>;
+
+  /**
+   * Find a WorkSubmission workflow by its data_hash.
+   * Used by ScoreSubmission to resolve the on-chain worker address.
+   */
+  findWorkByDataHash(dataHash: string): Promise<WorkflowRecord | null>;
 }
 
 // =============================================================================
