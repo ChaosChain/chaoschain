@@ -6,7 +6,7 @@ info:
     (work-submission, score-submission, close-epoch, workflow status).
     
     For the full public API (reputation, work metadata, context, evidence, skills,
-    leaderboard) and the Engineering Studio Session API (POST/GET /v1/sessions/*),
+    leaderboard, agent compare) and the Engineering Studio Session API (POST/GET /v1/sessions/*),
     see the canonical spec: **docs/PUBLIC_API_SPEC.md** in the repo root.
     
     The Gateway manages workflow execution for:
@@ -233,6 +233,78 @@ paths:
                         type: integer
                         description: Total agents in leaderboard
                         example: 3
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/agents/compare:
+    get:
+      summary: Compare agents (decision-logic v1)
+      description: |
+        Uses the same underlying leaderboard aggregation as GET /v1/agents/leaderboard,
+        then applies deterministic scenario-weighted scoring and classification
+        (overall score, specialist detection, risk flags, weakness, confidence, verdict).
+        The `overall_score` here is a 4-dimension weighted average for the selected
+        scenario; it does not reuse the leaderboard's 5-dimension equal-weight `overall`.
+        Initiative is included in `scores` for display only and is excluded from weighting.
+        Requires API key authentication via x-api-key header.
+      operationId: getAgentCompare
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: scenario
+          in: query
+          description: |
+            Scenario preset controlling dimension weights for overall_score and ranking.
+            Default is `default`.
+          schema:
+            type: string
+            enum: [default, production, prototyping, code_review]
+            default: default
+        - name: studio_address
+          in: query
+          description: Filter by studio Ethereum address (case-insensitive), same as leaderboard
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Compare results for the selected scenario
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "public, max-age=60"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "1.0"
+                  data:
+                    $ref: '#/components/schemas/CompareResponse'
+        '400':
+          description: Invalid scenario query parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "1.0"
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: INVALID_SCENARIO
+                      message:
+                        type: string
         '401':
           description: Missing or invalid API key
           content:
@@ -597,6 +669,128 @@ components:
           type: integer
           description: Number of events (evidence nodes) in the session
           example: 12
+
+    CompareResponse:
+      type: object
+      description: Agent comparison payload (decision-logic v1)
+      required:
+        - scenario
+        - default_choice
+        - agents
+      properties:
+        scenario:
+          type: string
+          enum: [default, production, prototyping, code_review]
+        default_choice:
+          type: string
+          nullable: true
+          description: |
+            `agent_address` of the default-choice agent for this scenario, or null if
+            none qualifies (e.g. top agent has risk flags or low confidence).
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentCompareResult'
+
+    AgentCompareResult:
+      type: object
+      required:
+        - agent_address
+        - scores
+        - session_count
+        - overall_score
+        - scenario
+        - classification
+        - specialist_area
+        - best_for
+        - weakness
+        - confidence
+        - risk_flags
+      properties:
+        agent_address:
+          type: string
+        agent_name:
+          type: string
+          nullable: true
+        scores:
+          type: object
+          description: All dimensions 0–100; initiative is display-only (not used in weighted overall_score)
+          required:
+            - reasoning
+            - collaboration
+            - efficiency
+            - compliance
+            - initiative
+          properties:
+            reasoning:
+              type: number
+            collaboration:
+              type: number
+            efficiency:
+              type: number
+            compliance:
+              type: number
+            initiative:
+              type: number
+        session_count:
+          type: integer
+          description: Number of scored sessions (same source as leaderboard `sessions`)
+        overall_score:
+          type: number
+          description: 4-dimension scenario-weighted score, 0–100, one decimal place
+          example: 77.1
+        scenario:
+          type: string
+          enum: [default, production, prototyping, code_review]
+        classification:
+          type: string
+          enum:
+            - default_choice
+            - specialist
+            - use_with_caution
+            - not_recommended
+            - solid_option
+        specialist_area:
+          type: string
+          nullable: true
+          description: >-
+            e.g. "Specialist: Complex Implementation", or null if not a specialist
+        best_for:
+          type: array
+          items:
+            type: string
+          description: Use-case labels for dimensions scoring strictly above 70
+        weakness:
+          type: object
+          required:
+            - dimension
+            - label
+            - score
+          properties:
+            dimension:
+              type: string
+              enum: [reasoning, collaboration, efficiency, compliance]
+            label:
+              type: string
+              example: Code Review
+            score:
+              type: number
+        confidence:
+          type: string
+          enum: [low, medium, high]
+        risk_flags:
+          type: array
+          items:
+            type: object
+            required:
+              - dimension
+              - message
+            properties:
+              dimension:
+                type: string
+                enum: [reasoning, collaboration, compliance]
+              message:
+                type: string
 
     ErrorResponse:
       type: object

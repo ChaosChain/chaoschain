@@ -23,6 +23,9 @@ import type {
   CompleteSessionInput,
   SessionMetadata,
   EvidenceDAG,
+  Scenario,
+  AgentCompareResult,
+  CompareResponse,
 } from './types.js';
 import { CANONICAL_EVENT_TYPES as EVENT_TYPES } from './types.js';
 
@@ -68,6 +71,273 @@ function resolveMandate(id: string): Record<string, unknown> {
 }
 
 const API_VERSION = '1.0';
+
+// =============================================================================
+// Decision-logic v1 — classification constants & pipeline
+// =============================================================================
+
+export const SCENARIO_WEIGHTS: Record<Scenario, Record<string, number>> = {
+  default:     { reasoning: 0.30, compliance: 0.25, efficiency: 0.25, collaboration: 0.20 },
+  production:  { reasoning: 0.25, compliance: 0.40, efficiency: 0.20, collaboration: 0.15 },
+  prototyping: { reasoning: 0.25, compliance: 0.15, efficiency: 0.40, collaboration: 0.20 },
+  code_review: { reasoning: 0.20, compliance: 0.25, efficiency: 0.15, collaboration: 0.40 },
+};
+
+export const SPECIALIST_GAP_THRESHOLD = 30;
+export const BEST_FOR_THRESHOLD = 70;
+export const RISK_FLAG_THRESHOLD = 30;
+export const CONFIDENCE_LOW_MAX = 2;
+export const CONFIDENCE_MEDIUM_MAX = 10;
+
+const VALID_SCENARIOS = new Set<Scenario>(['default', 'production', 'prototyping', 'code_review']);
+
+const USE_CASE_MAP: Record<string, string> = {
+  reasoning: 'Complex Implementation',
+  collaboration: 'Code Review',
+  efficiency: 'Prototyping',
+  compliance: 'Production',
+};
+
+const SPECIALIST_PRIORITY: string[] = ['reasoning', 'compliance', 'efficiency', 'collaboration'];
+const WEAKNESS_PRIORITY: string[] = ['compliance', 'reasoning', 'collaboration', 'efficiency'];
+const RISK_DIMENSIONS: string[] = ['reasoning', 'collaboration', 'compliance'];
+const RISK_MESSAGES: Record<string, string> = {
+  reasoning: 'High risk for complex implementation',
+  collaboration: 'High risk for team workflows',
+  compliance: 'High risk for production deployments',
+};
+
+export interface LeaderboardRow {
+  agent_address: string;
+  agent_name: string | null;
+  sessions: number;
+  initiative: number;
+  collaboration: number;
+  reasoning: number;
+  compliance: number;
+  efficiency: number;
+  last_scored_at: string | null;
+}
+
+export function classifyAgents(rows: LeaderboardRow[], scenario: Scenario): CompareResponse {
+  const weights = SCENARIO_WEIGHTS[scenario];
+  const dims = ['reasoning', 'collaboration', 'efficiency', 'compliance'] as const;
+
+  const scored: AgentCompareResult[] = rows.map((row) => {
+    const dimScores: Record<string, number> = {
+      reasoning: row.reasoning,
+      collaboration: row.collaboration,
+      efficiency: row.efficiency,
+      compliance: row.compliance,
+    };
+
+    // Rule 1: weighted overall score
+    let overall = 0;
+    for (const d of dims) overall += weights[d] * dimScores[d];
+    overall = Math.round(overall * 10) / 10;
+
+    // Rule 2: specialist detection
+    let maxScore = -1;
+    let maxDim = '';
+    for (const d of SPECIALIST_PRIORITY) {
+      if (dimScores[d] > maxScore || (dimScores[d] === maxScore && maxDim === '')) {
+        maxScore = dimScores[d];
+        maxDim = d;
+      }
+    }
+    const othersMean = (dims.reduce((s, d) => s + dimScores[d], 0) - maxScore) / 3;
+    const gap = maxScore - othersMean;
+    const specialistArea = gap > SPECIALIST_GAP_THRESHOLD ? USE_CASE_MAP[maxDim] : null;
+
+    // Rule 3: best_for
+    const bestFor: string[] = [];
+    for (const d of dims) {
+      if (dimScores[d] > BEST_FOR_THRESHOLD) bestFor.push(USE_CASE_MAP[d]);
+    }
+
+    // Rule 4: risk flags (strictly less than threshold; efficiency excluded)
+    const riskFlags: { dimension: string; message: string }[] = [];
+    for (const d of RISK_DIMENSIONS) {
+      if (dimScores[d] < RISK_FLAG_THRESHOLD) {
+        riskFlags.push({ dimension: d, message: RISK_MESSAGES[d] });
+      }
+    }
+
+    // Rule 5: confidence
+    let confidence: 'low' | 'medium' | 'high';
+    if (row.sessions <= CONFIDENCE_LOW_MAX) confidence = 'low';
+    else if (row.sessions <= CONFIDENCE_MEDIUM_MAX) confidence = 'medium';
+    else confidence = 'high';
+
+    // Rule 6: weakness — lowest dimension; tie-break by WEAKNESS_PRIORITY
+    let minScore = Infinity;
+    let weakDim = '';
+    for (const d of WEAKNESS_PRIORITY) {
+      if (dimScores[d] < minScore || (dimScores[d] === minScore && weakDim === '')) {
+        minScore = dimScores[d];
+        weakDim = d;
+      }
+    }
+
+    return {
+      agent_address: row.agent_address,
+      agent_name: row.agent_name,
+      scores: {
+        reasoning: row.reasoning,
+        collaboration: row.collaboration,
+        efficiency: row.efficiency,
+        compliance: row.compliance,
+        initiative: row.initiative,
+      },
+      session_count: row.sessions,
+      overall_score: overall,
+      scenario,
+      classification: 'solid_option' as const, // placeholder, assigned below in Rule 7
+      specialist_area: specialistArea ? `Specialist: ${specialistArea}` : null,
+      best_for: bestFor,
+      weakness: { dimension: weakDim, label: USE_CASE_MAP[weakDim], score: minScore },
+      confidence,
+      risk_flags: riskFlags,
+    };
+  });
+
+  // Sort by overall_score desc (stable)
+  scored.sort((a, b) => b.overall_score - a.overall_score);
+
+  // Rule 7: classification — depends on global rank
+  let defaultChoiceAddr: string | null = null;
+  for (let i = 0; i < scored.length; i++) {
+    const a = scored[i];
+    if (a.risk_flags.length >= 2) {
+      a.classification = 'not_recommended';
+    } else if (a.risk_flags.length === 1) {
+      a.classification = 'use_with_caution';
+    } else if (
+      i === 0 &&
+      a.risk_flags.length === 0 &&
+      a.confidence !== 'low'
+    ) {
+      a.classification = 'default_choice';
+      defaultChoiceAddr = a.agent_address;
+    } else if (a.specialist_area !== null) {
+      a.classification = 'specialist';
+    } else {
+      a.classification = 'solid_option';
+    }
+  }
+
+  return { scenario, default_choice: defaultChoiceAddr, agents: scored };
+}
+
+// =============================================================================
+// Shared leaderboard DB query
+// =============================================================================
+
+export async function queryLeaderboardRows(
+  pool: PoolLike,
+  studioFilter?: string,
+): Promise<LeaderboardRow[]> {
+  const conditions = [
+    `w.type = 'ScoreSubmission'`,
+    `w.state = 'COMPLETED'`,
+  ];
+  const values: unknown[] = [];
+
+  if (studioFilter) {
+    values.push(studioFilter.toLowerCase());
+    conditions.push(`LOWER(w.input->>'studio_address') = $${values.length}`);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const sql = `
+    WITH normalized AS (
+      SELECT
+        COALESCE(s.agent_address, w.input->>'worker_address') AS agent_address,
+        s.agent_name,
+        w.updated_at,
+        CASE WHEN GREATEST(
+          (w.input->'scores'->0)::text::float,
+          (w.input->'scores'->1)::text::float,
+          (w.input->'scores'->2)::text::float,
+          (w.input->'scores'->3)::text::float,
+          (w.input->'scores'->4)::text::float
+        ) > 100
+        THEN (w.input->'scores'->0)::text::float / 100.0
+        ELSE (w.input->'scores'->0)::text::float END AS s0,
+        CASE WHEN GREATEST(
+          (w.input->'scores'->0)::text::float,
+          (w.input->'scores'->1)::text::float,
+          (w.input->'scores'->2)::text::float,
+          (w.input->'scores'->3)::text::float,
+          (w.input->'scores'->4)::text::float
+        ) > 100
+        THEN (w.input->'scores'->1)::text::float / 100.0
+        ELSE (w.input->'scores'->1)::text::float END AS s1,
+        CASE WHEN GREATEST(
+          (w.input->'scores'->0)::text::float,
+          (w.input->'scores'->1)::text::float,
+          (w.input->'scores'->2)::text::float,
+          (w.input->'scores'->3)::text::float,
+          (w.input->'scores'->4)::text::float
+        ) > 100
+        THEN (w.input->'scores'->2)::text::float / 100.0
+        ELSE (w.input->'scores'->2)::text::float END AS s2,
+        CASE WHEN GREATEST(
+          (w.input->'scores'->0)::text::float,
+          (w.input->'scores'->1)::text::float,
+          (w.input->'scores'->2)::text::float,
+          (w.input->'scores'->3)::text::float,
+          (w.input->'scores'->4)::text::float
+        ) > 100
+        THEN (w.input->'scores'->3)::text::float / 100.0
+        ELSE (w.input->'scores'->3)::text::float END AS s3,
+        CASE WHEN GREATEST(
+          (w.input->'scores'->0)::text::float,
+          (w.input->'scores'->1)::text::float,
+          (w.input->'scores'->2)::text::float,
+          (w.input->'scores'->3)::text::float,
+          (w.input->'scores'->4)::text::float
+        ) > 100
+        THEN (w.input->'scores'->4)::text::float / 100.0
+        ELSE (w.input->'scores'->4)::text::float END AS s4
+      FROM workflows w
+      LEFT JOIN sessions s
+        ON LOWER(s.data_hash) = LOWER(w.input->>'data_hash')
+      WHERE ${where}
+        AND jsonb_array_length(w.input->'scores') >= 5
+    )
+    SELECT
+      agent_address,
+      MAX(agent_name) AS agent_name,
+      COUNT(*) AS scored_sessions,
+      ROUND(AVG(s0))::int AS avg_initiative,
+      ROUND(AVG(s1))::int AS avg_collaboration,
+      ROUND(AVG(s2))::int AS avg_reasoning,
+      ROUND(AVG(s3))::int AS avg_compliance,
+      ROUND(AVG(s4))::int AS avg_efficiency,
+      MAX(updated_at) AS last_scored_at
+    FROM normalized
+    GROUP BY agent_address
+    ORDER BY (AVG(s0) + AVG(s1) + AVG(s2) + AVG(s3) + AVG(s4)) / 5 DESC`;
+
+  const result = await pool.query(sql, values);
+  const clamp = (v: number) => Math.min(100, Math.max(0, v));
+
+  return result.rows.map((row: Record<string, unknown>) => ({
+    agent_address: row.agent_address as string,
+    agent_name: (row.agent_name as string) || null,
+    sessions: Number(row.scored_sessions),
+    initiative: clamp(Number(row.avg_initiative ?? 0)),
+    collaboration: clamp(Number(row.avg_collaboration ?? 0)),
+    reasoning: clamp(Number(row.avg_reasoning ?? 0)),
+    compliance: clamp(Number(row.avg_compliance ?? 0)),
+    efficiency: clamp(Number(row.avg_efficiency ?? 0)),
+    last_scored_at: row.last_scored_at
+      ? new Date(Number(row.last_scored_at)).toISOString()
+      : null,
+  }));
+}
 
 // =============================================================================
 // Validation helpers
@@ -655,122 +925,26 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
 
     const studioFilter = req.query.studio_address as string | undefined;
 
-    const conditions = [
-      `w.type = 'ScoreSubmission'`,
-      `w.state = 'COMPLETED'`,
-    ];
-    const values: unknown[] = [];
-
-    if (studioFilter) {
-      values.push(studioFilter.toLowerCase());
-      conditions.push(`LOWER(w.input->>'studio_address') = $${values.length}`);
-    }
-
-    const where = conditions.join(' AND ');
-
-    // CTE normalizes each row to 0–100 before aggregation.
-    // If any element > 100, the vector is treated as basis-points and divided by 100.
-    // LEFT JOIN sessions on data_hash so the leaderboard shows the real agent_address
-    // (from the session) rather than the gateway signer stored as worker_address.
-    const sql = `
-      WITH normalized AS (
-        SELECT
-          COALESCE(s.agent_address, w.input->>'worker_address') AS agent_address,
-          s.agent_name,
-          w.updated_at,
-          CASE WHEN GREATEST(
-            (w.input->'scores'->0)::text::float,
-            (w.input->'scores'->1)::text::float,
-            (w.input->'scores'->2)::text::float,
-            (w.input->'scores'->3)::text::float,
-            (w.input->'scores'->4)::text::float
-          ) > 100
-          THEN (w.input->'scores'->0)::text::float / 100.0
-          ELSE (w.input->'scores'->0)::text::float END AS s0,
-          CASE WHEN GREATEST(
-            (w.input->'scores'->0)::text::float,
-            (w.input->'scores'->1)::text::float,
-            (w.input->'scores'->2)::text::float,
-            (w.input->'scores'->3)::text::float,
-            (w.input->'scores'->4)::text::float
-          ) > 100
-          THEN (w.input->'scores'->1)::text::float / 100.0
-          ELSE (w.input->'scores'->1)::text::float END AS s1,
-          CASE WHEN GREATEST(
-            (w.input->'scores'->0)::text::float,
-            (w.input->'scores'->1)::text::float,
-            (w.input->'scores'->2)::text::float,
-            (w.input->'scores'->3)::text::float,
-            (w.input->'scores'->4)::text::float
-          ) > 100
-          THEN (w.input->'scores'->2)::text::float / 100.0
-          ELSE (w.input->'scores'->2)::text::float END AS s2,
-          CASE WHEN GREATEST(
-            (w.input->'scores'->0)::text::float,
-            (w.input->'scores'->1)::text::float,
-            (w.input->'scores'->2)::text::float,
-            (w.input->'scores'->3)::text::float,
-            (w.input->'scores'->4)::text::float
-          ) > 100
-          THEN (w.input->'scores'->3)::text::float / 100.0
-          ELSE (w.input->'scores'->3)::text::float END AS s3,
-          CASE WHEN GREATEST(
-            (w.input->'scores'->0)::text::float,
-            (w.input->'scores'->1)::text::float,
-            (w.input->'scores'->2)::text::float,
-            (w.input->'scores'->3)::text::float,
-            (w.input->'scores'->4)::text::float
-          ) > 100
-          THEN (w.input->'scores'->4)::text::float / 100.0
-          ELSE (w.input->'scores'->4)::text::float END AS s4
-        FROM workflows w
-        LEFT JOIN sessions s
-          ON LOWER(s.data_hash) = LOWER(w.input->>'data_hash')
-        WHERE ${where}
-          AND jsonb_array_length(w.input->'scores') >= 5
-      )
-      SELECT
-        agent_address,
-        MAX(agent_name) AS agent_name,
-        COUNT(*) AS scored_sessions,
-        ROUND(AVG(s0))::int AS avg_initiative,
-        ROUND(AVG(s1))::int AS avg_collaboration,
-        ROUND(AVG(s2))::int AS avg_reasoning,
-        ROUND(AVG(s3))::int AS avg_compliance,
-        ROUND(AVG(s4))::int AS avg_efficiency,
-        MAX(updated_at) AS last_scored_at
-      FROM normalized
-      GROUP BY agent_address
-      ORDER BY (AVG(s0) + AVG(s1) + AVG(s2) + AVG(s3) + AVG(s4)) / 5 DESC`;
-
     try {
-      const result = await config.pool.query(sql, values);
+      const rows = await queryLeaderboardRows(config.pool, studioFilter);
 
-      const clamp = (v: number) => Math.min(100, Math.max(0, v));
-
-      const agents = result.rows.map((row) => {
-        const init = clamp(Number(row.avg_initiative ?? 0));
-        const collab = clamp(Number(row.avg_collaboration ?? 0));
-        const reason = clamp(Number(row.avg_reasoning ?? 0));
-        const comply = clamp(Number(row.avg_compliance ?? 0));
-        const effi = clamp(Number(row.avg_efficiency ?? 0));
-        const overall = clamp(Math.round((init + collab + reason + comply + effi) / 5));
-
+      const agents = rows.map((row) => {
+        const overall = Math.min(100, Math.max(0, Math.round(
+          (row.initiative + row.collaboration + row.reasoning + row.compliance + row.efficiency) / 5,
+        )));
         return {
-          agent_address: row.agent_address as string,
-          agent_name: (row.agent_name as string) || null,
-          sessions: Number(row.scored_sessions),
+          agent_address: row.agent_address,
+          agent_name: row.agent_name,
+          sessions: row.sessions,
           overall,
           avg_scores: {
-            initiative: init,
-            collaboration: collab,
-            reasoning: reason,
-            compliance: comply,
-            efficiency: effi,
+            initiative: row.initiative,
+            collaboration: row.collaboration,
+            reasoning: row.reasoning,
+            compliance: row.compliance,
+            efficiency: row.efficiency,
           },
-          last_scored_at: row.last_scored_at
-            ? new Date(Number(row.last_scored_at)).toISOString()
-            : null,
+          last_scored_at: row.last_scored_at,
         };
       });
 
@@ -784,6 +958,60 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       res.status(500).json({
         version: API_VERSION,
         error: { code: 'INTERNAL_ERROR', message: 'Failed to query leaderboard' },
+      });
+    }
+  });
+
+  // =========================================================================
+  // GET /v1/agents/compare — decision-logic v1 classification pipeline
+  // =========================================================================
+
+  router.get('/v1/agents/compare', async (req: Request, res: Response) => {
+    if (config.apiKeys && config.apiKeys.size > 0) {
+      const key = req.headers['x-api-key'];
+      if (!key || typeof key !== 'string' || !config.apiKeys.has(key)) {
+        res.status(401).json({
+          version: API_VERSION,
+          error: { code: 'UNAUTHORIZED', message: 'Invalid or missing API key' },
+        });
+        return;
+      }
+    }
+
+    const scenario = (req.query.scenario as string) || 'default';
+    if (!VALID_SCENARIOS.has(scenario as Scenario)) {
+      res.status(400).json({
+        version: API_VERSION,
+        error: {
+          code: 'INVALID_SCENARIO',
+          message: `scenario must be one of: default, production, prototyping, code_review`,
+        },
+      });
+      return;
+    }
+
+    if (!config.pool) {
+      res.set('Cache-Control', 'public, max-age=60');
+      res.json({
+        version: API_VERSION,
+        data: { scenario, default_choice: null, agents: [] },
+      });
+      return;
+    }
+
+    const studioFilter = req.query.studio_address as string | undefined;
+
+    try {
+      const rows = await queryLeaderboardRows(config.pool, studioFilter);
+      const data = classifyAgents(rows, scenario as Scenario);
+
+      res.set('Cache-Control', 'public, max-age=60');
+      res.json({ version: API_VERSION, data });
+    } catch (err) {
+      console.error('[compare] query failed:', err);
+      res.status(500).json({
+        version: API_VERSION,
+        error: { code: 'INTERNAL_ERROR', message: 'Failed to query compare data' },
       });
     }
   });
