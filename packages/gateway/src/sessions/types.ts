@@ -247,3 +247,38 @@ export interface ListSessionsResult {
   sessions: SessionListItem[];
   total: number;
 }
+
+// =============================================================================
+// AGENT COMPARE (decision-logic-v1)
+// =============================================================================
+
+export type Scenario = 'default' | 'production' | 'prototyping' | 'code_review';
+export type Classification = 'default_choice' | 'specialist' | 'use_with_caution' | 'not_recommended' | 'solid_option';
+export type ConfidenceLevel = 'low' | 'medium' | 'high';
+
+export interface AgentCompareResult {
+  agent_address: string;
+  agent_name: string | null;
+  scores: {
+    reasoning: number;
+    collaboration: number;
+    efficiency: number;
+    compliance: number;
+    initiative: number;
+  };
+  session_count: number;
+  overall_score: number;
+  scenario: Scenario;
+  classification: Classification;
+  specialist_area: string | null;
+  best_for: string[];
+  weakness: { dimension: string; label: string; score: number };
+  confidence: ConfidenceLevel;
+  risk_flags: { dimension: string; message: string }[];
+}
+
+export interface CompareResponse {
+  scenario: Scenario;
+  default_choice: string | null;
+  agents: AgentCompareResult[];
+}
