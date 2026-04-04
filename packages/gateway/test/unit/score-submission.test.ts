@@ -811,47 +811,36 @@ describe('E. ScoreSubmission Direct Mode (MVP)', () => {
     expect(workflow.input.mode).toBe('direct');
   });
 
-  it('should call submitScoreVectorForWorker encoder for direct mode', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-
+  it('should complete off-chain for direct mode without calling any encoder', async () => {
     const input = createTestInput('direct');
     const workflow = createScoreSubmissionWorkflow(input);
 
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    // Should have called direct encoder
-    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
-      input.data_hash,
-      input.worker_address,
-      input.scores
-    );
-    
-    // Should NOT have called commit-reveal encoder
+    // Off-chain mode: no on-chain encoder calls
+    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).not.toHaveBeenCalled();
     expect(scoreEncoder.computeCommitHash).not.toHaveBeenCalled();
     expect(scoreEncoder.encodeCommitScore).not.toHaveBeenCalled();
+
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
+    expect(saved!.progress.score_confirmed).toBe(true);
+    expect(saved!.progress.settlement).toBe('off-chain');
   });
 
-  it('CRITICAL: should skip direct submission if score already exists on-chain', async () => {
-    // Score already exists on-chain
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-
+  it('should idempotently skip if score_confirmed already set', async () => {
     const input = createTestInput('direct');
     const workflow = createScoreSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
     workflow.step = 'SUBMIT_SCORE_DIRECT';
-    workflow.progress = {};
+    workflow.progress = { score_confirmed: true };
 
     await persistence.create(workflow);
     await engine.resumeWorkflow(workflow.id);
 
-    // Should complete without new submission (reconciliation)
     const finalWorkflow = await persistence.load(workflow.id);
     expect(finalWorkflow?.state).toBe('COMPLETED');
-    
-    // Should not have submitted tx since score already exists
     expect(chainAdapter.submitTx).not.toHaveBeenCalled();
   });
 
@@ -875,17 +864,7 @@ describe('E. ScoreSubmission Direct Mode (MVP)', () => {
     expect(finalWorkflow?.progress.score_confirmed).toBe(true);
   });
 
-  it('should complete direct mode workflow end-to-end', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    
-    // Ensure tx submission succeeds
-    (chainAdapter.submitTx as ReturnType<typeof vi.fn>).mockResolvedValue({ txHash: '0xmocktx' });
-    (chainAdapter.waitForConfirmation as ReturnType<typeof vi.fn>).mockResolvedValue({
-      status: 'confirmed',
-      blockNumber: 12345,
-    } as TxReceipt);
-
+  it('should complete direct mode workflow end-to-end off-chain', async () => {
     const input = createTestInput('direct');
     const workflow = createScoreSubmissionWorkflow(input);
 
@@ -893,17 +872,15 @@ describe('E. ScoreSubmission Direct Mode (MVP)', () => {
     await engine.startWorkflow(workflow.id);
 
     const finalWorkflow = await persistence.load(workflow.id);
-    // Workflow should progress - might be RUNNING, COMPLETED, or advance through steps
-    // Key assertion is that direct encoder was used
-    
-    // Should have called direct encoder, not commit-reveal
-    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalled();
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.score_confirmed).toBe(true);
+    expect(finalWorkflow?.progress.settlement).toBe('off-chain');
+    expect(finalWorkflow?.progress.resolved_worker_address).toBe('0xWorker');
+
+    // No chain interaction
+    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).not.toHaveBeenCalled();
     expect(scoreEncoder.computeCommitHash).not.toHaveBeenCalled();
-    
-    // If workflow finished, it should be COMPLETED
-    if (finalWorkflow?.state === 'COMPLETED') {
-      expect(finalWorkflow?.progress.score_confirmed || finalWorkflow?.progress.register_validator_confirmed).toBe(true);
-    }
   });
 
   it('should fail direct mode if worker_address is missing', async () => {
@@ -922,26 +899,21 @@ describe('E. ScoreSubmission Direct Mode (MVP)', () => {
     expect(finalWorkflow?.error?.code).toBe('MISSING_WORKER_ADDRESS');
   });
 
-  it('should skip direct score submission if score_tx_hash already exists', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    // Also mock validator as already registered
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-
+  it('in-flight workflow with score_tx_hash but no score_confirmed gets completed off-chain', async () => {
     const input = createTestInput('direct');
     const workflow = createScoreSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
     workflow.step = 'SUBMIT_SCORE_DIRECT';
     workflow.progress = {
-      score_tx_hash: '0xexistingscoretx', // Already submitted
+      score_tx_hash: '0xexistingscoretx',
     };
 
     await persistence.create(workflow);
     await engine.resumeWorkflow(workflow.id);
 
-    // Should NOT submit new tx (has tx hash already)
-    // but may proceed to confirmation step
     const finalWorkflow = await persistence.load(workflow.id);
-    expect(['RUNNING', 'COMPLETED']).toContain(finalWorkflow?.state);
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.score_confirmed).toBe(true);
   });
 });
 
@@ -1022,23 +994,21 @@ describe('F. ScoreSubmission Mode Isolation', () => {
     expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).not.toHaveBeenCalled();
   });
 
-  it('direct mode should NOT use commit-reveal encoder', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-
+  it('direct mode should NOT use any on-chain encoder (off-chain first)', async () => {
     const input = createTestInput('direct');
     const workflow = createScoreSubmissionWorkflow(input);
 
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    // Should have called direct encoder
-    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalled();
-    
-    // Should NOT have called commit-reveal encoder
+    // Off-chain: neither direct nor commit-reveal encoders called
+    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).not.toHaveBeenCalled();
     expect(scoreEncoder.computeCommitHash).not.toHaveBeenCalled();
     expect(scoreEncoder.encodeCommitScore).not.toHaveBeenCalled();
     expect(scoreEncoder.encodeRevealScore).not.toHaveBeenCalled();
+
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
   });
 });
 
@@ -1094,10 +1064,7 @@ describe('F. Signer fallback when signer_address is not loaded', () => {
     engine.registerWorkflow(definition);
   });
 
-  it('SUBMIT_SCORE_DIRECT falls back to gateway signer when input.signer_address is not loaded', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-
+  it('SUBMIT_SCORE_DIRECT completes off-chain without calling submitTx regardless of signer', async () => {
     const input = createTestInput('direct');
     input.signer_address = '0xExternalVerifier';
     const workflow = createScoreSubmissionWorkflow(input);
@@ -1105,18 +1072,14 @@ describe('F. Signer fallback when signer_address is not loaded', () => {
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    // submitTx should have been called with the gateway signer, not the verifier
-    expect(chainAdapter.submitTx).toHaveBeenCalledWith(
-      GATEWAY_SIGNER,
-      expect.any(Object),
-      expect.any(Number)
-    );
+    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
+    expect(saved!.progress.score_confirmed).toBe(true);
+    expect(saved!.progress.settlement).toBe('off-chain');
   });
 
-  it('SUBMIT_SCORE_DIRECT uses input.signer_address when it IS loaded', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-
+  it('SUBMIT_SCORE_DIRECT completes off-chain for loaded signer too', async () => {
     const input = createTestInput('direct');
     input.signer_address = GATEWAY_SIGNER;
     const workflow = createScoreSubmissionWorkflow(input);
@@ -1124,11 +1087,10 @@ describe('F. Signer fallback when signer_address is not loaded', () => {
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    expect(chainAdapter.submitTx).toHaveBeenCalledWith(
-      GATEWAY_SIGNER,
-      expect.any(Object),
-      expect.any(Number)
-    );
+    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
+    expect(saved!.progress.score_confirmed).toBe(true);
   });
 
   it('REGISTER_VALIDATOR falls back to gateway signer when admin/signer address is not loaded', async () => {
@@ -1223,12 +1185,9 @@ describe('G. Worker address resolution from WorkSubmission signer', () => {
     });
   }
 
-  it('uses WorkSubmission.signer as worker_address when it differs from input.worker_address', async () => {
+  it('uses WorkSubmission.signer as resolved_worker_address when it differs from input.worker_address', async () => {
     const DATA_HASH = '0xDataHash';
     await seedWorkSubmission(DATA_HASH, WORK_SUBMITTER);
-
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
     const input = createTestInput('direct');
     input.data_hash = DATA_HASH;
@@ -1238,19 +1197,14 @@ describe('G. Worker address resolution from WorkSubmission signer', () => {
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
-      DATA_HASH,
-      WORK_SUBMITTER,
-      expect.any(Array)
-    );
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
+    expect(saved!.progress.resolved_worker_address).toBe(WORK_SUBMITTER);
   });
 
   it('uses WorkSubmission.signer even when input.worker_address is missing', async () => {
     const DATA_HASH = '0xDataHash';
     await seedWorkSubmission(DATA_HASH, WORK_SUBMITTER);
-
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
 
     const input = createTestInput('direct');
     input.data_hash = DATA_HASH;
@@ -1260,17 +1214,12 @@ describe('G. Worker address resolution from WorkSubmission signer', () => {
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
-      DATA_HASH,
-      WORK_SUBMITTER,
-      expect.any(Array)
-    );
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
+    expect(saved!.progress.resolved_worker_address).toBe(WORK_SUBMITTER);
   });
 
   it('falls back to input.worker_address when no WorkSubmission exists', async () => {
-    (scoreChainState.scoreExistsForWorker as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (scoreChainState.isValidatorRegisteredInRewardsDistributor as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-
     const input = createTestInput('direct');
     input.data_hash = '0xNoMatchingWork';
     input.worker_address = '0xFallbackWorker';
@@ -1279,11 +1228,9 @@ describe('G. Worker address resolution from WorkSubmission signer', () => {
     await persistence.create(workflow);
     await engine.startWorkflow(workflow.id);
 
-    expect(directScoreEncoder.encodeSubmitScoreVectorForWorker).toHaveBeenCalledWith(
-      '0xNoMatchingWork',
-      '0xFallbackWorker',
-      expect.any(Array)
-    );
+    const saved = await persistence.load(workflow.id);
+    expect(saved!.state).toBe('COMPLETED');
+    expect(saved!.progress.resolved_worker_address).toBe('0xFallbackWorker');
   });
 
   it('fails with clear error when both WorkSubmission and input.worker_address are missing', async () => {

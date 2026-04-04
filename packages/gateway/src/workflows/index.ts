@@ -96,8 +96,10 @@ export type {
   ScoreSubmissionEncoders,
 } from './score-submission.js';
 export {
-  // Direct mode steps (default, MVP)
+  // Direct mode steps (off-chain first, default)
   SubmitScoreDirectStep,
+  // Legacy on-chain direct step (retained for reference / migration)
+  SubmitScoreDirectOnChainStep,
   AwaitScoreConfirmStep,
   // Commit-reveal mode steps (legacy, available)
   CommitScoreStep,

@@ -160,14 +160,85 @@ export interface ScoreChainStateAdapter {
 }
 
 // =============================================================================
-// STEP EXECUTORS - DIRECT MODE
+// STEP EXECUTORS - DIRECT MODE (OFF-CHAIN FIRST)
 // =============================================================================
 
 /**
- * Step 1 (Direct): Submit score vector directly
- * Calls StudioProxy.submitScoreVectorForWorker(dataHash, worker, scoreVector)
+ * Step 1 (Direct, Off-Chain): Persist score vector and complete immediately.
+ *
+ * Blockchain settlement is bypassed. The score vector is stored in the
+ * workflow's progress and the workflow transitions straight to COMPLETED.
+ * Downstream consumers (leaderboard, compare) read from Postgres where
+ * state = 'COMPLETED', so scores surface immediately.
  */
 export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord> {
+  private persistence: WorkflowPersistence;
+
+  constructor(persistence: WorkflowPersistence) {
+    this.persistence = persistence;
+  }
+
+  isIrreversible(): boolean {
+    return false;
+  }
+
+  async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
+    const { input, progress } = workflow;
+
+    if (progress.score_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    let resolvedWorkerAddress: string | undefined;
+    try {
+      const workWf = await this.persistence.findWorkByDataHash(input.data_hash);
+      if (workWf) {
+        resolvedWorkerAddress = workWf.signer;
+        if (input.worker_address && input.worker_address.toLowerCase() !== resolvedWorkerAddress.toLowerCase()) {
+          console.log(`[SUBMIT_SCORE_DIRECT] worker resolved from WorkSubmission: input=${input.worker_address} work_submitter=${resolvedWorkerAddress}; using work_submitter`);
+        }
+      }
+    } catch (err) {
+      console.log(`[SUBMIT_SCORE_DIRECT] failed to look up WorkSubmission for data_hash=${input.data_hash}:`, err);
+    }
+
+    if (!resolvedWorkerAddress) {
+      resolvedWorkerAddress = input.worker_address;
+    }
+
+    if (!resolvedWorkerAddress) {
+      return {
+        type: 'FAILED',
+        error: {
+          category: 'PERMANENT',
+          message: 'Unable to resolve worker_address for score submission (no WorkSubmission found and input.worker_address is missing)',
+          code: 'MISSING_WORKER_ADDRESS',
+        },
+      };
+    }
+
+    console.log(
+      `[SUBMIT_SCORE_DIRECT] off-chain score persisted: data_hash=${input.data_hash} worker=${resolvedWorkerAddress} scores=[${input.scores.join(',')}] validator=${input.validator_address}`,
+    );
+
+    await this.persistence.appendProgress(workflow.id, {
+      score_confirmed: true,
+      score_confirmed_at: Date.now(),
+      resolved_worker_address: resolvedWorkerAddress,
+      settlement: 'off-chain',
+    });
+
+    console.log(`[SUBMIT_SCORE_DIRECT] workflow ${workflow.id} marked COMPLETED (off-chain)`);
+
+    return { type: 'SUCCESS', nextStep: null };
+  }
+}
+
+/**
+ * @deprecated On-chain direct score submission step — retained for reference.
+ * Use SubmitScoreDirectStep (off-chain) instead.
+ */
+export class SubmitScoreDirectOnChainStep implements StepExecutor<ScoreSubmissionRecord> {
   private txQueue: TxQueue;
   private persistence: WorkflowPersistence;
   private encoder: DirectScoreContractEncoder;
@@ -189,20 +260,16 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
   }
 
   isIrreversible(): boolean {
-    // On-chain score submission is irreversible - MUST reconcile first
     return true;
   }
 
   async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
     const { input, progress } = workflow;
 
-    // Idempotency: if we already have a score tx hash, skip to confirmation
     if (progress.score_tx_hash) {
       return { type: 'SUCCESS', nextStep: 'AWAIT_SCORE_CONFIRM' };
     }
 
-    // V1: on-chain participant is the original WorkSubmission signer, not the session agent.
-    // Look up the WorkSubmission that created this data_hash to get the actual on-chain worker.
     let resolvedWorkerAddress: string | undefined;
     try {
       const workWf = await this.persistence.findWorkByDataHash(input.data_hash);
@@ -231,7 +298,6 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       };
     }
 
-    // Reconciliation: check if score already exists on-chain
     if (this.chainState.scoreExistsForWorker) {
       const scoreExists = await this.chainState.scoreExistsForWorker(
         input.studio_address,
@@ -248,16 +314,12 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       }
     }
 
-    // Resolve effective signer: if the requested signer isn't loaded
-    // (e.g. external verifier address), fall back to the gateway's primary signer.
-    // submitScoreVectorForWorker accepts any msg.sender, so this is safe.
     let effectiveSigner = input.signer_address;
     if (!this.txQueue.hasSigner(effectiveSigner) && this.fallbackSignerAddress) {
       console.log(`[SUBMIT_SCORE_DIRECT] signer ${effectiveSigner} not loaded, using gateway signer ${this.fallbackSignerAddress}`);
       effectiveSigner = this.fallbackSignerAddress;
     }
 
-    // Encode transaction using the resolved worker (original WorkSubmission signer)
     const txData = this.encoder.encodeSubmitScoreVectorForWorker(
       input.data_hash,
       resolvedWorkerAddress,
@@ -305,7 +367,6 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       };
     }
 
-    // Contract reverts are permanent
     if (message.includes('already scored') || message.includes('score exists')) {
       return {
         category: 'PERMANENT',
@@ -342,7 +403,6 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       };
     }
 
-    // Nonce issues are recoverable
     if (message.includes('nonce too low')) {
       return {
         category: 'RECOVERABLE',
@@ -352,7 +412,6 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       };
     }
 
-    // Network errors are transient
     if (message.includes('network') || message.includes('timeout')) {
       return {
         category: 'TRANSIENT',
@@ -1296,14 +1355,15 @@ export interface ScoreSubmissionEncoders {
 
 /**
  * Create ScoreSubmission workflow definition supporting BOTH modes.
- * 
- * The workflow will use the appropriate steps based on input.mode:
- * - "direct": SUBMIT_SCORE_DIRECT → AWAIT_SCORE_CONFIRM → REGISTER_VALIDATOR → AWAIT_REGISTER_VALIDATOR_CONFIRM
- * - "commit_reveal": COMMIT_SCORE → AWAIT_COMMIT_CONFIRM → REVEAL_SCORE → AWAIT_REVEAL_CONFIRM → REGISTER_VALIDATOR → AWAIT_REGISTER_VALIDATOR_CONFIRM
- * 
- * @param txQueue - Transaction queue for nonce management
+ *
+ * Direct mode is OFF-CHAIN FIRST: scores are persisted in Postgres and the
+ * workflow completes immediately without any blockchain transaction.
+ *
+ * Commit-reveal mode is unchanged (legacy on-chain path).
+ *
+ * @param txQueue - Transaction queue (only needed for commit-reveal / on-chain)
  * @param persistence - Workflow persistence
- * @param chainState - Chain state adapter
+ * @param chainState - Chain state adapter (only needed for commit-reveal / on-chain)
  * @param encoders - Required encoders for both modes
  */
 export function createScoreSubmissionDefinition(
@@ -1315,13 +1375,14 @@ export function createScoreSubmissionDefinition(
 ): WorkflowDefinition<ScoreSubmissionRecord> {
   const steps = new Map<string, StepExecutor<ScoreSubmissionRecord>>();
 
-  // Direct mode steps (default, MVP)
-  if (encoders.directEncoder) {
-    steps.set('SUBMIT_SCORE_DIRECT', new SubmitScoreDirectStep(
-      txQueue, persistence, encoders.directEncoder, chainState, fallbackSignerAddress
-    ));
-    steps.set('AWAIT_SCORE_CONFIRM', new AwaitScoreConfirmStep(txQueue, persistence));
-  }
+  // Direct mode: off-chain — persist score and complete immediately.
+  // No encoder, signer, or chain interaction needed.
+  steps.set('SUBMIT_SCORE_DIRECT', new SubmitScoreDirectStep(persistence));
+
+  // Confirmation / validator-registration steps are retained in the step map
+  // so that in-flight workflows that already recorded a score_tx_hash can
+  // still drain through the old on-chain path without breaking.
+  steps.set('AWAIT_SCORE_CONFIRM', new AwaitScoreConfirmStep(txQueue, persistence));
 
   // Commit-reveal mode steps (legacy, available)
   if (encoders.commitRevealEncoder) {
@@ -1335,7 +1396,7 @@ export function createScoreSubmissionDefinition(
     steps.set('AWAIT_REVEAL_CONFIRM', new AwaitRevealConfirmStep(txQueue, persistence));
   }
   
-  // Validator registration steps (both modes)
+  // Validator registration steps — still reachable by in-flight on-chain workflows
   if (encoders.validatorEncoder) {
     steps.set('REGISTER_VALIDATOR', new RegisterValidatorStep(
       txQueue, persistence, encoders.validatorEncoder, chainState, fallbackSignerAddress
@@ -1347,19 +1408,15 @@ export function createScoreSubmissionDefinition(
 
   return {
     type: 'ScoreSubmission',
-    // Initial step determined per-workflow by createScoreSubmissionWorkflow
-    initialStep: 'SUBMIT_SCORE_DIRECT', // Default for definition (per-workflow start overrides)
+    initialStep: 'SUBMIT_SCORE_DIRECT',
     steps,
     stepOrder: [
-      // Direct mode steps
       'SUBMIT_SCORE_DIRECT',
       'AWAIT_SCORE_CONFIRM',
-      // Commit-reveal mode steps
       'COMMIT_SCORE',
       'AWAIT_COMMIT_CONFIRM',
       'REVEAL_SCORE',
       'AWAIT_REVEAL_CONFIRM',
-      // Shared steps (both modes)
       'REGISTER_VALIDATOR',
       'AWAIT_REGISTER_VALIDATOR_CONFIRM',
     ],
