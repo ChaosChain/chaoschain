@@ -62,7 +62,7 @@ export { TxQueue } from './tx-queue.js';
 
 // Reconciliation types
 export type { ChainStateAdapter, ArweaveAdapter, ReconciliationResult } from './reconciliation.js';
-export { WorkflowReconciler } from './reconciliation.js';
+export { WorkflowReconciler, NoOpReconciler } from './reconciliation.js';
 
 // Engine types
 export type { StepExecutor, WorkflowDefinition, EngineEvent, EventHandler, ReconcileActiveOptions } from './engine.js';
@@ -83,6 +83,8 @@ export {
   AwaitTxConfirmStep,
   RegisterWorkStep,
   AwaitRegisterConfirmStep,
+  NoOpEvidenceStep,
+  NoOpArweaveConfirmStep,
   createWorkSubmissionWorkflow,
   createWorkSubmissionDefinition,
 } from './work-submission.js';

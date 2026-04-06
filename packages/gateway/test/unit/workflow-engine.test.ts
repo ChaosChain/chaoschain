@@ -16,6 +16,7 @@ import {
   WorkflowPersistence,
   InMemoryWorkflowPersistence,
   WorkflowReconciler,
+  NoOpReconciler,
   TxQueue,
   ChainAdapter,
   ChainStateAdapter,
@@ -116,45 +117,17 @@ const MOCK_DKG_PROGRESS = {
 
 describe('A. Reconciliation-before-irreversible', () => {
   let persistence: InMemoryWorkflowPersistence;
-  let chainAdapter: ChainAdapter;
-  let chainState: ChainStateAdapter & { isWorkRegisteredInRewardsDistributor: ReturnType<typeof vi.fn> };
-  let arweaveAdapter: ArweaveAdapter;
-  let arweaveUploader: ArweaveUploader;
-  let contractEncoder: ContractEncoder;
-  let rewardsDistributorEncoder: RewardsDistributorEncoder;
-  let txQueue: TxQueue;
-  let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
 
   beforeEach(() => {
     persistence = new InMemoryWorkflowPersistence();
-    chainAdapter = createMockChainAdapter();
-    chainState = createMockChainStateAdapter();
-    arweaveAdapter = createMockArweaveAdapter();
-    arweaveUploader = createMockArweaveUploader();
-    contractEncoder = createMockContractEncoder();
-    rewardsDistributorEncoder = createMockRewardsDistributorEncoder();
-    txQueue = new TxQueue(chainAdapter);
-    reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue);
-    engine = new WorkflowEngine(persistence, reconciler);
+    engine = new WorkflowEngine(persistence, new NoOpReconciler());
 
-    const definition = createWorkSubmissionDefinition(
-      arweaveUploader,
-      txQueue,
-      persistence,
-      contractEncoder,
-      rewardsDistributorEncoder,
-      MOCK_REWARDS_DISTRIBUTOR_ADDRESS
-    );
+    const definition = createWorkSubmissionDefinition(persistence);
     engine.registerWorkflow(definition);
   });
 
-  it('CRITICAL: should NOT call submitTx when work already exists on-chain AND registered', async () => {
-    // Setup: Work is already on-chain AND registered in RewardsDistributor
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(true);
-
-    // Create workflow at SUBMIT_WORK_ONCHAIN step (simulating mid-flight)
+  it('CRITICAL: should complete off-chain at SUBMIT_WORK_ONCHAIN step', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -166,24 +139,13 @@ describe('A. Reconciliation-before-irreversible', () => {
     };
 
     await persistence.create(workflow);
-
-    // Resume the workflow
     await engine.resumeWorkflow(workflow.id);
 
-    // CRITICAL ASSERTION: submitTx should never be called
-    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
-
-    // Workflow should be COMPLETED (skipped directly via reconciliation)
     const finalWorkflow = await persistence.load(workflow.id);
     expect(finalWorkflow?.state).toBe('COMPLETED');
   });
 
-  it('should call submitTx when work does NOT exist on-chain', async () => {
-    // Setup: Work does NOT exist on-chain, not registered
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(false);
-
-    // Create workflow at SUBMIT_WORK_ONCHAIN step
+  it('should complete off-chain with settlement marker', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -195,23 +157,15 @@ describe('A. Reconciliation-before-irreversible', () => {
     };
 
     await persistence.create(workflow);
-
-    // Resume the workflow
     await engine.resumeWorkflow(workflow.id);
 
-    // submitTx SHOULD be called since work doesn't exist
-    expect(chainAdapter.submitTx).toHaveBeenCalled();
+    const finalWorkflow = await persistence.load(workflow.id);
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.settlement).toBe('off-chain');
   }, 15000);
 
-  it('should reconcile tx hash status before retrying submission', async () => {
-    // Setup: Workflow has a pending tx hash, tx is confirmed, work is registered
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(true);
-    (chainAdapter.getTxReceipt as ReturnType<typeof vi.fn>).mockResolvedValue({
-      status: 'confirmed',
-      blockNumber: 100,
-    });
-
+  // Skipped: AWAIT_TX_CONFIRM removed from off-chain workflow definition
+  it.skip('should reconcile tx hash status before retrying submission', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -224,14 +178,8 @@ describe('A. Reconciliation-before-irreversible', () => {
     };
 
     await persistence.create(workflow);
-
-    // Resume
     await engine.resumeWorkflow(workflow.id);
 
-    // Should NOT submit a new tx
-    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
-
-    // Should be COMPLETED (reconciliation sees work is registered)
     const finalWorkflow = await persistence.load(workflow.id);
     expect(finalWorkflow?.state).toBe('COMPLETED');
   });
@@ -243,54 +191,18 @@ describe('A. Reconciliation-before-irreversible', () => {
 
 describe('B. Crash recovery simulation', () => {
   let persistence: InMemoryWorkflowPersistence;
-  let chainAdapter: ChainAdapter;
-  let chainState: ChainStateAdapter & { isWorkRegisteredInRewardsDistributor: ReturnType<typeof vi.fn> };
-  let arweaveAdapter: ArweaveAdapter;
-  let arweaveUploader: ArweaveUploader;
-  let contractEncoder: ContractEncoder;
-  let rewardsDistributorEncoder: RewardsDistributorEncoder;
-  let txQueue: TxQueue;
-  let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
 
   beforeEach(() => {
     persistence = new InMemoryWorkflowPersistence();
-    chainAdapter = createMockChainAdapter();
-    chainState = createMockChainStateAdapter();
-    arweaveAdapter = createMockArweaveAdapter();
-    arweaveUploader = createMockArweaveUploader();
-    contractEncoder = createMockContractEncoder();
-    rewardsDistributorEncoder = createMockRewardsDistributorEncoder();
-    txQueue = new TxQueue(chainAdapter);
-    reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue);
-    engine = new WorkflowEngine(persistence, reconciler);
+    engine = new WorkflowEngine(persistence, new NoOpReconciler());
 
-    const definition = createWorkSubmissionDefinition(
-      arweaveUploader,
-      txQueue,
-      persistence,
-      contractEncoder,
-      rewardsDistributorEncoder,
-      MOCK_REWARDS_DISTRIBUTOR_ADDRESS
-    );
+    const definition = createWorkSubmissionDefinition(persistence);
     engine.registerWorkflow(definition);
   });
 
-  it('should complete workflow on restart when tx is already confirmed and registered', async () => {
-    // Simulate: Gateway crashed after submitting tx but before recording confirmation
-    // State: AWAIT_TX_CONFIRM with tx hash, but tx is actually confirmed AND registered
-
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(true);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(true);
-    (chainAdapter.getTxReceipt as ReturnType<typeof vi.fn>).mockResolvedValue({
-      status: 'confirmed',
-      blockNumber: 200,
-    });
-    (chainAdapter.waitForConfirmation as ReturnType<typeof vi.fn>).mockResolvedValue({
-      status: 'confirmed',
-      blockNumber: 200,
-    });
-
+  // Skipped: AWAIT_TX_CONFIRM removed from off-chain workflow definition
+  it.skip('should complete workflow on restart when tx is already confirmed and registered', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -303,49 +215,27 @@ describe('B. Crash recovery simulation', () => {
     };
 
     await persistence.create(workflow);
-
-    // Simulate restart: resume workflow
     await engine.resumeWorkflow(workflow.id);
 
-    // Should NOT submit new tx
-    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
-
-    // Should be COMPLETED (reconciliation sees work is registered)
     const finalWorkflow = await persistence.load(workflow.id);
     expect(finalWorkflow?.state).toBe('COMPLETED');
   });
 
   it('should resume from UPLOAD_EVIDENCE if arweave tx id not recorded', async () => {
-    // Crash during upload - no arweave_tx_id saved
-    // Mock that work is not yet on-chain or registered
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(false);
-    
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
     workflow.step = 'UPLOAD_EVIDENCE';
-    workflow.progress = { ...MOCK_DKG_PROGRESS }; // DKG done, no arweave tx id
+    workflow.progress = { ...MOCK_DKG_PROGRESS };
 
     await persistence.create(workflow);
-
-    // Resume
     await engine.resumeWorkflow(workflow.id);
 
-    // Should upload to arweave
-    expect(arweaveUploader.upload).toHaveBeenCalled();
-
-    // Should progress (or complete)
     const finalWorkflow = await persistence.load(workflow.id);
-    expect(['RUNNING', 'COMPLETED']).toContain(finalWorkflow?.state);
+    expect(finalWorkflow?.state).toBe('COMPLETED');
   }, 15000);
 
   it('should reconcile all active workflows on startup', async () => {
-    // Create multiple workflows in different states
-    // Mock that work is not yet on-chain or registered
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(false);
-
     const input1 = createTestInput();
     const workflow1 = createWorkSubmissionWorkflow(input1);
     workflow1.state = 'RUNNING';
@@ -361,18 +251,11 @@ describe('B. Crash recovery simulation', () => {
     await persistence.create(workflow1);
     await persistence.create(workflow2);
 
-    // Mock Arweave confirmed for workflow2
-    (arweaveAdapter.getStatus as ReturnType<typeof vi.fn>).mockResolvedValue('confirmed');
-
-    // Reconcile all
     await engine.reconcileAllActive();
 
-    // Both should have progressed or completed
     const final1 = await persistence.load(workflow1.id);
     const final2 = await persistence.load(workflow2.id);
 
-    // At minimum, they should not still be in their original states
-    // (exact final state depends on mock behavior)
     expect(final1).toBeDefined();
     expect(final2).toBeDefined();
   }, 15000);
@@ -384,56 +267,23 @@ describe('B. Crash recovery simulation', () => {
 
 describe('C. FAILED vs STALLED separation', () => {
   let persistence: InMemoryWorkflowPersistence;
-  let chainAdapter: ChainAdapter;
-  let chainState: ChainStateAdapter & { isWorkRegisteredInRewardsDistributor: ReturnType<typeof vi.fn> };
-  let arweaveAdapter: ArweaveAdapter;
-  let arweaveUploader: ArweaveUploader;
-  let contractEncoder: ContractEncoder;
-  let rewardsDistributorEncoder: RewardsDistributorEncoder;
-  let txQueue: TxQueue;
-  let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
 
   beforeEach(() => {
     persistence = new InMemoryWorkflowPersistence();
-    chainAdapter = createMockChainAdapter();
-    chainState = createMockChainStateAdapter();
-    arweaveAdapter = createMockArweaveAdapter();
-    arweaveUploader = createMockArweaveUploader();
-    contractEncoder = createMockContractEncoder();
-    rewardsDistributorEncoder = createMockRewardsDistributorEncoder();
-    txQueue = new TxQueue(chainAdapter);
-    reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue);
-    engine = new WorkflowEngine(persistence, reconciler, {
-      max_attempts: 2, // Low for testing
+    engine = new WorkflowEngine(persistence, new NoOpReconciler(), {
+      max_attempts: 2,
       initial_delay_ms: 1,
       max_delay_ms: 10,
       backoff_multiplier: 1,
       jitter: false,
     });
 
-    // Mock that work is not yet on-chain or registered
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(false);
-
-    const definition = createWorkSubmissionDefinition(
-      arweaveUploader,
-      txQueue,
-      persistence,
-      contractEncoder,
-      rewardsDistributorEncoder,
-      MOCK_REWARDS_DISTRIBUTOR_ADDRESS
-    );
+    const definition = createWorkSubmissionDefinition(persistence);
     engine.registerWorkflow(definition);
   });
 
-  it('should FAIL on contract revert (epoch closed)', async () => {
-    // Setup: Arweave done, but contract will revert
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (chainAdapter.submitTx as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('epoch closed')
-    );
-
+  it('should complete off-chain even when chain would revert (epoch closed)', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -448,16 +298,11 @@ describe('C. FAILED vs STALLED separation', () => {
     await engine.resumeWorkflow(workflow.id);
 
     const finalWorkflow = await persistence.load(workflow.id);
-    expect(finalWorkflow?.state).toBe('FAILED');
-    expect(finalWorkflow?.error?.code).toBe('EPOCH_CLOSED');
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.settlement).toBe('off-chain');
   });
 
-  it('should FAIL on already submitted error', async () => {
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (chainAdapter.submitTx as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('already submitted')
-    );
-
+  it('should complete off-chain even when chain would reject (already submitted)', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -472,16 +317,11 @@ describe('C. FAILED vs STALLED separation', () => {
     await engine.resumeWorkflow(workflow.id);
 
     const finalWorkflow = await persistence.load(workflow.id);
-    expect(finalWorkflow?.state).toBe('FAILED');
-    expect(finalWorkflow?.error?.code).toBe('ALREADY_SUBMITTED');
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.settlement).toBe('off-chain');
   });
 
-  it('should STALL on network timeout after max retries', async () => {
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    (chainAdapter.submitTx as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('network timeout')
-    );
-
+  it('should complete off-chain even when chain has network timeout', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -496,22 +336,16 @@ describe('C. FAILED vs STALLED separation', () => {
     await engine.resumeWorkflow(workflow.id);
 
     const finalWorkflow = await persistence.load(workflow.id);
-    expect(finalWorkflow?.state).toBe('STALLED');
-    // Error should be recoverable
-    expect(finalWorkflow?.error?.recoverable).toBe(true);
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.settlement).toBe('off-chain');
   });
 
-  it('should STALL on Arweave funding error', async () => {
-    (arweaveUploader.upload as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error('insufficient funds')
-    );
-
+  // Skipped: UPLOAD_EVIDENCE is now a no-op, arweave funding errors cannot occur
+  it.skip('should STALL on Arweave funding error', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
 
     await persistence.create(workflow);
-    
-    // Start workflow
     await engine.startWorkflow(workflow.id);
 
     const finalWorkflow = await persistence.load(workflow.id);
@@ -519,7 +353,6 @@ describe('C. FAILED vs STALLED separation', () => {
   });
 
   it('FAILED workflows should never retry', async () => {
-    // Create a FAILED workflow
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'FAILED';
@@ -533,14 +366,10 @@ describe('C. FAILED vs STALLED separation', () => {
     };
 
     await persistence.create(workflow);
-
-    // Try to resume
     await engine.resumeWorkflow(workflow.id);
 
-    // Should remain FAILED, no operations attempted
     const finalWorkflow = await persistence.load(workflow.id);
     expect(finalWorkflow?.state).toBe('FAILED');
-    expect(chainAdapter.submitTx).not.toHaveBeenCalled();
   });
 });
 
@@ -680,63 +509,34 @@ describe('D. TxQueue serialization (nonce races)', () => {
 
 describe('Idempotency invariants', () => {
   let persistence: InMemoryWorkflowPersistence;
-  let chainAdapter: ChainAdapter;
-  let chainState: ChainStateAdapter & { isWorkRegisteredInRewardsDistributor: ReturnType<typeof vi.fn> };
-  let arweaveAdapter: ArweaveAdapter;
-  let arweaveUploader: ArweaveUploader;
-  let contractEncoder: ContractEncoder;
-  let rewardsDistributorEncoder: RewardsDistributorEncoder;
-  let txQueue: TxQueue;
-  let reconciler: WorkflowReconciler;
   let engine: WorkflowEngine;
 
   beforeEach(() => {
     persistence = new InMemoryWorkflowPersistence();
-    chainAdapter = createMockChainAdapter();
-    chainState = createMockChainStateAdapter();
-    arweaveAdapter = createMockArweaveAdapter();
-    arweaveUploader = createMockArweaveUploader();
-    contractEncoder = createMockContractEncoder();
-    rewardsDistributorEncoder = createMockRewardsDistributorEncoder();
-    txQueue = new TxQueue(chainAdapter);
-    reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue);
-    engine = new WorkflowEngine(persistence, reconciler);
+    engine = new WorkflowEngine(persistence, new NoOpReconciler());
 
-    // Mock that work is not yet on-chain or registered
-    (chainState.workSubmissionExists as ReturnType<typeof vi.fn>).mockResolvedValue(false);
-    chainState.isWorkRegisteredInRewardsDistributor.mockResolvedValue(false);
-
-    const definition = createWorkSubmissionDefinition(
-      arweaveUploader,
-      txQueue,
-      persistence,
-      contractEncoder,
-      rewardsDistributorEncoder,
-      MOCK_REWARDS_DISTRIBUTOR_ADDRESS
-    );
+    const definition = createWorkSubmissionDefinition(persistence);
     engine.registerWorkflow(definition);
   });
 
-  it('should skip arweave upload if already done', async () => {
+  it('should progress through no-op upload step when arweave_tx_id already set', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
     workflow.step = 'UPLOAD_EVIDENCE';
     workflow.progress = {
       ...MOCK_DKG_PROGRESS,
-      arweave_tx_id: 'already-uploaded', // Already uploaded
+      arweave_tx_id: 'already-uploaded',
     };
 
     await persistence.create(workflow);
     await engine.resumeWorkflow(workflow.id);
 
-    // Upload should NOT be called again
-    expect(arweaveUploader.upload).not.toHaveBeenCalled();
+    const finalWorkflow = await persistence.load(workflow.id);
+    expect(finalWorkflow?.state).toBe('COMPLETED');
   }, 15000);
 
-  it('should skip StudioProxy tx submission if tx hash already exists', async () => {
-    // When workflow already has onchain_tx_hash but work is not yet registered,
-    // it should skip StudioProxy submission but still call registerWork
+  it('should complete off-chain even when onchain_tx_hash already exists', async () => {
     const input = createTestInput();
     const workflow = createWorkSubmissionWorkflow(input);
     workflow.state = 'RUNNING';
@@ -745,20 +545,15 @@ describe('Idempotency invariants', () => {
       ...MOCK_DKG_PROGRESS,
       arweave_tx_id: 'ar-tx',
       arweave_confirmed: true,
-      onchain_tx_hash: 'already-submitted', // Already submitted to StudioProxy
+      onchain_tx_hash: 'already-submitted',
     };
 
     await persistence.create(workflow);
     await engine.resumeWorkflow(workflow.id);
 
-    // submitTx was called only ONCE for REGISTER_WORK, not for SUBMIT_WORK_ONCHAIN
-    expect(chainAdapter.submitTx).toHaveBeenCalledTimes(1);
-    // And it was for RewardsDistributor, not StudioProxy
-    expect(chainAdapter.submitTx).toHaveBeenCalledWith(
-      '0xSigner',
-      expect.objectContaining({ to: MOCK_REWARDS_DISTRIBUTOR_ADDRESS }),
-      expect.any(Number)
-    );
+    const finalWorkflow = await persistence.load(workflow.id);
+    expect(finalWorkflow?.state).toBe('COMPLETED');
+    expect(finalWorkflow?.progress.settlement).toBe('off-chain');
   }, 15000);
 
   it('should handle duplicate workflow creation gracefully', async () => {
@@ -767,7 +562,6 @@ describe('Idempotency invariants', () => {
 
     await persistence.create(workflow);
 
-    // Try to create same workflow again
     await expect(persistence.create(workflow)).rejects.toThrow('already exists');
   });
 });
@@ -776,7 +570,8 @@ describe('Idempotency invariants', () => {
 // E. REGISTER_WORK STEP TESTS (RewardsDistributor registration)
 // =============================================================================
 
-describe('E. REGISTER_WORK step (RewardsDistributor registration)', () => {
+// Skipped: REGISTER_WORK removed from off-chain workflow definition
+describe.skip('E. REGISTER_WORK step (RewardsDistributor registration)', () => {
   let persistence: InMemoryWorkflowPersistence;
   let chainAdapter: ChainAdapter;
   let chainState: ChainStateAdapter & { isWorkRegisteredInRewardsDistributor: ReturnType<typeof vi.fn> };
@@ -800,14 +595,7 @@ describe('E. REGISTER_WORK step (RewardsDistributor registration)', () => {
     reconciler = new WorkflowReconciler(chainState, arweaveAdapter, txQueue);
     engine = new WorkflowEngine(persistence, reconciler);
 
-    const definition = createWorkSubmissionDefinition(
-      arweaveUploader,
-      txQueue,
-      persistence,
-      contractEncoder,
-      rewardsDistributorEncoder,
-      MOCK_REWARDS_DISTRIBUTOR_ADDRESS
-    );
+    const definition = createWorkSubmissionDefinition(persistence);
     engine.registerWorkflow(definition);
   });
 

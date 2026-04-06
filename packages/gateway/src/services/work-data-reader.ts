@@ -126,6 +126,8 @@ export interface PendingWorkResult {
   offset: number;
 }
 
+export type WorkStatus = 'pending' | 'scored' | 'finalized';
+
 export interface WorkflowQuerySource {
   findWorkByDataHash(dataHash: string): Promise<WorkflowRecord | null>;
   findLatestCompletedWorkForAgent(agentAddress: string): Promise<WorkflowRecord | null>;
@@ -133,6 +135,8 @@ export interface WorkflowQuerySource {
   hasCompletedScoreForDataHash(dataHash: string): Promise<boolean>;
   hasCompletedCloseEpoch(studioAddress: string, epoch: number): Promise<boolean>;
   findPendingWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
+  findScoredWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
+  findFinalizedWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
   findAllWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
   findScoresForDataHash(dataHash: string): Promise<WorkflowRecord[]>;
 }
@@ -253,19 +257,41 @@ export class WorkDataReader {
     return { agent_id: agentId, entries, total, limit, offset };
   }
 
-  async getPendingWorkForStudio(
+  /**
+   * Fetch work items for a studio filtered by derived status.
+   *
+   *  pending   → COMPLETED WorkSubmission, no completed ScoreSubmission, epoch not closed
+   *  scored    → COMPLETED WorkSubmission, ≥1 completed ScoreSubmission, epoch not closed
+   *  finalized → COMPLETED WorkSubmission, epoch closed by CloseEpoch
+   */
+  async getWorkForStudio(
     studioAddress: string,
+    status: WorkStatus,
     limit: number,
     offset: number,
   ): Promise<PendingWorkResult> {
-    const { records, total } = await this.querySource.findPendingWorkForStudio(
-      studioAddress.toLowerCase(),
-      limit,
-      offset,
+    const addr = studioAddress.toLowerCase();
+    let result: { records: WorkflowRecord[]; total: number };
+
+    switch (status) {
+      case 'scored':
+        result = await this.querySource.findScoredWorkForStudio(addr, limit, offset);
+        break;
+      case 'finalized':
+        result = await this.querySource.findFinalizedWorkForStudio(addr, limit, offset);
+        break;
+      case 'pending':
+      default:
+        result = await this.querySource.findPendingWorkForStudio(addr, limit, offset);
+        break;
+    }
+
+    console.log(
+      `[WorkDataReader] studio=${addr} status=${status} matched=${result.total} returned=${result.records.length} limit=${limit} offset=${offset}`,
     );
 
     const work: PendingWorkItem[] = [];
-    for (const record of records) {
+    for (const record of result.records) {
       const input = record.input as WorkSubmissionInput;
       const progress = record.progress as WorkSubmissionProgress;
 
@@ -294,7 +320,16 @@ export class WorkDataReader {
       });
     }
 
-    return { studio: studioAddress, work, total, limit, offset };
+    return { studio: studioAddress, work, total: result.total, limit, offset };
+  }
+
+  /** @deprecated Use getWorkForStudio(addr, 'pending', limit, offset) */
+  async getPendingWorkForStudio(
+    studioAddress: string,
+    limit: number,
+    offset: number,
+  ): Promise<PendingWorkResult> {
+    return this.getWorkForStudio(studioAddress, 'pending', limit, offset);
   }
 
   async getWorkContext(

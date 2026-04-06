@@ -275,6 +275,7 @@ export interface AgentCompareResult {
   weakness: { dimension: string; label: string; score: number };
   confidence: ConfidenceLevel;
   risk_flags: { dimension: string; message: string }[];
+  last_scored_at: string | null;
 }
 
 export interface CompareResponse {

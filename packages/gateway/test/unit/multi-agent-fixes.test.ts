@@ -264,7 +264,7 @@ describe('2. admin_signer_address', () => {
 // 3. submitWork — always single-agent on-chain (v1)
 // =============================================================================
 
-describe('3. submitWork — always single-agent (v1)', () => {
+describe('3. submitWork — off-chain-first (v1)', () => {
   let persistence: WorkflowPersistence;
   let txQueue: TxQueue;
   let encoder: ContractEncoder;
@@ -277,7 +277,7 @@ describe('3. submitWork — always single-agent (v1)', () => {
     step = new SubmitWorkOnchainStep(txQueue, persistence, encoder);
   });
 
-  it('a. Single author -> encodeSubmitWork', async () => {
+  it('a. Single author -> completes off-chain without encoder call', async () => {
     const wf = makeWorkSubmissionWorkflow(
       {
         dkg_evidence: [makeDkgEvidence('tx1', '0xAlice', 1000)],
@@ -291,13 +291,19 @@ describe('3. submitWork — always single-agent (v1)', () => {
       },
     );
 
-    await step.execute(wf);
+    const result = await step.execute(wf);
 
-    expect(encoder.encodeSubmitWork).toHaveBeenCalled();
+    expect(result.type).toBe('SUCCESS');
+    expect(result).toHaveProperty('nextStep', null);
+    expect(encoder.encodeSubmitWork).not.toHaveBeenCalled();
     expect(encoder.encodeSubmitWorkMultiAgent).not.toHaveBeenCalled();
+    expect(persistence.appendProgress).toHaveBeenCalledWith(
+      wf.id,
+      expect.objectContaining({ onchain_confirmed: true, settlement: 'off-chain' }),
+    );
   });
 
-  it('b. Multiple authors -> still encodeSubmitWork (v1: single-agent on-chain)', async () => {
+  it('b. Multiple authors -> still completes off-chain without encoder call', async () => {
     const wf = makeWorkSubmissionWorkflow(
       {
         dkg_evidence: [
@@ -314,10 +320,11 @@ describe('3. submitWork — always single-agent (v1)', () => {
       },
     );
 
-    await step.execute(wf);
+    const result = await step.execute(wf);
 
-    // V1: always single-agent, even with multiple authors in evidence
-    expect(encoder.encodeSubmitWork).toHaveBeenCalled();
+    expect(result.type).toBe('SUCCESS');
+    expect(result).toHaveProperty('nextStep', null);
+    expect(encoder.encodeSubmitWork).not.toHaveBeenCalled();
     expect(encoder.encodeSubmitWorkMultiAgent).not.toHaveBeenCalled();
   });
 });
