@@ -337,184 +337,49 @@ export class AwaitArweaveConfirmStep implements StepExecutor<WorkSubmissionRecor
 }
 
 /**
- * Step 3: Submit work on-chain
+ * Step 3: Persist work metadata off-chain and complete.
+ *
+ * Blockchain settlement is bypassed. The evidence URI, DKG roots, and
+ * data_hash are already persisted in the workflow record (input + progress).
+ * Downstream consumers (ScoreSubmission worker resolution, leaderboard)
+ * read from Postgres where state = 'COMPLETED', so the work surfaces
+ * immediately without waiting for chain confirmation.
  */
 export class SubmitWorkOnchainStep implements StepExecutor<WorkSubmissionRecord> {
-  private txQueue: TxQueue;
   private persistence: WorkflowPersistence;
-  private contractEncoder: ContractEncoder;
 
   constructor(
-    txQueue: TxQueue,
+    _txQueue: TxQueue,
     persistence: WorkflowPersistence,
-    contractEncoder: ContractEncoder
+    _contractEncoder: ContractEncoder
   ) {
-    this.txQueue = txQueue;
     this.persistence = persistence;
-    this.contractEncoder = contractEncoder;
   }
 
   isIrreversible(): boolean {
-    // On-chain submission is irreversible - MUST reconcile first
-    return true;
+    return false;
   }
 
   async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
     const { input, progress } = workflow;
 
-    // Idempotency: if we already have a tx hash, skip to confirmation
-    if (progress.onchain_tx_hash) {
-      return { type: 'SUCCESS', nextStep: 'AWAIT_TX_CONFIRM' };
+    if (progress.onchain_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
     }
 
-    if (!progress.arweave_tx_id || !progress.arweave_confirmed) {
-      return {
-        type: 'FAILED',
-        error: {
-          category: 'PERMANENT',
-          message: 'Arweave upload not confirmed',
-          code: 'ARWEAVE_NOT_READY',
-        },
-      };
-    }
-
-    if (!progress.dkg_thread_root || !progress.dkg_evidence_root) {
-      return {
-        type: 'FAILED',
-        error: {
-          category: 'PERMANENT',
-          message: 'DKG roots missing from progress',
-          code: 'MISSING_DKG_ROOTS',
-        },
-      };
-    }
-
-    const evidenceUri = `ar://${progress.arweave_tx_id}`;
-
-    // V1: single-agent on-chain. Multi-agent attribution lives in the evidence
-    // DAG (per-event agent_address) and Arweave (per-node author).
-    //
-    // The contract requires msg.sender in participants (StudioProxy._submitWorkInternal).
-    // For third-party integrations (GitHub App, SDK → hosted gateway), the signer is
-    // different from the agents who did the work. submitWorkMultiAgent doesn't work
-    // because the signer must be a participant, which contaminates weights/reputation.
-    //
-    // This needs a delegate/operator pattern in the contract (submitWorkFor) to allow
-    // the gateway to submit on behalf of workers without being a participant.
-    // See: notes-reputation-architecture.md for Path A/B/C analysis.
-    const txData = this.contractEncoder.encodeSubmitWork(
-      input.data_hash,
-      progress.dkg_thread_root,
-      progress.dkg_evidence_root,
-      evidenceUri,
+    console.log(
+      `[SUBMIT_WORK] off-chain work registered: data_hash=${input.data_hash} agent=${input.agent_address}`,
     );
 
-    const txRequest: TxRequest = {
-      to: input.studio_address,
-      data: txData,
-    };
+    await this.persistence.appendProgress(workflow.id, {
+      onchain_confirmed: true,
+      onchain_confirmed_at: Date.now(),
+      settlement: 'off-chain',
+    });
 
-    try {
-      // Use submitOnly to get tx hash immediately
-      // Lock is held until we explicitly release
-      const txHash = await this.txQueue.submitOnly(
-        workflow.id,
-        input.signer_address,
-        txRequest
-      );
+    console.log(`[SUBMIT_WORK] workflow ${workflow.id} marked COMPLETED (off-chain)`);
 
-      // Persist tx hash (critical checkpoint)
-      await this.persistence.appendProgress(workflow.id, { onchain_tx_hash: txHash });
-
-      return { type: 'SUCCESS', nextStep: 'AWAIT_TX_CONFIRM' };
-    } catch (error) {
-      // Release lock is handled by txQueue on error
-      const classified = this.classifyTxError(error);
-
-      if (classified.category === 'PERMANENT') {
-        return { type: 'FAILED', error: classified };
-      }
-
-      return { type: 'RETRY', error: classified };
-    }
-  }
-
-  private classifyTxError(error: unknown): ClassifiedError {
-    const message = error instanceof Error ? error.message : String(error);
-
-    if (message.includes('No signer registered')) {
-      return {
-        category: 'PERMANENT',
-        message: 'Signer key unavailable (rotated or not loaded)',
-        code: 'SIGNER_UNAVAILABLE',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    // Contract reverts are permanent
-    if (message.includes('already submitted') || message.includes('work exists')) {
-      return {
-        category: 'PERMANENT',
-        message: 'Work already submitted',
-        code: 'ALREADY_SUBMITTED',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    if (message.includes('epoch closed') || message.includes('epoch not active')) {
-      return {
-        category: 'PERMANENT',
-        message: 'Epoch is closed',
-        code: 'EPOCH_CLOSED',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    if (message.includes('not registered') || message.includes('unauthorized')) {
-      return {
-        category: 'PERMANENT',
-        message: 'Agent not registered',
-        code: 'AGENT_NOT_REGISTERED',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    // Nonce issues are recoverable
-    if (message.includes('nonce too low')) {
-      return {
-        category: 'RECOVERABLE',
-        message: 'Nonce too low (tx may have landed)',
-        code: 'NONCE_TOO_LOW',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    // Gas issues are transient (can retry with different gas)
-    if (message.includes('gas') || message.includes('out of gas')) {
-      return {
-        category: 'TRANSIENT',
-        message: 'Gas estimation failed',
-        code: 'GAS_ERROR',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    // Network errors
-    if (message.includes('network') || message.includes('timeout')) {
-      return {
-        category: 'TRANSIENT',
-        message: 'Network error',
-        code: 'NETWORK_ERROR',
-        originalError: error instanceof Error ? error : undefined,
-      };
-    }
-
-    return {
-      category: 'UNKNOWN',
-      message,
-      code: 'UNKNOWN_TX_ERROR',
-      originalError: error instanceof Error ? error : undefined,
-    };
+    return { type: 'SUCCESS', nextStep: null };
   }
 }
 
@@ -863,6 +728,36 @@ export class AwaitRegisterConfirmStep implements StepExecutor<WorkSubmissionReco
 }
 
 // =============================================================================
+// NO-OP STEPS (off-chain-first replacements)
+// =============================================================================
+
+/**
+ * No-op replacement for UploadEvidenceStep.
+ * Evidence metadata is already persisted in the workflow input/progress.
+ */
+export class NoOpEvidenceStep implements StepExecutor<WorkSubmissionRecord> {
+  isIrreversible(): boolean { return false; }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    console.log(`[UPLOAD_EVIDENCE] skipped (off-chain mode) workflow=${workflow.id}`);
+    return { type: 'SUCCESS', nextStep: 'AWAIT_ARWEAVE_CONFIRM' };
+  }
+}
+
+/**
+ * No-op replacement for AwaitArweaveConfirmStep.
+ * Immediately advances to the next step.
+ */
+export class NoOpArweaveConfirmStep implements StepExecutor<WorkSubmissionRecord> {
+  isIrreversible(): boolean { return false; }
+
+  async execute(workflow: WorkSubmissionRecord): Promise<StepResult> {
+    console.log(`[AWAIT_ARWEAVE_CONFIRM] skipped (off-chain mode) workflow=${workflow.id}`);
+    return { type: 'SUCCESS', nextStep: 'SUBMIT_WORK_ONCHAIN' };
+  }
+}
+
+// =============================================================================
 // WORKFLOW FACTORY
 // =============================================================================
 
@@ -888,33 +783,22 @@ export function createWorkSubmissionWorkflow(
 
 /**
  * Create WorkSubmission workflow definition.
- * 
- * The full workflow now includes:
- * 0. COMPUTE_DKG - Compute thread_root and evidence_root via DKG
- * 1. UPLOAD_EVIDENCE - Upload to Arweave
- * 2. AWAIT_ARWEAVE_CONFIRM - Wait for Arweave confirmation
- * 3. SUBMIT_WORK_ONCHAIN - Submit to StudioProxy
- * 4. AWAIT_TX_CONFIRM - Wait for StudioProxy tx confirmation
- * 5. REGISTER_WORK - Register with RewardsDistributor
- * 6. AWAIT_REGISTER_CONFIRM - Wait for registration confirmation
+ *
+ * OFF-CHAIN FIRST: all steps complete without chain or Arweave dependencies.
+ *   0. COMPUTE_DKG - Compute thread_root and evidence_root (pure)
+ *   1. UPLOAD_EVIDENCE - No-op (immediate success)
+ *   2. AWAIT_ARWEAVE_CONFIRM - No-op (immediate success)
+ *   3. SUBMIT_WORK_ONCHAIN - Persist work metadata off-chain → COMPLETED
  */
 export function createWorkSubmissionDefinition(
-  arweave: ArweaveUploader,
-  txQueue: TxQueue,
   persistence: WorkflowPersistence,
-  contractEncoder: ContractEncoder,
-  rewardsDistributorEncoder: RewardsDistributorEncoder,
-  rewardsDistributorAddress: string
 ): WorkflowDefinition<WorkSubmissionRecord> {
   const steps = new Map<string, StepExecutor<WorkSubmissionRecord>>();
 
   steps.set('COMPUTE_DKG', new ComputeDKGStep(persistence));
-  steps.set('UPLOAD_EVIDENCE', new UploadEvidenceStep(arweave, persistence));
-  steps.set('AWAIT_ARWEAVE_CONFIRM', new AwaitArweaveConfirmStep(arweave, persistence));
-  steps.set('SUBMIT_WORK_ONCHAIN', new SubmitWorkOnchainStep(txQueue, persistence, contractEncoder));
-  steps.set('AWAIT_TX_CONFIRM', new AwaitTxConfirmStep(txQueue, persistence));
-  steps.set('REGISTER_WORK', new RegisterWorkStep(txQueue, persistence, rewardsDistributorEncoder, rewardsDistributorAddress));
-  steps.set('AWAIT_REGISTER_CONFIRM', new AwaitRegisterConfirmStep(txQueue, persistence));
+  steps.set('UPLOAD_EVIDENCE', new NoOpEvidenceStep());
+  steps.set('AWAIT_ARWEAVE_CONFIRM', new NoOpArweaveConfirmStep());
+  steps.set('SUBMIT_WORK_ONCHAIN', new SubmitWorkOnchainStep(null as any, persistence, null as any));
 
   return {
     type: 'WorkSubmission',
@@ -925,9 +809,6 @@ export function createWorkSubmissionDefinition(
       'UPLOAD_EVIDENCE',
       'AWAIT_ARWEAVE_CONFIRM',
       'SUBMIT_WORK_ONCHAIN',
-      'AWAIT_TX_CONFIRM',
-      'REGISTER_WORK',
-      'AWAIT_REGISTER_CONFIRM',
     ],
   };
 }

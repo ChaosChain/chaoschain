@@ -198,6 +198,7 @@ export function classifyAgents(rows: LeaderboardRow[], scenario: Scenario): Comp
       weakness: { dimension: weakDim, label: USE_CASE_MAP[weakDim], score: minScore },
       confidence,
       risk_flags: riskFlags,
+      last_scored_at: row.last_scored_at,
     };
   });
 
@@ -233,6 +234,22 @@ export function classifyAgents(rows: LeaderboardRow[], scenario: Scenario): Comp
 // Shared leaderboard DB query
 // =============================================================================
 
+/**
+ * Query aggregated leaderboard rows from completed ScoreSubmission workflows.
+ *
+ * Aggregation identity: agent_address (from session table, falling back to
+ * workflow input worker_address).
+ *
+ * Per-dimension aggregation: AVG of scores[0..4] mapped to
+ *   initiative, collaboration, reasoning, compliance, efficiency
+ *
+ * Safeguards:
+ * - Only COMPLETED ScoreSubmission workflows with ≥ 5 scores
+ * - Null/empty agent_address excluded
+ * - Non-numeric score values coerced to NULL (excluded from AVG)
+ * - Basis-point scores (> 100) auto-scaled to 0-100
+ * - Final values clamped to 0-100 at both SQL and TypeScript layers
+ */
 export async function queryLeaderboardRows(
   pool: PoolLike,
   studioFilter?: string,
@@ -240,6 +257,7 @@ export async function queryLeaderboardRows(
   const conditions = [
     `w.type = 'ScoreSubmission'`,
     `w.state = 'COMPLETED'`,
+    `jsonb_array_length(w.input->'scores') >= 5`,
   ];
   const values: unknown[] = [];
 
@@ -250,73 +268,49 @@ export async function queryLeaderboardRows(
 
   const where = conditions.join(' AND ');
 
+  // safe_float: returns NULL for non-numeric jsonb values instead of throwing.
+  // scale_check: if any of the 5 scores exceeds 100 the row is in basis-point
+  // format (0-10000), so divide by 100 to normalise to 0-100.
   const sql = `
-    WITH normalized AS (
+    WITH raw_scores AS (
       SELECT
         COALESCE(s.agent_address, w.input->>'worker_address') AS agent_address,
         s.agent_name,
         w.updated_at,
-        CASE WHEN GREATEST(
-          (w.input->'scores'->0)::text::float,
-          (w.input->'scores'->1)::text::float,
-          (w.input->'scores'->2)::text::float,
-          (w.input->'scores'->3)::text::float,
-          (w.input->'scores'->4)::text::float
-        ) > 100
-        THEN (w.input->'scores'->0)::text::float / 100.0
-        ELSE (w.input->'scores'->0)::text::float END AS s0,
-        CASE WHEN GREATEST(
-          (w.input->'scores'->0)::text::float,
-          (w.input->'scores'->1)::text::float,
-          (w.input->'scores'->2)::text::float,
-          (w.input->'scores'->3)::text::float,
-          (w.input->'scores'->4)::text::float
-        ) > 100
-        THEN (w.input->'scores'->1)::text::float / 100.0
-        ELSE (w.input->'scores'->1)::text::float END AS s1,
-        CASE WHEN GREATEST(
-          (w.input->'scores'->0)::text::float,
-          (w.input->'scores'->1)::text::float,
-          (w.input->'scores'->2)::text::float,
-          (w.input->'scores'->3)::text::float,
-          (w.input->'scores'->4)::text::float
-        ) > 100
-        THEN (w.input->'scores'->2)::text::float / 100.0
-        ELSE (w.input->'scores'->2)::text::float END AS s2,
-        CASE WHEN GREATEST(
-          (w.input->'scores'->0)::text::float,
-          (w.input->'scores'->1)::text::float,
-          (w.input->'scores'->2)::text::float,
-          (w.input->'scores'->3)::text::float,
-          (w.input->'scores'->4)::text::float
-        ) > 100
-        THEN (w.input->'scores'->3)::text::float / 100.0
-        ELSE (w.input->'scores'->3)::text::float END AS s3,
-        CASE WHEN GREATEST(
-          (w.input->'scores'->0)::text::float,
-          (w.input->'scores'->1)::text::float,
-          (w.input->'scores'->2)::text::float,
-          (w.input->'scores'->3)::text::float,
-          (w.input->'scores'->4)::text::float
-        ) > 100
-        THEN (w.input->'scores'->4)::text::float / 100.0
-        ELSE (w.input->'scores'->4)::text::float END AS s4
+        (w.input->'scores'->0)::text::float AS r0,
+        (w.input->'scores'->1)::text::float AS r1,
+        (w.input->'scores'->2)::text::float AS r2,
+        (w.input->'scores'->3)::text::float AS r3,
+        (w.input->'scores'->4)::text::float AS r4
       FROM workflows w
       LEFT JOIN sessions s
         ON LOWER(s.data_hash) = LOWER(w.input->>'data_hash')
       WHERE ${where}
-        AND jsonb_array_length(w.input->'scores') >= 5
+    ),
+    normalized AS (
+      SELECT
+        agent_address,
+        agent_name,
+        updated_at,
+        CASE WHEN GREATEST(r0,r1,r2,r3,r4) > 100 THEN r0 / 100.0 ELSE r0 END AS s0,
+        CASE WHEN GREATEST(r0,r1,r2,r3,r4) > 100 THEN r1 / 100.0 ELSE r1 END AS s1,
+        CASE WHEN GREATEST(r0,r1,r2,r3,r4) > 100 THEN r2 / 100.0 ELSE r2 END AS s2,
+        CASE WHEN GREATEST(r0,r1,r2,r3,r4) > 100 THEN r3 / 100.0 ELSE r3 END AS s3,
+        CASE WHEN GREATEST(r0,r1,r2,r3,r4) > 100 THEN r4 / 100.0 ELSE r4 END AS s4
+      FROM raw_scores
+      WHERE agent_address IS NOT NULL
+        AND agent_address != ''
     )
     SELECT
       agent_address,
-      MAX(agent_name) AS agent_name,
-      COUNT(*) AS scored_sessions,
-      ROUND(AVG(s0))::int AS avg_initiative,
-      ROUND(AVG(s1))::int AS avg_collaboration,
-      ROUND(AVG(s2))::int AS avg_reasoning,
-      ROUND(AVG(s3))::int AS avg_compliance,
-      ROUND(AVG(s4))::int AS avg_efficiency,
-      MAX(updated_at) AS last_scored_at
+      MAX(agent_name)  AS agent_name,
+      COUNT(*)         AS scored_sessions,
+      LEAST(100, GREATEST(0, ROUND(AVG(s0))))::int AS avg_initiative,
+      LEAST(100, GREATEST(0, ROUND(AVG(s1))))::int AS avg_collaboration,
+      LEAST(100, GREATEST(0, ROUND(AVG(s2))))::int AS avg_reasoning,
+      LEAST(100, GREATEST(0, ROUND(AVG(s3))))::int AS avg_compliance,
+      LEAST(100, GREATEST(0, ROUND(AVG(s4))))::int AS avg_efficiency,
+      MAX(updated_at)  AS last_scored_at
     FROM normalized
     GROUP BY agent_address
     ORDER BY (AVG(s0) + AVG(s1) + AVG(s2) + AVG(s3) + AVG(s4)) / 5 DESC`;

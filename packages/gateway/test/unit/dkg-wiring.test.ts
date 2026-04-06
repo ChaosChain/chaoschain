@@ -142,8 +142,8 @@ describe('COMPUTE_DKG step', () => {
 // Test C — SubmitWork uses DKG roots from progress
 // =============================================================================
 
-describe('SubmitWorkOnchainStep uses DKG roots', () => {
-  it('C: calls encodeSubmitWork with roots from progress, not input', async () => {
+describe('SubmitWorkOnchainStep (off-chain-first)', () => {
+  it('C: completes off-chain when arweave is confirmed (no chain tx)', async () => {
     const persistence = mockPersistence();
     const encoder: ContractEncoder = {
       encodeSubmitWork: vi.fn().mockReturnValue('0xencodeddata'),
@@ -154,12 +154,9 @@ describe('SubmitWorkOnchainStep uses DKG roots', () => {
       releaseSignerLock: vi.fn(),
     } as unknown as TxQueue;
 
-    const dkgThreadRoot = '0x' + 'cc'.repeat(32);
-    const dkgEvidenceRoot = '0x' + 'dd'.repeat(32);
-
     const workflow = makeWorkflow({}, {
-      dkg_thread_root: dkgThreadRoot,
-      dkg_evidence_root: dkgEvidenceRoot,
+      dkg_thread_root: '0x' + 'cc'.repeat(32),
+      dkg_evidence_root: '0x' + 'dd'.repeat(32),
       dkg_weights: { '0xAlice': 1.0 },
       arweave_tx_id: 'ar-mock-tx',
       arweave_confirmed: true,
@@ -169,19 +166,21 @@ describe('SubmitWorkOnchainStep uses DKG roots', () => {
     const result = await step.execute(workflow);
 
     expect(result.type).toBe('SUCCESS');
-    expect(encoder.encodeSubmitWork).toHaveBeenCalledWith(
-      '0xDataHash',
-      dkgThreadRoot,
-      dkgEvidenceRoot,
-      'ar://ar-mock-tx',
+    expect(result).toHaveProperty('nextStep', null);
+
+    expect(encoder.encodeSubmitWork).not.toHaveBeenCalled();
+    expect(txQueue.submitOnly).not.toHaveBeenCalled();
+
+    expect(persistence.appendProgress).toHaveBeenCalledWith(
+      workflow.id,
+      expect.objectContaining({
+        onchain_confirmed: true,
+        settlement: 'off-chain',
+      }),
     );
   });
 
-  // ===========================================================================
-  // Test D — Missing DKG roots fails with PERMANENT
-  // ===========================================================================
-
-  it('D: fails permanently when DKG roots are missing from progress', async () => {
+  it('D: completes off-chain even without arweave fields (no arweave dependency)', async () => {
     const persistence = mockPersistence();
     const encoder: ContractEncoder = {
       encodeSubmitWork: vi.fn(),
@@ -192,21 +191,16 @@ describe('SubmitWorkOnchainStep uses DKG roots', () => {
       releaseSignerLock: vi.fn(),
     } as unknown as TxQueue;
 
-    const workflow = makeWorkflow({}, {
-      arweave_tx_id: 'ar-mock-tx',
-      arweave_confirmed: true,
-    });
+    const workflow = makeWorkflow({}, {});
 
     const step = new SubmitWorkOnchainStep(txQueue, persistence, encoder);
     const result = await step.execute(workflow);
 
-    expect(result.type).toBe('FAILED');
-    if (result.type === 'FAILED') {
-      expect(result.error.category).toBe('PERMANENT');
-      expect(result.error.code).toBe('MISSING_DKG_ROOTS');
-    }
-
-    expect(encoder.encodeSubmitWork).not.toHaveBeenCalled();
-    expect(txQueue.submitOnly).not.toHaveBeenCalled();
+    expect(result.type).toBe('SUCCESS');
+    expect(result).toHaveProperty('nextStep', null);
+    expect(persistence.appendProgress).toHaveBeenCalledWith(
+      workflow.id,
+      expect.objectContaining({ settlement: 'off-chain' }),
+    );
   });
 });

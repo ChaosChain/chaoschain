@@ -17,25 +17,15 @@ import express, { Express } from 'express';
 import { Pool } from 'pg';
 
 import { WorkflowEngine } from './workflows/engine.js';
-import { WorkflowReconciler } from './workflows/reconciliation.js';
-import { TxQueue } from './workflows/tx-queue.js';
+import { NoOpReconciler } from './workflows/reconciliation.js';
 import { createWorkSubmissionDefinition } from './workflows/work-submission.js';
-import { 
-  createScoreSubmissionDefinition, 
-  DefaultScoreContractEncoder, 
-  DefaultDirectScoreContractEncoder,
-  DefaultValidatorRegistrationEncoder 
-} from './workflows/score-submission.js';
-import { createCloseEpochDefinition, DefaultEpochContractEncoder } from './workflows/close-epoch.js';
+import { createScoreSubmissionDefinition } from './workflows/score-submission.js';
 import { PostgresWorkflowPersistence, runMigrations } from './persistence/postgres/index.js';
 import { EpochCounter } from './services/epoch-counter.js';
-import { EthersChainAdapter, StudioProxyEncoder, DefaultRewardsDistributorEncoder } from './adapters/chain-adapter.js';
-import { TurboArweaveAdapter, MockArweaveAdapter } from './adapters/arweave-adapter.js';
 import { createRoutes, errorHandler, apiKeyAuth, rateLimit, InMemoryRateLimiter } from './http/index.js';
 import { createPublicApiRoutes } from './routes/public-api.js';
 import { ApiKeyStore, createAdminRoutes } from './routes/admin-api.js';
 import { SessionStore, createSessionRoutes } from './sessions/index.js';
-import { ReputationReader } from './services/reputation-reader.js';
 import { WorkDataReader } from './services/work-data-reader.js';
 import {
   trackWorkflowCompleted,
@@ -60,22 +50,6 @@ export interface GatewayConfig {
   // Database
   databaseUrl: string;
 
-  // Chain
-  rpcUrl: string;
-  chainId: number;
-  confirmationBlocks: number;
-
-  // Contracts (read-only, for validation/reconciliation)
-  chaosCoreAddress: string;
-  rewardsDistributorAddress: string;
-
-  // ERC-8004 registries (read-only, for public API)
-  identityRegistryAddress: string;
-  reputationRegistryAddress: string;
-
-  // Arweave (Turbo)
-  turboGatewayUrl: string;
-
   // Logging
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 
@@ -89,17 +63,6 @@ export function loadConfigFromEnv(): GatewayConfig {
     port: parseInt(process.env.PORT ?? '3000', 10),
     host: process.env.HOST ?? '0.0.0.0',
     databaseUrl: process.env.DATABASE_URL ?? 'postgresql://localhost:5432/gateway',
-    rpcUrl: process.env.RPC_URL ?? 'http://localhost:8545',
-    chainId: parseInt(process.env.CHAIN_ID ?? '11155111', 10), // Sepolia
-    confirmationBlocks: parseInt(process.env.CONFIRMATION_BLOCKS ?? '2', 10),
-    // ChaosChain contract addresses (Sepolia) - v0.4.31 ERC-8004 Feb 2026 ABI
-    chaosCoreAddress: process.env.CHAOS_CORE_ADDRESS ?? '0x92cBc471D8a525f3Ffb4BB546DD8E93FC7EE67ca',
-    rewardsDistributorAddress: process.env.REWARDS_DISTRIBUTOR_ADDRESS ?? '0x28AF9c02982801D35a23032e0eAFa50669E10ba1',
-    // ERC-8004 registries (Base Sepolia official deployments)
-    identityRegistryAddress: process.env.IDENTITY_REGISTRY_ADDRESS ?? '0x8004A818BFB912233c491871b3d84c89A494BD9e',
-    reputationRegistryAddress: process.env.REPUTATION_REGISTRY_ADDRESS ?? '0x8004B663056A597Dffe9eCcC1965A193B7388713',
-    // Arweave Turbo gateway
-    turboGatewayUrl: process.env.TURBO_GATEWAY_URL ?? 'https://arweave.net',
     logLevel: (process.env.LOG_LEVEL ?? 'info') as GatewayConfig['logLevel'],
     runningWorkflowResumeMinAgeMs: parseInt(process.env.RUNNING_WORKFLOW_RESUME_MIN_AGE_MS ?? '180000', 10),
     shutdownDrainTimeoutMs: parseInt(process.env.SHUTDOWN_DRAIN_TIMEOUT_MS ?? '120000', 10),
@@ -149,130 +112,23 @@ export class Gateway {
     const persistence = new PostgresWorkflowPersistence(this.pool);
     this.logger.info({}, 'Database connection established');
 
-    // Initialize chain adapter with RewardsDistributor address for epoch management
-    const chainAdapter = new EthersChainAdapter(
-      await this.createProvider(),
-      this.config.confirmationBlocks,
-      2000, // pollIntervalMs
-      this.config.rewardsDistributorAddress
-    );
-    this.logger.info(
-      { rpcUrl: this.config.rpcUrl, rewardsDistributor: this.config.rewardsDistributorAddress },
-      'Chain adapter initialized'
-    );
-
-    // Register signers from environment
-    const { ethers } = await import('ethers');
-    const provider = await this.createProvider();
-    
-    // Primary signer
-    const signerPrivateKey = process.env.SIGNER_PRIVATE_KEY;
-    let primarySignerAddress: string | undefined;
-    if (signerPrivateKey) {
-      const wallet = new ethers.Wallet(signerPrivateKey, provider);
-      primarySignerAddress = await wallet.getAddress();
-      chainAdapter.registerSigner(primarySignerAddress.toLowerCase(), wallet);
-      this.logger.info({ address: primarySignerAddress }, 'Signer registered from SIGNER_PRIVATE_KEY');
-    } else {
-      this.logger.warn({}, 'No SIGNER_PRIVATE_KEY configured - workflows requiring tx submission will fail');
-    }
-    
-    // Additional signers (SIGNER_PRIVATE_KEY_2, SIGNER_PRIVATE_KEY_3, etc.)
-    for (let i = 2; i <= 10; i++) {
-      const additionalKey = process.env[`SIGNER_PRIVATE_KEY_${i}`];
-      if (additionalKey) {
-        const wallet = new ethers.Wallet(additionalKey, provider);
-        const signerAddress = await wallet.getAddress();
-        chainAdapter.registerSigner(signerAddress.toLowerCase(), wallet);
-        this.logger.info({ address: signerAddress }, `Signer registered from SIGNER_PRIVATE_KEY_${i}`);
-      }
-    }
-
-    // Treasury signer (for automated withdraw after closeEpoch)
-    const treasuryPrivateKey = process.env.TREASURY_PRIVATE_KEY;
-    if (treasuryPrivateKey) {
-      const treasuryWallet = new ethers.Wallet(treasuryPrivateKey, provider);
-      const treasuryAddress = await treasuryWallet.getAddress();
-      chainAdapter.registerSigner(treasuryAddress.toLowerCase(), treasuryWallet);
-      process.env.TREASURY_ADDRESS = treasuryAddress;
-      this.logger.info({ address: treasuryAddress }, 'Treasury signer registered from TREASURY_PRIVATE_KEY');
-    }
-
-    // Initialize tx queue
-    const txQueue = new TxQueue(chainAdapter);
-
-    // Initialize arweave adapter
-    // For local testing, set USE_MOCK_ARWEAVE=true to use in-memory mock
-    const useMockArweave = process.env.USE_MOCK_ARWEAVE === 'true';
-    const arweaveAdapter = useMockArweave
-      ? new MockArweaveAdapter({ uploadDelay: 0, confirmationDelay: 100 })
-      : new TurboArweaveAdapter(this.config.turboGatewayUrl);
-    this.logger.info(
-      { gateway: this.config.turboGatewayUrl, mock: useMockArweave },
-      useMockArweave ? 'Arweave adapter initialized (MOCK)' : 'Arweave adapter initialized (Turbo)'
-    );
-
-    // Initialize reconciler
-    const reconciler = new WorkflowReconciler(chainAdapter, arweaveAdapter, txQueue);
-
-    // Initialize engine
+    // OFF-CHAIN FIRST: No chain adapter, no signers, no TxQueue, no Arweave.
+    // All workflows complete via Postgres persistence only.
+    const reconciler = new NoOpReconciler();
     this.engine = new WorkflowEngine(persistence, reconciler);
-    this.engine.setSignerCheck((addr) => chainAdapter.hasSigner(addr));
 
-    // Register all workflow definitions
-    const studioEncoder = new StudioProxyEncoder();
-    const epochEncoder = new DefaultEpochContractEncoder();
-    const rewardsDistributorEncoder = new DefaultRewardsDistributorEncoder();
-
-    // 1. WorkSubmission workflow (now includes REGISTER_WORK step)
-    const workSubmissionDef = createWorkSubmissionDefinition(
-      arweaveAdapter,
-      txQueue,
-      persistence,
-      studioEncoder,
-      rewardsDistributorEncoder,
-      this.config.rewardsDistributorAddress
-    );
+    // 1. WorkSubmission workflow (off-chain: DKG → evidence no-op → COMPLETED)
+    const workSubmissionDef = createWorkSubmissionDefinition(persistence);
     this.engine.registerWorkflow(workSubmissionDef);
-    this.logger.info(
-      { rewardsDistributor: this.config.rewardsDistributorAddress },
-      'WorkSubmission workflow registered (with REGISTER_WORK step)'
-    );
+    this.logger.info({}, 'WorkSubmission workflow registered (off-chain)');
 
-    // 2. ScoreSubmission workflow (supports BOTH direct and commit-reveal modes)
-    const validatorEncoder = new DefaultValidatorRegistrationEncoder(
-      this.config.rewardsDistributorAddress
-    );
-    const directScoreEncoder = new DefaultDirectScoreContractEncoder();
-    const commitRevealScoreEncoder = new DefaultScoreContractEncoder();
-    
-    const scoreSubmissionDef = createScoreSubmissionDefinition(
-      txQueue,
-      persistence,
-      chainAdapter as any, // ChainStateAdapter for score queries
-      {
-        directEncoder: directScoreEncoder,           // For direct mode (default, MVP)
-        commitRevealEncoder: commitRevealScoreEncoder, // For commit-reveal mode (available)
-        validatorEncoder,                            // For REGISTER_VALIDATOR step (both modes)
-      },
-      primarySignerAddress
-    );
+    // 2. ScoreSubmission workflow (off-chain: persist score → COMPLETED)
+    const scoreSubmissionDef = createScoreSubmissionDefinition(persistence);
     this.engine.registerWorkflow(scoreSubmissionDef);
-    this.logger.info(
-      { rewardsDistributor: this.config.rewardsDistributorAddress },
-      'ScoreSubmission workflow registered (direct + commit-reveal modes, with REGISTER_VALIDATOR step)'
-    );
+    this.logger.info({}, 'ScoreSubmission workflow registered (off-chain)');
 
-    // 3. CloseEpoch workflow (with optional treasury withdraw after closeEpoch)
-    const closeEpochDef = createCloseEpochDefinition(
-      txQueue,
-      persistence,
-      epochEncoder,
-      chainAdapter as any, // EpochChainStateAdapter
-      chainAdapter as any  // TreasuryWithdrawAdapter (getWithdrawableBalance); used when TREASURY_PRIVATE_KEY set
-    );
-    this.engine.registerWorkflow(closeEpochDef);
-    this.logger.info({}, 'CloseEpoch workflow registered');
+    // TODO: Re-enable CloseEpoch as async settlement worker when needed.
+    // CloseEpoch is an operator-triggered on-chain action not in the product path.
 
     // Subscribe to engine events for logging + metrics
     this.engine.onEvent((event) => {
@@ -408,14 +264,12 @@ export class Gateway {
 
     // Session API (Engineering Studio — Postgres-backed)
     const sessionStore = new SessionStore(this.pool);
-    const sessionSubmitWork = primarySignerAddress
-      ? async (input: Record<string, unknown>) => {
-          const workflow = createWorkSubmissionWorkflow(input as any);
-          await this.engine.createWorkflow(workflow);
-          this.engine.startWorkflow(workflow.id).catch(() => {/* engine logs errors */});
-          return { id: workflow.id };
-        }
-      : undefined;
+    const sessionSubmitWork = async (input: Record<string, unknown>) => {
+      const workflow = createWorkSubmissionWorkflow(input as any);
+      await this.engine.createWorkflow(workflow);
+      this.engine.startWorkflow(workflow.id).catch(() => {/* engine logs errors */});
+      return { id: workflow.id };
+    };
 
     this.app.use(
       rateLimit(writeLimiter),
@@ -423,51 +277,34 @@ export class Gateway {
         store: sessionStore,
         apiKeys,
         submitWork: sessionSubmitWork,
-        signerAddress: primarySignerAddress,
+        signerAddress: 'off-chain',
         epochAllocator: epochCounter,
         logger: this.logger,
         pool: this.pool,
       }),
     );
-    this.logger.info(
-      { hasSubmitWork: !!sessionSubmitWork },
-      'Session API mounted (/v1/sessions)',
-    );
+    this.logger.info({}, 'Session API mounted (/v1/sessions)');
 
     // Workflow routes
-    this.app.use(createRoutes(this.engine, persistence, this.logger, primarySignerAddress));
+    this.app.use(createRoutes(this.engine, persistence, this.logger));
 
     // Public read API (rate limited, no auth)
-    const reputationClientAddrs = (process.env.REPUTATION_CLIENT_ADDRESSES ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-    const reputationReader = new ReputationReader({
-      provider: await this.createProvider(),
-      identityRegistryAddress: this.config.identityRegistryAddress,
-      reputationRegistryAddress: this.config.reputationRegistryAddress,
-      rewardsDistributorAddress: this.config.rewardsDistributorAddress,
-      network: process.env.NETWORK_NAME ?? 'base-sepolia',
-      reputationClientAddresses:
-        reputationClientAddrs.length > 0 ? reputationClientAddrs : undefined,
-    });
     const workDataReader = new WorkDataReader(
       persistence as any,
-      (address: string) => reputationReader.resolveAgentId(address),
+      async (_address: string) => 0,
     );
 
     this.app.use(
       rateLimit(readLimiter),
       createPublicApiRoutes({
-        reputationReader,
+        reputationReader: undefined,
         workDataReader,
         network: process.env.NETWORK_NAME ?? 'base-sepolia',
-        identityRegistryAddress: this.config.identityRegistryAddress,
-        reputationRegistryAddress: this.config.reputationRegistryAddress,
+        identityRegistryAddress: process.env.IDENTITY_REGISTRY_ADDRESS ?? '',
+        reputationRegistryAddress: process.env.REPUTATION_REGISTRY_ADDRESS ?? '',
         apiKeys,
-        prIngestion: primarySignerAddress ? {
-          signerAddress: primarySignerAddress,
+        prIngestion: {
+          signerAddress: 'off-chain',
           computeDKG: (evidence: unknown[]) => {
             const result = computeDKG(evidence as DKGEvidencePackage[]);
             return { thread_root: result.thread_root, evidence_root: result.evidence_root };
@@ -478,7 +315,7 @@ export class Gateway {
             this.engine.startWorkflow(workflow.id).catch(() => {/* engine logs errors */});
             return { id: workflow.id };
           },
-        } : undefined,
+        },
       }),
     );
 
@@ -504,16 +341,10 @@ export class Gateway {
     this.setupShutdownHandlers();
 
     this.logger.info({
-      contracts: {
-        chaosCore: this.config.chaosCoreAddress,
-        rewardsDistributor: this.config.rewardsDistributorAddress,
-        identityRegistry: this.config.identityRegistryAddress,
-        reputationRegistry: this.config.reputationRegistryAddress,
-      },
-      signer: primarySignerAddress ?? 'NOT_CONFIGURED',
+      mode: 'off-chain-first',
       runningWorkflowResumeMinAgeMs: this.config.runningWorkflowResumeMinAgeMs,
       shutdownDrainTimeoutMs: this.config.shutdownDrainTimeoutMs,
-    }, 'Gateway started successfully — resolved addresses');
+    }, 'Gateway started successfully (off-chain mode)');
 
     // Resume active workflows in the background AFTER the HTTP server is healthy.
     // This must not block startup — stale workflows can take minutes to exhaust
@@ -594,11 +425,7 @@ export class Gateway {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   }
 
-  private async createProvider(): Promise<any> {
-    // Dynamic import to avoid issues if ethers isn't loaded
-    const { ethers } = await import('ethers');
-    return new ethers.JsonRpcProvider(this.config.rpcUrl);
-  }
+  // createProvider removed — no on-chain reads required in off-chain mode
 }
 
 // =============================================================================

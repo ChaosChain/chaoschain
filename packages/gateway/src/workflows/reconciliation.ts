@@ -665,3 +665,23 @@ export class WorkflowReconciler {
     }
   }
 }
+
+/**
+ * No-op reconciler for off-chain-first mode.
+ *
+ * All off-chain steps return isIrreversible() = false, so the engine
+ * never calls reconcileWorkSubmission. This stub satisfies the type
+ * contract without any chain dependencies.
+ */
+export class NoOpReconciler extends WorkflowReconciler {
+  constructor() {
+    const noop = {} as any;
+    super(noop, noop, noop);
+  }
+
+  async reconcileWorkSubmission(
+    _workflow: WorkflowRecord
+  ): Promise<ReconciliationResult> {
+    return { action: 'NO_CHANGE' };
+  }
+}

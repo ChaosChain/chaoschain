@@ -72,7 +72,7 @@ export interface PRIngestionConfig {
 }
 
 export interface PublicApiConfig {
-  reputationReader: ReputationReader;
+  reputationReader?: ReputationReader;
   workDataReader?: WorkDataReader;
   network: string;
   identityRegistryAddress: string;
@@ -115,8 +115,19 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
 
   router.get(
     '/v1/agent/:id/reputation',
-    async (req: Request, res: Response) => {
-      const rawId = req.params.id;
+    async (_req: Request, res: Response) => {
+      if (!reputationReader) {
+        res.status(503).json({
+          version: API_VERSION,
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'On-chain reputation reader is disabled (off-chain mode)',
+          },
+        });
+        return;
+      }
+
+      const rawId = _req.params.id;
       const agentId = Number(rawId);
 
       if (!Number.isInteger(agentId) || agentId <= 0) {
@@ -219,6 +230,17 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
       const offset = Math.max(0, Number(req.query.offset) || 0);
 
       try {
+        if (!reputationReader) {
+          res.status(503).json({
+            version: API_VERSION,
+            error: {
+              code: 'SERVICE_UNAVAILABLE',
+              message: 'On-chain reputation reader is disabled (off-chain mode)',
+            },
+          });
+          return;
+        }
+
         const exists = await reputationReader.agentExists(agentId);
         if (!exists) {
           res.status(404).json({
@@ -486,13 +508,28 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
         return;
       }
 
+      const VALID_STATUSES = new Set(['pending', 'scored', 'finalized']);
+      const rawStatus = (req.query.status as string) || 'pending';
+      if (!VALID_STATUSES.has(rawStatus)) {
+        res.status(400).json({
+          version: API_VERSION,
+          error: {
+            code: 'INVALID_STATUS',
+            message: 'status must be one of: pending, scored, finalized',
+          },
+        });
+        return;
+      }
+      const status = rawStatus as 'pending' | 'scored' | 'finalized';
+
       const limit = Math.min(Math.max(1, Number(req.query.limit) || 20), 100);
       const offset = Math.max(0, Number(req.query.offset) || 0);
 
       try {
-        const data = await workDataReader.getPendingWorkForStudio(address, limit, offset);
+        const data = await workDataReader.getWorkForStudio(address, status, limit, offset);
         res.json({ version: API_VERSION, data });
       } catch (err) {
+        console.error(`[work-list] status=${status} studio=${address} error:`, err);
         res.status(500).json({
           version: API_VERSION,
           error: {

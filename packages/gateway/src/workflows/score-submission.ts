@@ -1354,57 +1354,21 @@ export interface ScoreSubmissionEncoders {
 }
 
 /**
- * Create ScoreSubmission workflow definition supporting BOTH modes.
+ * Create ScoreSubmission workflow definition (off-chain-first).
  *
- * Direct mode is OFF-CHAIN FIRST: scores are persisted in Postgres and the
- * workflow completes immediately without any blockchain transaction.
+ * Only the direct mode step is registered. It persists scores in Postgres
+ * and completes immediately without any blockchain transaction.
  *
- * Commit-reveal mode is unchanged (legacy on-chain path).
- *
- * @param txQueue - Transaction queue (only needed for commit-reveal / on-chain)
- * @param persistence - Workflow persistence
- * @param chainState - Chain state adapter (only needed for commit-reveal / on-chain)
- * @param encoders - Required encoders for both modes
+ * Legacy on-chain steps (commit-reveal, validator registration) are removed
+ * from active definitions. The classes remain in the codebase (@deprecated)
+ * for reference.
  */
 export function createScoreSubmissionDefinition(
-  txQueue: TxQueue,
   persistence: WorkflowPersistence,
-  chainState: ScoreChainStateAdapter,
-  encoders: ScoreSubmissionEncoders,
-  fallbackSignerAddress?: string
 ): WorkflowDefinition<ScoreSubmissionRecord> {
   const steps = new Map<string, StepExecutor<ScoreSubmissionRecord>>();
 
-  // Direct mode: off-chain — persist score and complete immediately.
-  // No encoder, signer, or chain interaction needed.
   steps.set('SUBMIT_SCORE_DIRECT', new SubmitScoreDirectStep(persistence));
-
-  // Confirmation / validator-registration steps are retained in the step map
-  // so that in-flight workflows that already recorded a score_tx_hash can
-  // still drain through the old on-chain path without breaking.
-  steps.set('AWAIT_SCORE_CONFIRM', new AwaitScoreConfirmStep(txQueue, persistence));
-
-  // Commit-reveal mode steps (legacy, available)
-  if (encoders.commitRevealEncoder) {
-    steps.set('COMMIT_SCORE', new CommitScoreStep(
-      txQueue, persistence, encoders.commitRevealEncoder, chainState
-    ));
-    steps.set('AWAIT_COMMIT_CONFIRM', new AwaitCommitConfirmStep(txQueue, persistence));
-    steps.set('REVEAL_SCORE', new RevealScoreStep(
-      txQueue, persistence, encoders.commitRevealEncoder, chainState
-    ));
-    steps.set('AWAIT_REVEAL_CONFIRM', new AwaitRevealConfirmStep(txQueue, persistence));
-  }
-  
-  // Validator registration steps — still reachable by in-flight on-chain workflows
-  if (encoders.validatorEncoder) {
-    steps.set('REGISTER_VALIDATOR', new RegisterValidatorStep(
-      txQueue, persistence, encoders.validatorEncoder, chainState, fallbackSignerAddress
-    ));
-    steps.set('AWAIT_REGISTER_VALIDATOR_CONFIRM', new AwaitRegisterValidatorConfirmStep(
-      txQueue, persistence
-    ));
-  }
 
   return {
     type: 'ScoreSubmission',
@@ -1412,32 +1376,22 @@ export function createScoreSubmissionDefinition(
     steps,
     stepOrder: [
       'SUBMIT_SCORE_DIRECT',
-      'AWAIT_SCORE_CONFIRM',
-      'COMMIT_SCORE',
-      'AWAIT_COMMIT_CONFIRM',
-      'REVEAL_SCORE',
-      'AWAIT_REVEAL_CONFIRM',
-      'REGISTER_VALIDATOR',
-      'AWAIT_REGISTER_VALIDATOR_CONFIRM',
     ],
   };
 }
 
 /**
- * Legacy factory function for commit-reveal only mode.
- * @deprecated Use createScoreSubmissionDefinition with encoders instead.
+ * @deprecated Commit-reveal mode is disabled in off-chain-first mode.
+ * Retained for backward compatibility with existing imports.
  */
 export function createCommitRevealScoreSubmissionDefinition(
-  txQueue: TxQueue,
+  _txQueue: TxQueue,
   persistence: WorkflowPersistence,
-  encoder: ScoreContractEncoder,
-  chainState: ScoreChainStateAdapter,
-  validatorEncoder?: ValidatorRegistrationEncoder
+  _encoder: ScoreContractEncoder,
+  _chainState: ScoreChainStateAdapter,
+  _validatorEncoder?: ValidatorRegistrationEncoder
 ): WorkflowDefinition<ScoreSubmissionRecord> {
-  return createScoreSubmissionDefinition(txQueue, persistence, chainState, {
-    commitRevealEncoder: encoder,
-    validatorEncoder,
-  });
+  return createScoreSubmissionDefinition(persistence);
 }
 
 // =============================================================================
