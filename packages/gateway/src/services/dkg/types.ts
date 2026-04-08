@@ -30,6 +30,14 @@ export interface EvidencePackage {
   artifact_ids: string[];
   /** Agent signature over the evidence */
   signature: string;
+  /** Original event type from the session DAG */
+  event_type?: string;
+  /** Human-readable summary of the evidence node */
+  summary?: string;
+  /** Arbitrary metadata attached to the evidence node */
+  metadata?: Record<string, unknown>;
+  /** Performance metrics (duration, tokens, tool calls) */
+  metrics?: Record<string, unknown>;
 }
 
 /**

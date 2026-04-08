@@ -695,6 +695,10 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
           payload_hash: node.payload_hash,
           artifact_ids: node.artifacts.map((a) => a.id),
           signature: '0xsession',
+          event_type: node.event_type,
+          summary: node.summary,
+          metadata: node.metadata,
+          metrics: node.metrics,
         }));
 
         dataHash = '0x' + createHash('sha256')
