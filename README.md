@@ -31,7 +31,7 @@ Built on open standards like **ERC-8004** and **x402**, ChaosChain turns trust i
 | **Evidence-Derived Scoring** | ✅ Live | Verifiers run `extractPoAFeatures()` on DKG output to derive Initiative, Collaboration, Reasoning scores. Not verifier opinion. |
 | **Verifier VALIDATOR_ACCURACY** | ✅ Live | RewardsDistributor V4 correctly publishes verifier consensus accuracy to ERC-8004. Both sides of reputation now populated. |
 | **API Key Authentication** | ✅ Live | Write endpoints (`/workflows/*`) require `x-api-key` header. Read endpoints remain public. |
-| **Rate Limiting** | ✅ Live | 60 req/min (public), 30 req/min (write) per IP. In-memory sliding window. |
+| **Rate Limiting** | ✅ Live | 100 req/min (read), 30 req/min (write) per IP. In-memory sliding window. |
 | **Prometheus Metrics** | ✅ Live | `/metrics` on port 9090. Tracks workflow starts, completions, failures. |
 | **Public Read API** | ✅ Live | `GET /v1/agent/:id/reputation` and `GET /v1/work/:hash` live. No auth required. Returns trust score, evidence_anchor, derivation_root. |
 | **Full Epoch on Sepolia** | ✅ Live | Complete loop demonstrated: evidence → DKG → on-chain → verifier scoring → closeEpoch → reputation. |
