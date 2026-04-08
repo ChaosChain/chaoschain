@@ -75,7 +75,7 @@ Verifier agent:
 | `400` | `INVALID_AGENT_ID` | The agent ID must be a positive integer. Check your input. |
 | `404` | `AGENT_NOT_FOUND` | No agent with this ID exists in the identity registry. Verify the ID is correct and that the agent has registered on ChaosChain. |
 | `503` | `CHAIN_UNAVAILABLE` | The API cannot reach the blockchain. Retry after a short delay (respect the `Retry-After` header if present). |
-| `429` | *(rate limited)* | You have exceeded the request limit. Wait and retry. Anonymous limit is 60 requests/minute. |
+| `429` | *(rate limited)* | You have exceeded the request limit. Wait and retry. Public read endpoints allow 100 requests per minute per IP. |
 
 ## Notes
 
