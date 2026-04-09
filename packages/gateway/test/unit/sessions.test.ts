@@ -20,6 +20,12 @@ import type { PoolLike } from '../../src/sessions/store.js';
 // Helpers
 // =============================================================================
 
+const ADDR_STUDIO  = '0x' + 'aa'.repeat(20); // 0xaaaa…aa (42 chars)
+const ADDR_AGENT   = '0x' + 'bb'.repeat(20);
+const ADDR_SIGNER  = '0x' + 'cc'.repeat(20);
+const ADDR_WORKER  = '0x' + 'dd'.repeat(20);
+const ADDR_VERIFIER = '0x' + 'ee'.repeat(20);
+
 function buildApp(opts?: {
   store?: SessionStore;
   submitWork?: SubmitWorkFn;
@@ -90,7 +96,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
       task_type: 'feature',
     },
     agent: {
-      agent_address: '0xworker',
+      agent_address: ADDR_WORKER,
       role: 'worker',
     },
     causality: {
@@ -108,16 +114,16 @@ describe('POST /v1/sessions', () => {
   it('creates a session with server-generated id', async () => {
     const { app } = buildApp();
     const res = await req(app, 'POST', '/v1/sessions', {
-      studio_address: '0xStudio',
-      agent_address: '0xAgent',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     expect(res.status).toBe(201);
     const data = res.body.data as Record<string, unknown>;
     expect((data.session_id as string)).toMatch(/^sess_/);
     expect(data.status).toBe('running');
-    expect(data.studio_address).toBe('0xStudio');
-    expect(data.agent_address).toBe('0xAgent');
+    expect(data.studio_address).toBe(ADDR_STUDIO);
+    expect(data.agent_address).toBe(ADDR_AGENT);
     expect(data.event_count).toBe(0);
     expect(data.session_root_event_id).toBeNull();
     expect(data.workflow_id).toBeNull();
@@ -128,8 +134,8 @@ describe('POST /v1/sessions', () => {
     const { app } = buildApp();
     const res = await req(app, 'POST', '/v1/sessions', {
       session_id: 'sess_custom123',
-      studio_address: '0xStudio',
-      agent_address: '0xAgent',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     expect(res.status).toBe(201);
@@ -140,14 +146,14 @@ describe('POST /v1/sessions', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 'dup',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const res = await req(app, 'POST', '/v1/sessions', {
       session_id: 'dup',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     expect(res.status).toBe(409);
@@ -156,7 +162,7 @@ describe('POST /v1/sessions', () => {
 
   it('returns 400 when studio_address is missing', async () => {
     const { app } = buildApp();
-    const res = await req(app, 'POST', '/v1/sessions', { agent_address: '0xA' });
+    const res = await req(app, 'POST', '/v1/sessions', { agent_address: ADDR_AGENT });
     expect(res.status).toBe(400);
   });
 
@@ -169,8 +175,8 @@ describe('POST /v1/sessions', () => {
   it('defaults studio_policy_version, work_mandate_id, task_type', async () => {
     const { app } = buildApp();
     const res = await req(app, 'POST', '/v1/sessions', {
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const data = res.body.data as Record<string, unknown>;
@@ -189,8 +195,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const res = await req(app, 'POST', '/v1/sessions/s1/events', makeEvent());
@@ -207,8 +213,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const res = await req(app, 'POST', '/v1/sessions/s1/events', [
@@ -232,8 +238,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp({ store });
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent({ event_id: 'evt_root' }));
@@ -252,8 +258,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent());
     await req(app, 'POST', '/v1/sessions/s1/complete', {});
@@ -267,8 +273,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const res = await req(
@@ -285,8 +291,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const res = await req(app, 'POST', '/v1/sessions/s1/events', { event_type: 'plan_created' });
@@ -298,8 +304,8 @@ describe('POST /v1/sessions/:id/events', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
 
     const res = await req(
@@ -323,8 +329,8 @@ describe('POST /v1/sessions/:id/complete', () => {
     const { app } = buildApp({ store });
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent({ event_id: 'evt_1' }));
 
@@ -347,8 +353,8 @@ describe('POST /v1/sessions/:id/complete', () => {
     const { app } = buildApp({ store });
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(
       app,
@@ -374,8 +380,8 @@ describe('POST /v1/sessions/:id/complete', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/complete', {});
 
@@ -388,8 +394,8 @@ describe('POST /v1/sessions/:id/complete', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent());
 
@@ -407,8 +413,8 @@ describe('GET /v1/sessions/:id/context', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xStudio',
-      agent_address: '0xAgent',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
       task_type: 'feature',
     });
 
@@ -430,7 +436,7 @@ describe('GET /v1/sessions/:id/context', () => {
     // session_metadata
     const meta = data.session_metadata as Record<string, unknown>;
     expect(meta.session_id).toBe('s1');
-    expect(meta.agent_address).toBe('0xAgent');
+    expect(meta.agent_address).toBe(ADDR_AGENT);
     expect(meta.session_root_event_id).toBe('evt_1');
     expect(meta.event_count).toBe(2);
 
@@ -452,8 +458,8 @@ describe('GET /v1/sessions/:id/context', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent({ event_id: 'evt_1' }));
 
@@ -477,8 +483,8 @@ describe('GET /v1/sessions/:id/context', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent({ event_id: 'evt_1' }));
     await req(app, 'POST', '/v1/sessions/s1/complete', { summary: 'Done' });
@@ -504,8 +510,8 @@ describe('GET /v1/sessions/:id/evidence', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xStudio',
-      agent_address: '0xAgent',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', [
       makeEvent({ event_id: 'evt_1' }),
@@ -527,7 +533,7 @@ describe('GET /v1/sessions/:id/evidence', () => {
     expect(nodes).toHaveLength(2);
     expect(nodes[0].node_id).toBe('evt_1');
     expect(nodes[0].event_id).toBe('evt_1');
-    expect(nodes[0].agent_address).toBe('0xworker');
+    expect(nodes[0].agent_address).toBe(ADDR_WORKER);
     expect(nodes[0].parent_ids).toEqual([]);
     expect(nodes[0].payload_hash).toMatch(/^0x[a-f0-9]{64}$/);
     expect(nodes[1].node_id).toBe('evt_2');
@@ -555,8 +561,8 @@ describe('GET /v1/sessions/:id/evidence', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', [
       makeEvent({ event_id: 'evt_1' }),
@@ -590,8 +596,8 @@ describe('GET /v1/sessions/:id/viewer', () => {
     const { app } = buildApp();
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xStudio',
-      agent_address: '0xAgent',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', [
       makeEvent({ event_id: 'evt_1' }),
@@ -629,11 +635,11 @@ function makeMeta(id: string): Parameters<SessionStore['create']>[0] {
   return {
     session_id: id,
     session_root_event_id: null,
-    studio_address: '0xS',
+    studio_address: ADDR_STUDIO,
     studio_policy_version: 'v1',
     work_mandate_id: 'generic-task',
     task_type: 'feature',
-    agent_address: '0xA',
+    agent_address: ADDR_AGENT,
     status: 'running',
     started_at: new Date().toISOString(),
     completed_at: null,
@@ -650,9 +656,9 @@ function makeRawEvent(id: string, ts: string, parents: string[] = [], extras: Re
     event_id: id,
     event_type: 'task_received',
     timestamp: ts,
-    studio: { studio_address: '0xS', studio_policy_version: 'v1' },
+    studio: { studio_address: ADDR_STUDIO, studio_policy_version: 'v1' },
     task: { work_mandate_id: 'generic-task', task_type: 'feature' },
-    agent: { agent_address: '0xA', role: 'worker' },
+    agent: { agent_address: ADDR_AGENT, role: 'worker' },
     causality: { parent_event_ids: parents },
     summary: `Event ${id}`,
     ...extras,
@@ -677,7 +683,7 @@ describe('SessionStore', () => {
     expect(n0.node_id).toBe('evt_1');
     expect(n0.event_id).toBe('evt_1');
     expect(n0.session_id).toBe('s1');
-    expect(n0.agent_address).toBe('0xA');
+    expect(n0.agent_address).toBe(ADDR_AGENT);
     expect(n0.parent_ids).toEqual([]);
     expect(n0.payload_hash).toMatch(/^0x[a-f0-9]{64}$/);
 
@@ -778,11 +784,11 @@ describe('SessionStore', () => {
       }),
       makeRawEvent('evt_v1', '2026-03-14T10:15:00Z', [], {
         event_type: 'verification_started', summary: 'Verifier started',
-        agent: { agent_address: '0xVerifier', role: 'verifier' },
+        agent: { agent_address: ADDR_VERIFIER, role: 'verifier' },
       }),
       makeRawEvent('evt_v2', '2026-03-14T10:20:00Z', ['evt_v1'], {
         event_type: 'score_vector_created', summary: 'Score produced',
-        agent: { agent_address: '0xVerifier', role: 'verifier' },
+        agent: { agent_address: ADDR_VERIFIER, role: 'verifier' },
       }),
     ]);
 
@@ -812,7 +818,7 @@ describe('SessionStore', () => {
       }),
       makeRawEvent('evt_v', '2026-03-14T10:15:00Z', ['evt_done'], {
         event_type: 'outcome_evaluated', summary: 'Evaluated',
-        agent: { agent_address: '0xV', role: 'verifier' },
+        agent: { agent_address: ADDR_VERIFIER, role: 'verifier' },
       }),
     ]);
 
@@ -996,13 +1002,13 @@ describe('WorkSubmission bridge on complete', () => {
 
     const { app } = buildApp({
       submitWork: mockSubmitWork,
-      signerAddress: '0xSigner',
+      signerAddress: ADDR_SIGNER,
     });
 
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xStudio',
-      agent_address: '0xAgent',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent({ event_id: 'evt_1' }));
 
@@ -1015,9 +1021,9 @@ describe('WorkSubmission bridge on complete', () => {
 
     // Verify submitWork was called with correct shape
     expect(capturedInput).toBeDefined();
-    expect(capturedInput!.studio_address).toBe('0xStudio');
-    expect(capturedInput!.agent_address).toBe('0xAgent');
-    expect(capturedInput!.signer_address).toBe('0xSigner');
+    expect(capturedInput!.studio_address).toBe(ADDR_STUDIO);
+    expect(capturedInput!.agent_address).toBe(ADDR_AGENT);
+    expect(capturedInput!.signer_address).toBe(ADDR_SIGNER);
     expect(capturedInput!.data_hash).toMatch(/^0x[a-f0-9]{64}$/);
     expect(Array.isArray(capturedInput!.dkg_evidence)).toBe(true);
   });
@@ -1027,8 +1033,8 @@ describe('WorkSubmission bridge on complete', () => {
 
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent());
 
@@ -1048,13 +1054,13 @@ describe('WorkSubmission bridge on complete', () => {
 
     const { app } = buildApp({
       submitWork: failingSubmitWork,
-      signerAddress: '0xSigner',
+      signerAddress: ADDR_SIGNER,
     });
 
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent());
 
@@ -1075,13 +1081,13 @@ describe('WorkSubmission bridge on complete', () => {
 
     const { app } = buildApp({
       submitWork: mockSubmitWork,
-      signerAddress: '0xSigner',
+      signerAddress: ADDR_SIGNER,
     });
 
     await req(app, 'POST', '/v1/sessions', {
       session_id: 's1',
-      studio_address: '0xS',
-      agent_address: '0xA',
+      studio_address: ADDR_STUDIO,
+      agent_address: ADDR_AGENT,
     });
     await req(app, 'POST', '/v1/sessions/s1/events', makeEvent());
 
