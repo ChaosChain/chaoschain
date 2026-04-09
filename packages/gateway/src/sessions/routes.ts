@@ -476,10 +476,17 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         });
         return;
       }
-      if (!isNonEmptyString(body.agent_address)) {
+      if (
+        !isNonEmptyString(body.agent_address) ||
+        !body.agent_address.startsWith('0x') ||
+        body.agent_address.length !== 42
+      ) {
         res.status(400).json({
           version: API_VERSION,
-          error: { code: 'INVALID_INPUT', message: 'agent_address is required' },
+          error: {
+            code: 'INVALID_INPUT',
+            message: 'agent_address must be a 0x-prefixed 20-byte hex string (42 chars)',
+          },
         });
         return;
       }

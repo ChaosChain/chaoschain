@@ -286,9 +286,12 @@ export class WorkDataReader {
         break;
     }
 
-    console.log(
-      `[WorkDataReader] studio=${addr} status=${status} matched=${result.total} returned=${result.records.length} limit=${limit} offset=${offset}`,
-    );
+    // Only log when there is work — the verifier polls constantly; matched=0 would spam deploy logs.
+    if (result.total > 0) {
+      console.log(
+        `[WorkDataReader] studio=${addr} status=${status} matched=${result.total} returned=${result.records.length} limit=${limit} offset=${offset}`,
+      );
+    }
 
     const work: PendingWorkItem[] = [];
     for (const record of result.records) {
