@@ -111,6 +111,7 @@ class MockQuerySource implements WorkflowQuerySource {
   async findPendingWorkForStudio() { return { records: [], total: 0 }; }
   async findAllWorkForStudio() { return { records: [], total: 0 }; }
   async findScoresForDataHash() { return []; }
+  async findScoresForStudio() { return { records: [], total: 0 }; }
 }
 
 function makeWorkRecord(overrides?: {

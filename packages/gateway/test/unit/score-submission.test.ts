@@ -836,6 +836,75 @@ describe('E. ScoreSubmission Direct Mode (MVP)', () => {
     expect(finalWorkflow?.state).toBe('COMPLETED');
     expect(finalWorkflow?.progress.score_confirmed).toBe(true);
   });
+
+  // ---------------------------------------------------------------------
+  // Cross-workflow idempotency (fixes the 2026-04-11 duplicate-scoring
+  // incident). Two verifier instances racing on the same pending work
+  // item must not both persist a COMPLETED ScoreSubmission for the same
+  // data_hash — the first winner is canonical, the second no-ops with
+  // duplicate_skipped=true on its progress.
+  // ---------------------------------------------------------------------
+
+  it('second SUBMIT_SCORE_DIRECT for same data_hash is skipped as duplicate', async () => {
+    const inputA = createTestInput('direct');
+    const workflowA = createScoreSubmissionWorkflow(inputA);
+
+    // Use distinct validator addresses to mimic two verifier instances
+    // sharing the same signer key (the real zombie-replica incident).
+    const inputB: ScoreSubmissionInput = {
+      ...inputA,
+      validator_address: '0xOtherValidator',
+    };
+    const workflowB = createScoreSubmissionWorkflow(inputB);
+
+    await persistence.create(workflowA);
+    await engine.startWorkflow(workflowA.id);
+
+    const savedA = await persistence.load(workflowA.id);
+    expect(savedA?.state).toBe('COMPLETED');
+    expect(savedA?.progress.score_confirmed).toBe(true);
+    expect(savedA?.progress.duplicate_skipped).toBeUndefined();
+
+    // Second workflow lands after A has reached COMPLETED (the common
+    // serialised case — the race-in-the-same-ms case is covered by the
+    // partial unique index migration).
+    await persistence.create(workflowB);
+    await engine.startWorkflow(workflowB.id);
+
+    const savedB = await persistence.load(workflowB.id);
+    expect(savedB?.state).toBe('COMPLETED');
+    expect(savedB?.progress.score_confirmed).toBe(true);
+    expect(savedB?.progress.duplicate_skipped).toBe(true);
+    expect(savedB?.progress.settlement).toBe('off-chain');
+  });
+
+  it('duplicate check only fires for workflows already COMPLETED', async () => {
+    // A CREATED-but-not-COMPLETED sibling must NOT block a new workflow
+    // from advancing. The partial unique index filter `state =
+    // 'COMPLETED'` + the application-level check
+    // `hasCompletedScoreForDataHash` both agree: only COMPLETED rows
+    // count as duplicates.
+    const inputA = createTestInput('direct');
+    const workflowA = createScoreSubmissionWorkflow(inputA);
+    // Place workflowA in CREATED/RUNNING state without completing it.
+    await persistence.create(workflowA);
+    // Note: we intentionally do NOT start workflowA, so no COMPLETED row
+    // exists for its data_hash yet.
+
+    const inputB: ScoreSubmissionInput = {
+      ...inputA,
+      validator_address: '0xSecondValidator',
+    };
+    const workflowB = createScoreSubmissionWorkflow(inputB);
+    await persistence.create(workflowB);
+    await engine.startWorkflow(workflowB.id);
+
+    const savedB = await persistence.load(workflowB.id);
+    expect(savedB?.state).toBe('COMPLETED');
+    expect(savedB?.progress.score_confirmed).toBe(true);
+    // workflowB was the first to reach COMPLETED, so it is canonical.
+    expect(savedB?.progress.duplicate_skipped).toBeUndefined();
+  });
 });
 
 // =============================================================================
