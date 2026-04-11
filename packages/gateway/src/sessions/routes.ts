@@ -8,6 +8,7 @@
  * GET  /v1/sessions/:id/context  — Verifier scoring context (lightweight)
  * GET  /v1/sessions/:id/viewer   — Self-contained HTML evidence viewer
  * GET  /v1/sessions/:id/evidence — Full Evidence DAG
+ * GET  /v1/sessions/:id/scores   — Score vector + verifier rationale
  * GET  /v1/agents/leaderboard    — Per-agent score aggregation from ScoreSubmission workflows
  */
 
@@ -28,6 +29,7 @@ import type {
   CompareResponse,
 } from './types.js';
 import { CANONICAL_EVENT_TYPES as EVENT_TYPES } from './types.js';
+import type { ScoreSubmissionInput } from '../workflows/types.js';
 
 // =============================================================================
 // Policy & mandate resolution (re-used from public-api pattern)
@@ -903,6 +905,70 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
         return;
       }
       throw err;
+    }
+  });
+
+  // =========================================================================
+  // GET /v1/sessions/:id/scores — score vector + verifier rationale
+  // =========================================================================
+
+  router.get('/v1/sessions/:id/scores', async (req: Request, res: Response) => {
+    try {
+      const sessionId = req.params.id;
+
+      if (!config.pool) {
+        res.status(503).json({
+          version: API_VERSION,
+          error: { code: 'SERVICE_UNAVAILABLE', message: 'Database not configured' },
+        });
+        return;
+      }
+
+      const result = await config.pool.query(
+        `SELECT w.input AS score_input
+         FROM sessions s
+         JOIN workflows w
+           ON LOWER(w.input->>'data_hash') = LOWER(s.data_hash)
+         WHERE s.session_id = $1
+           AND w.type = 'ScoreSubmission'
+           AND w.state = 'COMPLETED'
+         ORDER BY w.created_at DESC
+         LIMIT 1`,
+        [sessionId],
+      );
+
+      if (!result.rows.length) {
+        res.status(404).json({
+          version: API_VERSION,
+          error: { code: 'SCORE_NOT_FOUND', message: 'No completed score found for this session' },
+        });
+        return;
+      }
+
+      const scoreInput = result.rows[0].score_input as ScoreSubmissionInput;
+      const raw = scoreInput.scores ?? [];
+      const maxVal = Math.max(...raw, 0);
+      const norm = (v: number) => maxVal > 100 ? Math.round(v / 100) : Math.round(v);
+
+      res.json({
+        version: API_VERSION,
+        data: {
+          session_id: sessionId,
+          scores: {
+            initiative: norm(raw[0] ?? 0),
+            collaboration: norm(raw[1] ?? 0),
+            reasoning: norm(raw[2] ?? 0),
+            compliance: norm(raw[3] ?? 0),
+            efficiency: norm(raw[4] ?? 0),
+          },
+          rationale: scoreInput.rationale ?? null,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({
+        version: API_VERSION,
+        error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
+      });
     }
   });
 

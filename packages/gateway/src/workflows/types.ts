@@ -188,6 +188,14 @@ export interface ScoreSubmissionInput {
   worker_address?: string;     // Required for direct mode - which worker is being scored
   mode?: ScoreSubmissionMode;  // "direct" (default) or "commit_reveal"
   admin_signer_address?: string; // Owner signer for registerValidator (onlyOwner on RewardsDistributor)
+  rationale?: {
+    initiative?: string;
+    collaboration?: string;
+    reasoning?: string;
+    compliance?: string;
+    efficiency?: string;
+    anomalies?: string;
+  };
 }
 
 // =============================================================================

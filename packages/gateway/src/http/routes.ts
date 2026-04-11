@@ -41,6 +41,14 @@ interface CreateScoreSubmissionRequest {
   worker_address?: string;  // Required for direct mode - the worker being scored
   mode?: 'direct' | 'commit_reveal';  // Default: "direct"
   admin_signer_address?: string; // Owner signer for registerValidator (onlyOwner)
+  rationale?: {
+    initiative?: string;
+    collaboration?: string;
+    reasoning?: string;
+    compliance?: string;
+    efficiency?: string;
+    anomalies?: string;
+  };
 }
 
 interface CreateCloseEpochRequest {
@@ -271,6 +279,17 @@ export function createRoutes(
           input.admin_signer_address = validateAddress(body.admin_signer_address, 'admin_signer_address');
         } else if (primarySignerAddress) {
           input.admin_signer_address = primarySignerAddress;
+        }
+
+        if (body.rationale && typeof body.rationale === 'object') {
+          input.rationale = {
+            initiative:    typeof body.rationale.initiative    === 'string' ? body.rationale.initiative    : undefined,
+            collaboration: typeof body.rationale.collaboration === 'string' ? body.rationale.collaboration : undefined,
+            reasoning:     typeof body.rationale.reasoning     === 'string' ? body.rationale.reasoning     : undefined,
+            compliance:    typeof body.rationale.compliance    === 'string' ? body.rationale.compliance    : undefined,
+            efficiency:    typeof body.rationale.efficiency    === 'string' ? body.rationale.efficiency    : undefined,
+            anomalies:     typeof body.rationale.anomalies     === 'string' ? body.rationale.anomalies     : undefined,
+          };
         }
 
         // Create workflow record
