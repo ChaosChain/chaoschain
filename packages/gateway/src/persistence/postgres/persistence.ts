@@ -129,6 +129,38 @@ DO $$ BEGIN
 END $$;
 `;
 
+// Migration V5: cross-workflow ScoreSubmission idempotency.
+//
+// Background: without this constraint, multiple verifier instances polling
+// the gateway's pending queue can both discover the same work item and both
+// persist separate ScoreSubmission workflows that each reach COMPLETED for
+// the same data_hash. The compare-page leaderboard AVGs across all COMPLETED
+// ScoreSubmission rows per agent, so duplicate rows directly pollute the
+// canonical per-agent scores that drive the product's core comparison
+// signal. The zombie-Railway-replica incident on 2026-04-11 demonstrated
+// this in production (17 score submissions for 12 unique data_hashes, all
+// with identical deterministic score dims 0-2 but diverging LLM-dependent
+// dims 3-4 — unambiguous evidence of two independent verifier runs).
+//
+// The partial unique index filters on ``state = 'COMPLETED'`` so that
+// CREATED/RUNNING/STALLED/FAILED rows can coexist freely for the same
+// data_hash — only the transition _into_ COMPLETED is serialised, which is
+// exactly where duplication matters. This layer catches the TOCTOU race
+// between SubmitScoreDirectStep's application-level check and its progress
+// append; on violation the workflow step handler converts pg error 23505
+// into a no-op success ("first winner is canonical").
+const MIGRATION_V5_SQL = `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version = 5) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_score_submission_data_hash_completed
+      ON workflows ((input->>'data_hash'))
+      WHERE type = 'ScoreSubmission' AND state = 'COMPLETED';
+
+    INSERT INTO schema_migrations (version) VALUES (5);
+  END IF;
+END $$;
+`;
+
 /**
  * Ensure the database schema exists. Idempotent — safe to call on every startup.
  * Uses CREATE TABLE IF NOT EXISTS so it's a no-op on an already-initialized DB.
@@ -138,6 +170,7 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(MIGRATION_V2_SQL);
   await pool.query(MIGRATION_V3_SQL);
   await pool.query(MIGRATION_V4_SQL);
+  await pool.query(MIGRATION_V5_SQL);
 }
 
 // =============================================================================
@@ -608,6 +641,53 @@ export class PostgresWorkflowPersistence implements WorkflowPersistence {
     `;
     const result = await this.pool.query(query, [dataHash]);
     return result.rows.map((row) => this.rowToRecord(row));
+  }
+
+  async findScoresForStudio(
+    studioAddress: string,
+    filter: { workerAddress?: string; validatorAddress?: string },
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const conditions: string[] = [
+      `type = 'ScoreSubmission'`,
+      `state = 'COMPLETED'`,
+      `LOWER(input->>'studio_address') = LOWER($1)`,
+    ];
+    const values: unknown[] = [studioAddress];
+
+    if (filter.workerAddress) {
+      values.push(filter.workerAddress);
+      conditions.push(`LOWER(input->>'worker_address') = LOWER($${values.length})`);
+    }
+    if (filter.validatorAddress) {
+      values.push(filter.validatorAddress);
+      conditions.push(`LOWER(input->>'validator_address') = LOWER($${values.length})`);
+    }
+
+    const where = conditions.join(' AND ');
+
+    const countResult = await this.pool.query(
+      `SELECT COUNT(*) AS count FROM workflows WHERE ${where}`,
+      values,
+    );
+    const total = Number(countResult.rows[0]?.count ?? 0);
+
+    values.push(limit, offset);
+    const limitIdx = values.length - 1;
+    const offsetIdx = values.length;
+
+    const query = `
+      SELECT id, type, created_at, updated_at,
+             state, step, step_attempts,
+             input, progress, error, signer
+      FROM workflows
+      WHERE ${where}
+      ORDER BY created_at DESC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `;
+    const result = await this.pool.query(query, values);
+    return { records: result.rows.map((row) => this.rowToRecord(row)), total };
   }
 
   // ===========================================================================

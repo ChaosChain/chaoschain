@@ -542,6 +542,101 @@ export function createPublicApiRoutes(config: PublicApiConfig): Router {
   );
 
   // =========================================================================
+  // GET /v1/studio/:address/scores (gated — requires API key)
+  //
+  // Canonical per-work score vectors for every completed ScoreSubmission
+  // in this studio, optionally filtered by worker_address or
+  // validator_address. This is the cross-verifier view: scores from
+  // every verifier that has submitted for the studio, not only those
+  // known to any single agent-server instance.
+  //
+  // Primary consumer: agent-server /v1/verify/results, which reads this
+  // endpoint and merges its local ReAct rationale onto the canonical
+  // rows for the compare dashboard.
+  // =========================================================================
+
+  router.get(
+    '/v1/studio/:address/scores',
+    requireEvidenceKey,
+    async (req: Request, res: Response) => {
+      const address = req.params.address;
+
+      if (!address || !address.startsWith('0x') || address.length !== 42) {
+        res.status(400).json({
+          version: API_VERSION,
+          error: {
+            code: 'INVALID_STUDIO_ADDRESS',
+            message: 'Studio address must be a 0x-prefixed 20-byte hex string (42 chars)',
+          },
+        });
+        return;
+      }
+
+      if (!workDataReader) {
+        res.status(503).json({
+          version: API_VERSION,
+          error: {
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'Work data service not configured',
+          },
+        });
+        return;
+      }
+
+      const isHexAddr = (v: unknown): v is string =>
+        typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v);
+
+      const rawWorker = req.query.worker_address;
+      if (rawWorker !== undefined && !isHexAddr(rawWorker)) {
+        res.status(400).json({
+          version: API_VERSION,
+          error: {
+            code: 'INVALID_WORKER_ADDRESS',
+            message: 'worker_address must be a 0x-prefixed 20-byte hex string (42 chars)',
+          },
+        });
+        return;
+      }
+      const rawValidator = req.query.validator_address;
+      if (rawValidator !== undefined && !isHexAddr(rawValidator)) {
+        res.status(400).json({
+          version: API_VERSION,
+          error: {
+            code: 'INVALID_VALIDATOR_ADDRESS',
+            message: 'validator_address must be a 0x-prefixed 20-byte hex string (42 chars)',
+          },
+        });
+        return;
+      }
+
+      const limit = Math.min(Math.max(1, Number(req.query.limit) || 100), 500);
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+
+      try {
+        const data = await workDataReader.getStudioScores(
+          address,
+          {
+            workerAddress: rawWorker as string | undefined,
+            validatorAddress: rawValidator as string | undefined,
+          },
+          limit,
+          offset,
+        );
+        res.json({ version: API_VERSION, data });
+      } catch (err) {
+        console.error(`[studio-scores] studio=${address} error:`, err);
+        res.status(500).json({
+          version: API_VERSION,
+          error: {
+            code: 'INTERNAL_ERROR',
+            message: 'An unexpected error occurred',
+          },
+        });
+      }
+    },
+  );
+
+  // =========================================================================
   // GET /v1/skills — skill discovery (public, no auth)
   // =========================================================================
 

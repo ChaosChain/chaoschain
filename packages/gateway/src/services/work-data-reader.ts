@@ -139,6 +139,30 @@ export interface WorkflowQuerySource {
   findFinalizedWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
   findAllWorkForStudio(studioAddress: string, limit: number, offset: number): Promise<{ records: WorkflowRecord[]; total: number }>;
   findScoresForDataHash(dataHash: string): Promise<WorkflowRecord[]>;
+  findScoresForStudio(
+    studioAddress: string,
+    filter: { workerAddress?: string; validatorAddress?: string },
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }>;
+}
+
+export interface StudioScoreRecord {
+  data_hash: string;
+  studio_address: string;
+  worker_address: string;
+  validator_address: string;
+  scores_bp: number[];
+  submitted_at: string;
+  workflow_id: string;
+}
+
+export interface StudioScoresResult {
+  studio: string;
+  scores: StudioScoreRecord[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 // =============================================================================
@@ -419,6 +443,60 @@ export class WorkDataReader {
     entries.sort((a, b) => b.submissions - a.submissions);
 
     return { studio: studioAddress, entries, total: entries.length };
+  }
+
+  /**
+   * Return canonical per-work scores for a studio — every completed
+   * ScoreSubmission for this studio, optionally filtered by worker or
+   * validator address, in submitted-at-descending order.
+   *
+   * This is the cross-verifier canonical view: it surfaces scores from
+   * every verifier that has ever submitted for the studio, not just the
+   * one verifier instance a given agent-server is aware of locally. The
+   * agent-server's /v1/verify/results endpoint reads this view and merges
+   * its local rationale onto the canonical rows for the compare-page
+   * dashboard.
+   */
+  async getStudioScores(
+    studioAddress: string,
+    filter: { workerAddress?: string; validatorAddress?: string },
+    limit: number,
+    offset: number,
+  ): Promise<StudioScoresResult> {
+    const addr = studioAddress.toLowerCase();
+    const { records, total } = await this.querySource.findScoresForStudio(
+      addr, filter, limit, offset,
+    );
+
+    const scores: StudioScoreRecord[] = [];
+    for (const record of records) {
+      const input = record.input as ScoreSubmissionInput;
+      if (!Array.isArray(input.scores) || input.scores.length === 0) continue;
+
+      // worker_address is optional on ScoreSubmissionInput (direct-mode
+      // resolves it at runtime from the matching WorkSubmission). Prefer
+      // the resolved value from progress; fall back to the input value;
+      // default to empty string if neither is available (downstream
+      // clients treat empty worker_address as "unknown").
+      const progress = record.progress as Record<string, unknown>;
+      const resolvedWorker = progress.resolved_worker_address;
+      const workerAddress =
+        (typeof resolvedWorker === 'string' && resolvedWorker) ||
+        input.worker_address ||
+        '';
+
+      scores.push({
+        data_hash: input.data_hash,
+        studio_address: input.studio_address,
+        worker_address: workerAddress,
+        validator_address: input.validator_address,
+        scores_bp: input.scores as number[],
+        submitted_at: new Date(record.updated_at).toISOString(),
+        workflow_id: record.id,
+      });
+    }
+
+    return { studio: studioAddress, scores, total, limit, offset };
   }
 
   async getEvidenceViewer(dataHash: string): Promise<EvidenceViewerData | null> {

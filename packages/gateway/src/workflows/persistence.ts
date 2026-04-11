@@ -70,6 +70,34 @@ export interface WorkflowPersistence {
    * Used by ScoreSubmission to resolve the on-chain worker address.
    */
   findWorkByDataHash(dataHash: string): Promise<WorkflowRecord | null>;
+
+  /**
+   * Check whether any ScoreSubmission workflow has already reached
+   * COMPLETED for the given data_hash.
+   *
+   * Used by SubmitScoreDirectStep as a cross-workflow idempotency
+   * guard: multiple verifier instances can race on the same pending
+   * work item during the window between discovery and submission, and
+   * without this check both would persist duplicate score rows — which
+   * then pollute the compare-page leaderboard averages.
+   */
+  hasCompletedScoreForDataHash(dataHash: string): Promise<boolean>;
+
+  /**
+   * List completed ScoreSubmission workflows for a studio, optionally
+   * filtered by validator_address OR worker_address.
+   *
+   * Used by the public /v1/studio/:addr/scores endpoint so that
+   * downstream consumers (the compare dashboard, agent-server's
+   * /v1/verify/results merge) can see every canonical score for a
+   * studio regardless of which verifier instance produced it.
+   */
+  findScoresForStudio(
+    studioAddress: string,
+    filter: { workerAddress?: string; validatorAddress?: string },
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }>;
 }
 
 // =============================================================================
@@ -295,6 +323,32 @@ export class InMemoryWorkflowPersistence implements WorkflowPersistence {
       if (input.data_hash === dataHash) results.push(structuredClone(record));
     }
     return results;
+  }
+
+  async findScoresForStudio(
+    studioAddress: string,
+    filter: { workerAddress?: string; validatorAddress?: string },
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const studio = studioAddress.toLowerCase();
+    const worker = filter.workerAddress?.toLowerCase();
+    const validator = filter.validatorAddress?.toLowerCase();
+
+    const matching: WorkflowRecord[] = [];
+    for (const record of this.workflows.values()) {
+      if (record.type !== 'ScoreSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.studio_address as string)?.toLowerCase() !== studio) continue;
+      if (worker && (input.worker_address as string)?.toLowerCase() !== worker) continue;
+      if (validator && (input.validator_address as string)?.toLowerCase() !== validator) continue;
+      matching.push(record);
+    }
+
+    matching.sort((a, b) => b.created_at - a.created_at);
+    const total = matching.length;
+    const sliced = matching.slice(offset, offset + limit).map(r => structuredClone(r));
+    return { records: sliced, total };
   }
 
   // For testing: clear all data
