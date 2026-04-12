@@ -235,7 +235,7 @@ describe('rateLimit middleware', () => {
   });
 
   it('public endpoints accessible within limit', async () => {
-    limiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 60 });
+    limiter = new InMemoryRateLimiter({ windowMs: 60_000, maxRequests: 100 });
 
     const app = express();
     app.use(rateLimit(limiter));

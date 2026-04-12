@@ -701,15 +701,14 @@ version bump.
 
 ## Rate Limiting
 
-Phase A endpoints are public and read-only. Rate limits will be applied per IP:
+The gateway applies in-memory sliding-window limits per IP (see `packages/gateway/src/app.ts`).
 
-| Tier | Limit |
-|------|-------|
-| Anonymous | 60 requests / minute |
-| API key (future) | 600 requests / minute |
+| Traffic | Limit |
+|---------|-------|
+| Read (e.g. `GET /v1/*`, static `/skills`) | 100 requests / minute |
+| Write (`POST /workflows/*`, session mutations under `/v1/sessions`) | 30 requests / minute |
 
-Rate-limited responses return `429 Too Many Requests` with a `Retry-After`
-header.
+Rate-limited responses return `429 Too Many Requests`. A higher tier keyed by API key may be introduced later; until then, these limits apply regardless of `x-api-key`.
 
 ---
 
