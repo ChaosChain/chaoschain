@@ -185,7 +185,31 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
   async execute(workflow: ScoreSubmissionRecord): Promise<StepResult> {
     const { input, progress } = workflow;
 
+    // Per-workflow re-entrancy guard (e.g. after crash/restart).
     if (progress.score_confirmed) {
+      return { type: 'SUCCESS', nextStep: null };
+    }
+
+    // Cross-workflow idempotency guard. Multiple verifier instances can
+    // race on the same pending work item during the window between
+    // discovery and submission — without this check both would persist
+    // separate ScoreSubmission workflows for the same data_hash, which
+    // then inflates leaderboard averages (queryLeaderboardRows AVGs
+    // across all COMPLETED rows) and breaks compare-page canonical
+    // scoring. The first winner is canonical; later workflows for the
+    // same data_hash no-op into a success so the caller doesn't see a
+    // retry loop or error.
+    if (await this.persistence.hasCompletedScoreForDataHash(input.data_hash)) {
+      console.log(
+        `[SUBMIT_SCORE_DIRECT] duplicate skipped: data_hash=${input.data_hash} ` +
+        `already has a completed score (workflow=${workflow.id}, validator=${input.validator_address})`,
+      );
+      await this.persistence.appendProgress(workflow.id, {
+        score_confirmed: true,
+        score_confirmed_at: Date.now(),
+        settlement: 'off-chain',
+        duplicate_skipped: true,
+      });
       return { type: 'SUCCESS', nextStep: null };
     }
 
@@ -221,17 +245,63 @@ export class SubmitScoreDirectStep implements StepExecutor<ScoreSubmissionRecord
       `[SUBMIT_SCORE_DIRECT] off-chain score persisted: data_hash=${input.data_hash} worker=${resolvedWorkerAddress} scores=[${input.scores.join(',')}] validator=${input.validator_address}`,
     );
 
-    await this.persistence.appendProgress(workflow.id, {
-      score_confirmed: true,
-      score_confirmed_at: Date.now(),
-      resolved_worker_address: resolvedWorkerAddress,
-      settlement: 'off-chain',
-    });
+    try {
+      await this.persistence.appendProgress(workflow.id, {
+        score_confirmed: true,
+        score_confirmed_at: Date.now(),
+        resolved_worker_address: resolvedWorkerAddress,
+        settlement: 'off-chain',
+      });
+    } catch (err) {
+      // DB-level defence-in-depth: the partial unique index on
+      // (input->>'data_hash') WHERE type='ScoreSubmission' AND
+      // state='COMPLETED' (see migrations/002_score_dedup.sql) closes
+      // the TOCTOU window that the check above leaves open. If two
+      // workflows both pass the cross-workflow idempotency check in
+      // the same millisecond, whichever transitions to COMPLETED
+      // second will trip pg error 23505. Treat it the same as the
+      // above: first winner is canonical, this workflow no-ops.
+      if (isDuplicateScoreViolation(err)) {
+        console.log(
+          `[SUBMIT_SCORE_DIRECT] TOCTOU duplicate detected via unique index: ` +
+          `data_hash=${input.data_hash} workflow=${workflow.id}`,
+        );
+        return { type: 'SUCCESS', nextStep: null };
+      }
+      throw err;
+    }
 
     console.log(`[SUBMIT_SCORE_DIRECT] workflow ${workflow.id} marked COMPLETED (off-chain)`);
 
     return { type: 'SUCCESS', nextStep: null };
   }
+}
+
+/**
+ * Detect the Postgres unique-violation (23505) thrown by the
+ * ``idx_score_submission_data_hash_completed`` partial unique index.
+ * The exact constraint name lives in migrations/002_score_dedup.sql.
+ *
+ * Accepts any throwable (including wrapped errors from the pg driver)
+ * and returns true only for this specific constraint — other unique
+ * violations (e.g. on ``workflows.id``) should propagate.
+ */
+function isDuplicateScoreViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const candidate = err as {
+    code?: string;
+    constraint?: string;
+    cause?: unknown;
+  };
+  if (candidate.code === '23505') {
+    if (!candidate.constraint) return true;
+    return candidate.constraint === 'idx_score_submission_data_hash_completed';
+  }
+  // Some drivers wrap the pg error — peek one level deeper.
+  if (candidate.cause && typeof candidate.cause === 'object') {
+    return isDuplicateScoreViolation(candidate.cause);
+  }
+  return false;
 }
 
 /**

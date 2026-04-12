@@ -62,6 +62,7 @@ function createMockQuerySource(overrides: Partial<WorkflowQuerySource> = {}): Wo
     findFinalizedWorkForStudio: vi.fn().mockResolvedValue({ records: [], total: 0 }),
     findAllWorkForStudio: vi.fn().mockResolvedValue({ records: [], total: 0 }),
     findScoresForDataHash: vi.fn().mockResolvedValue([]),
+    findScoresForStudio: vi.fn().mockResolvedValue({ records: [], total: 0 }),
     ...overrides,
   };
 }

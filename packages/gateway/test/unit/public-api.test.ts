@@ -64,6 +64,19 @@ class MockWorkflowQuerySource implements WorkflowQuerySource {
     this.scores.add(dataHash);
   }
 
+  /**
+   * Insert a full ScoreSubmission WorkflowRecord into the store so
+   * that findScoresForStudio / findScoresForDataHash can surface it.
+   * Used for /v1/studio/:addr/scores coverage.
+   */
+  addScoreWorkflow(record: WorkflowRecord): void {
+    this.allRecords.push(record);
+    const dataHash = (record.input as Record<string, unknown>).data_hash as string;
+    if (dataHash && record.state === 'COMPLETED') {
+      this.scores.add(dataHash);
+    }
+  }
+
   addClosedEpoch(studio: string, epoch: number): void {
     this.closedEpochs.add(`${studio}:${epoch}`);
   }
@@ -158,6 +171,29 @@ class MockWorkflowQuerySource implements WorkflowQuerySource {
       if (input.data_hash === dataHash) results.push(record);
     }
     return results;
+  }
+
+  async findScoresForStudio(
+    studioAddress: string,
+    filter: { workerAddress?: string; validatorAddress?: string },
+    limit: number,
+    offset: number,
+  ): Promise<{ records: WorkflowRecord[]; total: number }> {
+    const studio = studioAddress.toLowerCase();
+    const worker = filter.workerAddress?.toLowerCase();
+    const validator = filter.validatorAddress?.toLowerCase();
+
+    const matching: WorkflowRecord[] = [];
+    for (const record of this.allRecords) {
+      if (record.type !== 'ScoreSubmission' || record.state !== 'COMPLETED') continue;
+      const input = record.input as Record<string, unknown>;
+      if ((input.studio_address as string)?.toLowerCase() !== studio) continue;
+      if (worker && (input.worker_address as string)?.toLowerCase() !== worker) continue;
+      if (validator && (input.validator_address as string)?.toLowerCase() !== validator) continue;
+      matching.push(record);
+    }
+    matching.sort((a, b) => b.created_at - a.created_at);
+    return { records: matching.slice(offset, offset + limit), total: matching.length };
   }
 }
 
@@ -1297,6 +1333,193 @@ describe('Public API — GET /v1/studio/:address/work', () => {
     const work = data.work as unknown[];
     expect(work.length).toBe(0);
     expect(data.total).toBe(0);
+  });
+});
+
+// =============================================================================
+// Tests — GET /v1/studio/:address/scores (cross-verifier canonical view)
+// =============================================================================
+
+describe('Public API — GET /v1/studio/:address/scores', () => {
+  const STUDIO = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
+  const WORKER_A = '0x' + 'aa'.repeat(20);
+  const WORKER_B = '0x' + 'bb'.repeat(20);
+  const VALIDATOR = '0xf81043d7866F5a90836a65E6ea37d38a38716F69';
+
+  function makeStudioScoreRecord(
+    id: string,
+    dataHash: string,
+    workerAddress: string,
+    scoresBp: number[],
+    updatedAt: number,
+  ): WorkflowRecord {
+    return {
+      id,
+      type: 'ScoreSubmission',
+      state: 'COMPLETED',
+      step: 'DONE',
+      step_attempts: 0,
+      created_at: updatedAt,
+      updated_at: updatedAt,
+      input: {
+        studio_address: STUDIO,
+        epoch: 1,
+        validator_address: VALIDATOR,
+        data_hash: dataHash,
+        scores: scoresBp,
+        salt: '0x' + '00'.repeat(32),
+        signer_address: VALIDATOR,
+        worker_address: workerAddress,
+        mode: 'direct',
+      },
+      progress: {
+        score_confirmed: true,
+        resolved_worker_address: workerAddress,
+        settlement: 'off-chain',
+      },
+      signer: VALIDATOR,
+    };
+  }
+
+  it('returns canonical scores for a studio with API key', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addScoreWorkflow(makeStudioScoreRecord(
+      'wf-score-1', '0x' + '1'.repeat(64), WORKER_A,
+      [7000, 0, 699, 3000, 2500], 1700000000000,
+    ));
+    qs.addScoreWorkflow(makeStudioScoreRecord(
+      'wf-score-2', '0x' + '2'.repeat(64), WORKER_B,
+      [5249, 2500, 875, 3000, 2500], 1700001000000,
+    ));
+    const workDataReader = new WorkDataReader(qs);
+    const apiKeys = new Set(['test-key']);
+    const app = buildApp(reader, workDataReader, apiKeys);
+
+    const { status, body } = await get(
+      app,
+      `/v1/studio/${STUDIO}/scores`,
+      { 'x-api-key': 'test-key' },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.studio).toBe(STUDIO);
+    expect(data.total).toBe(2);
+    const scores = data.scores as Array<Record<string, unknown>>;
+    expect(scores).toHaveLength(2);
+
+    // Newer row first (DESC by updated_at).
+    expect(scores[0].workflow_id).toBe('wf-score-2');
+    expect(scores[0].worker_address).toBe(WORKER_B);
+    expect(scores[0].validator_address).toBe(VALIDATOR);
+    expect(scores[0].scores_bp).toEqual([5249, 2500, 875, 3000, 2500]);
+
+    expect(scores[1].workflow_id).toBe('wf-score-1');
+    expect(scores[1].worker_address).toBe(WORKER_A);
+  });
+
+  it('filters by worker_address', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    qs.addScoreWorkflow(makeStudioScoreRecord(
+      'wf-score-a', '0x' + '1'.repeat(64), WORKER_A,
+      [7000, 0, 699, 3000, 2500], 1700000000000,
+    ));
+    qs.addScoreWorkflow(makeStudioScoreRecord(
+      'wf-score-b', '0x' + '2'.repeat(64), WORKER_B,
+      [5249, 2500, 875, 3000, 2500], 1700001000000,
+    ));
+    const workDataReader = new WorkDataReader(qs);
+    const apiKeys = new Set(['test-key']);
+    const app = buildApp(reader, workDataReader, apiKeys);
+
+    const { status, body } = await get(
+      app,
+      `/v1/studio/${STUDIO}/scores?worker_address=${WORKER_A}`,
+      { 'x-api-key': 'test-key' },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    expect(data.total).toBe(1);
+    const scores = data.scores as Array<Record<string, unknown>>;
+    expect(scores).toHaveLength(1);
+    expect(scores[0].worker_address).toBe(WORKER_A);
+  });
+
+  it('returns 400 for invalid studio address', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const apiKeys = new Set(['test-key']);
+    const app = buildApp(reader, workDataReader, apiKeys);
+
+    const { status, body } = await get(
+      app,
+      '/v1/studio/not-an-address/scores',
+      { 'x-api-key': 'test-key' },
+    );
+
+    expect(status).toBe(400);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('INVALID_STUDIO_ADDRESS');
+  });
+
+  it('returns 400 for malformed worker_address filter', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const apiKeys = new Set(['test-key']);
+    const app = buildApp(reader, workDataReader, apiKeys);
+
+    const { status, body } = await get(
+      app,
+      `/v1/studio/${STUDIO}/scores?worker_address=not-hex`,
+      { 'x-api-key': 'test-key' },
+    );
+
+    expect(status).toBe(400);
+    const error = body.error as Record<string, unknown>;
+    expect(error.code).toBe('INVALID_WORKER_ADDRESS');
+  });
+
+  it('returns 401 without API key', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    const workDataReader = new WorkDataReader(qs);
+    const apiKeys = new Set(['test-key']);
+    const app = buildApp(reader, workDataReader, apiKeys);
+
+    const { status } = await get(app, `/v1/studio/${STUDIO}/scores`);
+    expect(status).toBe(401);
+  });
+
+  it('respects pagination limit', async () => {
+    const reader = new MockReputationReader();
+    const qs = new MockWorkflowQuerySource();
+    for (let i = 0; i < 5; i++) {
+      qs.addScoreWorkflow(makeStudioScoreRecord(
+        `wf-score-${i}`, '0x' + i.toString(16).padStart(64, '0'),
+        WORKER_A, [1000, 2000, 3000, 4000, 5000], 1700000000000 + i * 1000,
+      ));
+    }
+    const workDataReader = new WorkDataReader(qs);
+    const apiKeys = new Set(['test-key']);
+    const app = buildApp(reader, workDataReader, apiKeys);
+
+    const { status, body } = await get(
+      app,
+      `/v1/studio/${STUDIO}/scores?limit=2`,
+      { 'x-api-key': 'test-key' },
+    );
+
+    expect(status).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    const scores = data.scores as unknown[];
+    expect(scores.length).toBe(2);
+    expect(data.total).toBe(5);
+    expect(data.limit).toBe(2);
   });
 });
 
