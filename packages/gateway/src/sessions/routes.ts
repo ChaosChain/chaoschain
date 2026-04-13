@@ -98,6 +98,53 @@ const USE_CASE_MAP: Record<string, string> = {
   compliance: 'Production',
 };
 
+// =============================================================================
+// Compare API server-side cache
+// =============================================================================
+
+interface CompareCacheEntry {
+  data: CompareResponse;
+  timestamp: number;
+}
+
+const compareCache = new Map<string, CompareCacheEntry>();
+const COMPARE_CACHE_TTL_MS = 30 * 1000; // 30 seconds, matches HTTP max-age
+
+function getCachedCompare(cacheKey: string): CompareResponse | null {
+  const cached = compareCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  const age = Date.now() - cached.timestamp;
+  if (age > COMPARE_CACHE_TTL_MS) {
+    // Cache expired, remove it
+    compareCache.delete(cacheKey);
+    console.log(`[Compare Cache EXPIRED] ${cacheKey}, age: ${(age / 1000).toFixed(1)}s`);
+    return null;
+  }
+
+  console.log(`[Compare Cache HIT] ${cacheKey}, age: ${(age / 1000).toFixed(1)}s`);
+  return cached.data;
+}
+
+function setCachedCompare(cacheKey: string, data: CompareResponse): void {
+  compareCache.set(cacheKey, {
+    data,
+    timestamp: Date.now(),
+  });
+
+  // Clean up expired entries (keep last 60 seconds)
+  const cutoff = Date.now() - (COMPARE_CACHE_TTL_MS * 2);
+  for (const [key, value] of compareCache.entries()) {
+    if (value.timestamp < cutoff) {
+      compareCache.delete(key);
+    }
+  }
+
+  console.log(`[Compare Cache SET] ${cacheKey}, total keys: ${compareCache.size}`);
+}
+
 const SPECIALIST_PRIORITY: string[] = ['reasoning', 'compliance', 'efficiency', 'collaboration'];
 const WEAKNESS_PRIORITY: string[] = ['compliance', 'reasoning', 'collaboration', 'efficiency'];
 const RISK_DIMENSIONS: string[] = ['reasoning', 'collaboration', 'compliance'];
@@ -995,22 +1042,39 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       return;
     }
 
-    if (!config.pool) {
-      res.set('Cache-Control', 'public, max-age=60');
-      res.json({
-        version: API_VERSION,
-        data: { scenario, default_choice: null, agents: [] },
-      });
+    const studioFilter = req.query.studio_address as string | undefined;
+
+    // Generate cache key
+    const cacheKey = `compare:${scenario}:${studioFilter || 'all'}`;
+
+    // Check cache
+    const cached = getCachedCompare(cacheKey);
+    if (cached) {
+      res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=180');
+      res.json({ version: API_VERSION, data: cached });
       return;
     }
 
-    const studioFilter = req.query.studio_address as string | undefined;
+    console.log(`[Compare Cache MISS] ${cacheKey}`);
+
+    if (!config.pool) {
+      const emptyData: CompareResponse = { scenario, default_choice: null, agents: [] };
+      res.set('Cache-Control', 'public, max-age=60');
+      res.json({
+        version: API_VERSION,
+        data: emptyData,
+      });
+      return;
+    }
 
     try {
       const rows = await queryLeaderboardRows(config.pool, studioFilter);
       const data = classifyAgents(rows, scenario as Scenario);
 
-      res.set('Cache-Control', 'public, max-age=60');
+      // Store in cache
+      setCachedCompare(cacheKey, data);
+
+      res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=180');
       res.json({ version: API_VERSION, data });
     } catch (err) {
       console.error('[compare] query failed:', err);
