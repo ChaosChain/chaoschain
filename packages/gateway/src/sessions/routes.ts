@@ -124,7 +124,7 @@ function getCachedCompare(cacheKey: string): CompareResponse | null {
     return null;
   }
 
-  console.log(`[Compare Cache HIT] ${cacheKey}, age: ${(age / 1000).toFixed(1)}s`);
+  console.debug(`[Compare Cache HIT] ${cacheKey}, age: ${(age / 1000).toFixed(1)}s`);
   return cached.data;
 }
 
@@ -1030,8 +1030,8 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       }
     }
 
-    const scenario = (req.query.scenario as string) || 'default';
-    if (!VALID_SCENARIOS.has(scenario as Scenario)) {
+    const scenarioParam = (req.query.scenario as string) || 'default';
+    if (!VALID_SCENARIOS.has(scenarioParam as Scenario)) {
       res.status(400).json({
         version: API_VERSION,
         error: {
@@ -1042,6 +1042,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
       return;
     }
 
+    const scenario = scenarioParam as Scenario;
     const studioFilter = req.query.studio_address as string | undefined;
 
     // Generate cache key
@@ -1059,7 +1060,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
 
     if (!config.pool) {
       const emptyData: CompareResponse = { scenario, default_choice: null, agents: [] };
-      res.set('Cache-Control', 'public, max-age=60');
+      res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=180');
       res.json({
         version: API_VERSION,
         data: emptyData,
@@ -1069,7 +1070,7 @@ export function createSessionRoutes(config: SessionApiConfig): Router {
 
     try {
       const rows = await queryLeaderboardRows(config.pool, studioFilter);
-      const data = classifyAgents(rows, scenario as Scenario);
+      const data = classifyAgents(rows, scenario);
 
       // Store in cache
       setCachedCompare(cacheKey, data);
