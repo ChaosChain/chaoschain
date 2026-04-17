@@ -29,7 +29,7 @@ from chaoschain_sdk.gateway_client import (
 )
 
 
-GATEWAY_URL = "http://localhost:3000"
+GATEWAY_URL = "http://localhost:39999"
 
 
 class TestGoldenPath:
@@ -127,8 +127,15 @@ class TestGoldenPath:
             epoch=1,
             agent_address="0x" + "22" * 20,
             data_hash="0x" + "ab" * 32,
-            thread_root="0x" + "cd" * 32,
-            evidence_root="0x" + "ef" * 32,
+            dkg_evidence=[{
+                "arweave_tx_id": "test-ev-1",
+                "author": "0x" + "22" * 20,
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x" + "cd" * 32,
+                "artifact_ids": [],
+                "signature": "0x" + "00" * 65,
+            }],
             evidence_content=b"test evidence content",
             signer_address="0x" + "22" * 20,
             on_progress=lambda s: progress_updates.append(s)
@@ -402,8 +409,15 @@ class TestBoundaryEnforcement:
             epoch=1,
             agent_address="0x" + "22" * 20,
             data_hash="0x" + "ab" * 32,
-            thread_root="0x" + "cd" * 32,
-            evidence_root="0x" + "ef" * 32,
+            dkg_evidence=[{
+                "arweave_tx_id": "test-ev-1",
+                "author": "0x" + "22" * 20,
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x" + "cd" * 32,
+                "artifact_ids": [],
+                "signature": "0x" + "00" * 65,
+            }],
             evidence_content=b"test",
             signer_address="0x" + "22" * 20
         )
@@ -495,12 +509,19 @@ class TestFailureHandling:
                 epoch=1,
                 agent_address="0x" + "22" * 20,
                 data_hash="0x" + "ab" * 32,
-                thread_root="0x" + "cd" * 32,
-                evidence_root="0x" + "ef" * 32,
+                dkg_evidence=[{
+                    "arweave_tx_id": "test-ev-1",
+                    "author": "0x" + "22" * 20,
+                    "timestamp": 1234567890,
+                    "parent_ids": [],
+                    "payload_hash": "0x" + "cd" * 32,
+                    "artifact_ids": [],
+                    "signature": "0x" + "00" * 65,
+                }],
                 evidence_content=b"test",
                 signer_address="0x" + "22" * 20
             )
-        
+
         # Verify error details preserved
         assert exc_info.value.workflow_id == "wf-fail"
         assert "already submitted" in str(exc_info.value)
@@ -523,12 +544,19 @@ class TestFailureHandling:
                 epoch=1,
                 agent_address="0x" + "22" * 20,
                 data_hash="0x" + "ab" * 32,
-                thread_root="0x" + "cd" * 32,
-                evidence_root="0x" + "ef" * 32,
+                dkg_evidence=[{
+                    "arweave_tx_id": "test-ev-1",
+                    "author": "0x" + "22" * 20,
+                    "timestamp": 1234567890,
+                    "parent_ids": [],
+                    "payload_hash": "0x" + "cd" * 32,
+                    "artifact_ids": [],
+                    "signature": "0x" + "00" * 65,
+                }],
                 evidence_content=b"test",
                 signer_address="0x" + "22" * 20
             )
-        
+
         assert exc_info.value.status_code == 400
         assert "not registered" in str(exc_info.value)
 
@@ -589,8 +617,15 @@ class TestObservability:
             epoch=1,
             agent_address="0x" + "22" * 20,
             data_hash="0x" + "ab" * 32,
-            thread_root="0x" + "cd" * 32,
-            evidence_root="0x" + "ef" * 32,
+            dkg_evidence=[{
+                "arweave_tx_id": "test-ev-1",
+                "author": "0x" + "22" * 20,
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x" + "cd" * 32,
+                "artifact_ids": [],
+                "signature": "0x" + "00" * 65,
+            }],
             evidence_content=b"test",
             signer_address="0x" + "22" * 20,
             on_progress=on_progress

@@ -2695,98 +2695,72 @@ class ChaosChainAgentSDK:
         studio_address: str,
         epoch: int,
         data_hash: bytes,
-        thread_root: bytes,
-        evidence_root: bytes,
+        dkg_evidence: List[Dict[str, Any]],
         evidence_content: bytes,
         wait_for_completion: bool = True,
         on_progress: Optional[callable] = None
     ):
         """
         Submit work via Gateway (RECOMMENDED for production).
-        
+
         This method uses the Gateway for workflow execution:
         - SDK only prepares inputs and polls for results
+        - Gateway handles DKG computation (thread_root, evidence_root)
         - Gateway handles evidence storage (Arweave)
         - Gateway handles transaction signing and submission
         - Gateway handles crash recovery and reconciliation
-        
+
         Args:
             studio_address: Address of the Studio proxy
             epoch: Epoch number
             data_hash: EIP-712 DataHash of the work (bytes32)
-            thread_root: VLC/Merkle root of XMTP thread (bytes32)
-            evidence_root: Merkle root of evidence (bytes32)
+            dkg_evidence: Array of DKG evidence packages (dicts with arweave_tx_id,
+                author, timestamp, parent_ids, payload_hash, artifact_ids, signature)
             evidence_content: Raw evidence bytes (uploaded to Arweave by Gateway)
             wait_for_completion: If True, block until workflow completes
             on_progress: Optional callback for progress updates
-            
+
         Returns:
             WorkflowStatus if wait_for_completion=True
             WorkflowStatus (CREATED state) if wait_for_completion=False
-            
+
         Raises:
             RuntimeError: If Gateway not configured
             GatewayError: If Gateway request fails
             WorkflowFailedError: If workflow fails
-            
-        Example:
-            ```python
-            sdk = ChaosChainAgentSDK(
-                agent_name="MyAgent",
-                agent_domain="myagent.example.com",
-                gateway_url="http://localhost:3000"
-            )
-            
-            result = sdk.submit_work_via_gateway(
-                studio_address="0x...",
-                epoch=1,
-                data_hash=data_hash,
-                thread_root=thread_root,
-                evidence_root=evidence_root,
-                evidence_content=evidence_bytes
-            )
-            print(f"Work submitted: {result.progress.onchain_tx_hash}")
-            ```
         """
         if not self._gateway_client:
             raise RuntimeError(
                 "Gateway not configured. Initialize SDK with gateway_url parameter. "
                 "Example: ChaosChainAgentSDK(..., gateway_url='http://localhost:3000')"
             )
-        
+
         from rich import print as rprint
-        
+
         # Prepare data - SDK does NOT execute, only prepares
         studio_address = self.chaos_agent.w3.to_checksum_address(studio_address)
         agent_address = self.wallet_address
         signer_address = self.wallet_address  # Signer must be registered in Gateway
-        
+
         # Convert bytes to hex strings
         data_hash_hex = data_hash.hex() if isinstance(data_hash, bytes) else data_hash
-        thread_root_hex = thread_root.hex() if isinstance(thread_root, bytes) else thread_root
-        evidence_root_hex = evidence_root.hex() if isinstance(evidence_root, bytes) else evidence_root
-        
+
         # Ensure hex prefix
         if not data_hash_hex.startswith('0x'):
             data_hash_hex = '0x' + data_hash_hex
-        if not thread_root_hex.startswith('0x'):
-            thread_root_hex = '0x' + thread_root_hex
-        if not evidence_root_hex.startswith('0x'):
-            evidence_root_hex = '0x' + evidence_root_hex
-        
+
         rprint(f"[cyan]→[/cyan] Submitting work via Gateway")
         rprint(f"[dim]   Studio: {studio_address}[/dim]")
         rprint(f"[dim]   Epoch: {epoch}[/dim]")
         rprint(f"[dim]   DataHash: {data_hash_hex}[/dim]")
-        
+
         if wait_for_completion:
             result = self._gateway_client.submit_work_and_wait(
                 studio_address=studio_address,
                 epoch=epoch,
                 agent_address=agent_address,
                 data_hash=data_hash_hex,
-                thread_root=thread_root_hex,
-                evidence_root=evidence_root_hex,
+                dkg_evidence=dkg_evidence,
                 evidence_content=evidence_content,
                 signer_address=signer_address,
                 on_progress=on_progress
@@ -2800,8 +2774,7 @@ class ChaosChainAgentSDK:
                 epoch=epoch,
                 agent_address=agent_address,
                 data_hash=data_hash_hex,
-                thread_root=thread_root_hex,
-                evidence_root=evidence_root_hex,
+                dkg_evidence=dkg_evidence,
                 evidence_content=evidence_content,
                 signer_address=signer_address
             )

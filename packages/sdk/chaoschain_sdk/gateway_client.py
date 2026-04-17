@@ -121,19 +121,26 @@ class GatewayClient:
     Usage:
         ```python
         client = GatewayClient("http://localhost:3000")
-        
+
         # Submit work via Gateway
         workflow = client.submit_work(
             studio_address="0x...",
             epoch=1,
             agent_address="0x...",
             data_hash="0x...",
-            thread_root="0x...",
-            evidence_root="0x...",
+            dkg_evidence=[{
+                "arweave_tx_id": "tx-1",
+                "author": "0x...",
+                "timestamp": 1234567890,
+                "parent_ids": [],
+                "payload_hash": "0x...",
+                "artifact_ids": [],
+                "signature": "0x..."
+            }],
             evidence_content=b"...",
             signer_address="0x..."
         )
-        
+
         # Poll for completion
         result = client.wait_for_completion(workflow.id)
         ```
@@ -267,29 +274,35 @@ class GatewayClient:
         epoch: int,
         agent_address: str,
         data_hash: str,
-        thread_root: str,
-        evidence_root: str,
+        dkg_evidence: List[Dict[str, Any]],
         evidence_content: bytes,
         signer_address: str
     ) -> WorkflowStatus:
         """
         Create a work submission workflow.
-        
+
         SDK prepares inputs; Gateway handles:
+        - DKG computation (thread_root, evidence_root)
         - Evidence upload to Arweave
         - Transaction submission
         - Confirmation waiting
-        
+
         Args:
             studio_address: Ethereum address of the studio
             epoch: Epoch number
             agent_address: Ethereum address of the submitting agent
             data_hash: Bytes32 hash of the work (as hex string)
-            thread_root: Bytes32 DKG thread root (as hex string)
-            evidence_root: Bytes32 evidence Merkle root (as hex string)
+            dkg_evidence: Array of DKG evidence packages. Each package must contain:
+                - arweave_tx_id (str): Evidence transaction ID
+                - author (str): Ethereum address of the author
+                - timestamp (int): Unix timestamp
+                - parent_ids (list[str]): IDs of parent evidence nodes
+                - payload_hash (str): Hash of the payload
+                - artifact_ids (list[str]): List of artifact identifiers
+                - signature (str): Hex-encoded signature
             evidence_content: Raw evidence bytes (will be base64 encoded)
             signer_address: Ethereum address of the signer (must be registered in Gateway)
-        
+
         Returns:
             WorkflowStatus with workflow ID for polling
         """
@@ -299,12 +312,11 @@ class GatewayClient:
             "epoch": epoch,
             "agent_address": agent_address,
             "data_hash": data_hash,
-            "thread_root": thread_root,
-            "evidence_root": evidence_root,
+            "dkg_evidence": dkg_evidence,
             "evidence_content": base64.b64encode(evidence_content).decode('utf-8'),
             "signer_address": signer_address
         }
-        
+
         result = self._request('POST', '/workflows/work-submission', json=payload)
         return self._parse_workflow_status(result)
     
@@ -517,20 +529,19 @@ class GatewayClient:
         epoch: int,
         agent_address: str,
         data_hash: str,
-        thread_root: str,
-        evidence_root: str,
+        dkg_evidence: List[Dict[str, Any]],
         evidence_content: bytes,
         signer_address: str,
         on_progress: Optional[callable] = None
     ) -> WorkflowStatus:
         """
         Submit work and wait for completion.
-        
+
         Convenience method that combines submit_work() and wait_for_completion().
-        
+
         Returns:
             Final workflow status (COMPLETED)
-        
+
         Raises:
             WorkflowFailedError: If workflow fails
             GatewayTimeoutError: If timeout exceeded
@@ -540,12 +551,11 @@ class GatewayClient:
             epoch=epoch,
             agent_address=agent_address,
             data_hash=data_hash,
-            thread_root=thread_root,
-            evidence_root=evidence_root,
+            dkg_evidence=dkg_evidence,
             evidence_content=evidence_content,
             signer_address=signer_address
         )
-        
+
         return self.wait_for_completion(workflow.id, on_progress=on_progress)
     
     def submit_score_and_wait(
