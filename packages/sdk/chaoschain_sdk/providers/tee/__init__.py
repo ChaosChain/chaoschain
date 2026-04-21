@@ -53,6 +53,7 @@ class TEEProvider(Protocol):
 
 __all__ = [
     'TEEProvider',
+    'get_phala_dstack_tee',
 ]
 
 # Phala dstack provider (lazy import - requires dstack-sdk)
